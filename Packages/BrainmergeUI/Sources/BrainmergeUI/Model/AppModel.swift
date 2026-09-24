@@ -77,6 +77,9 @@ public final class AppModel {
     /// Automatic rebuilds already reported (slug and Claude version): one sentence, not one every five minutes.
     private var reportedRebuildFailures: Set<String> = []
 
+    /// The live graph of the memory shown on the Memory screen; kept here so its layout survives switching screens.
+    public let memoryGraph = MemoryGraphModel()
+
     public let paths: Paths
     public let store: StateStore
     public let manager: IdentityManager

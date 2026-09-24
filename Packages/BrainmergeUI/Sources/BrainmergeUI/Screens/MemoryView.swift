@@ -6,6 +6,10 @@ public struct MemoryView: View {
     @Bindable var model: AppModel
     public init(model: AppModel) { self.model = model }
 
+    public enum Mode: String, CaseIterable, Identifiable { case graph = "Graph", timeline = "Timeline"; public var id: String { rawValue } }
+    /// BRAINMERGE_MEMORY=timeline opens on the timeline (screenshots); the graph otherwise.
+    @State private var mode: Mode = ProcessInfo.processInfo.environment["BRAINMERGE_MEMORY"] == "timeline" ? .timeline : .graph
+
     var installedApps: [NotesApp] { NotesApps.installed() }
     var target: NotesTarget { NotesApps.target(for: model.notesApp, installed: installedApps) }
     var brainLabel: String {
@@ -29,47 +33,62 @@ public struct MemoryView: View {
     static let rowInset: CGFloat = 14 + 30 + 14
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ScreenHeader("Memory", subtitle: subtitle) {
-                    HStack(spacing: 10) {
-                        if model.brains.count > 1 {
-                            Picker("Memory", selection: Binding(get: { model.selectedBrainID ?? model.brains.first?.id ?? "" }, set: { model.selectBrain($0) })) {
-                                ForEach(model.brains) { folder in Text(folder.name).tag(folder.id) }
-                            }
-                            .labelsHidden().pickerStyle(.menu).fixedSize()
+        VStack(alignment: .leading, spacing: 16) {
+            ScreenHeader("Memory", subtitle: subtitle) {
+                HStack(spacing: 10) {
+                    if model.brains.count > 1 {
+                        Picker("Memory", selection: Binding(get: { model.selectedBrainID ?? model.brains.first?.id ?? "" }, set: { model.selectBrain($0) })) {
+                            ForEach(model.brains) { folder in Text(folder.name).tag(folder.id) }
                         }
-                        Button(target.label) { open(with: target) }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
-                        openWithMenu
+                        .labelsHidden().pickerStyle(.menu).fixedSize()
                     }
+                    Button(target.label) { open(with: target) }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                    openWithMenu
                 }
-                chips
-                GlassCard {
-                    VStack(alignment: .leading, spacing: 0) {
-                        if model.memoryEvents.isEmpty {
-                            Text("Nothing remembered yet. Open an account and work on a project: what it learns shows up here.")
-                                .foregroundStyle(Theme.Colors.textMuted).padding(22)
-                        }
-                        ForEach(Array(model.memoryEvents.enumerated()), id: \.element.id) { index, event in
-                            row(event)
-                            if index < model.memoryEvents.count - 1 { Divider().overlay(Theme.Colors.surfaceLine).padding(.leading, Self.rowInset) }
-                        }
+            }
+            HStack(spacing: 12) {
+                Picker("View", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
+                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                // The graph carries its own legend; the timeline keeps the counts of saves.
+                if mode == .timeline { chips }
+            }
+            switch mode {
+            case .graph:
+                MemoryGraphView(graph: model.memoryGraph, app: model)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .timeline:
+                ScrollView { timeline.padding(.bottom, 8) }
+            }
+        }
+        .padding(Theme.Layout.padding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { model.refreshMemory() }
+    }
+
+    var timeline: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            GlassCard {
+                VStack(alignment: .leading, spacing: 0) {
+                    if model.memoryEvents.isEmpty {
+                        Text("Nothing remembered yet. Open an account and work on a project: what it learns shows up here.")
+                            .foregroundStyle(Theme.Colors.textMuted).padding(22)
                     }
-                }
-                .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
-                if installedApps.isEmpty, target == .folder {
-                    HStack(spacing: 8) {
-                        Text("These are plain Markdown files: any notes app that reads files can show them.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
-                        ForEach(NotesApps.suggestions) { app in
-                            Button("Get \(app.name)") { NSWorkspace.shared.open(app.website) }.buttonStyle(.plain).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.accent)
-                        }
+                    ForEach(Array(model.memoryEvents.enumerated()), id: \.element.id) { index, event in
+                        row(event)
+                        if index < model.memoryEvents.count - 1 { Divider().overlay(Theme.Colors.surfaceLine).padding(.leading, Self.rowInset) }
                     }
                 }
             }
-            .padding(Theme.Layout.padding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+            if installedApps.isEmpty, target == .folder {
+                HStack(spacing: 8) {
+                    Text("These are plain Markdown files: any notes app that reads files can show them.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                    ForEach(NotesApps.suggestions) { app in
+                        Button("Get \(app.name)") { NSWorkspace.shared.open(app.website) }.buttonStyle(.plain).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.accent)
+                    }
+                }
+            }
         }
-        .onAppear { model.refreshMemory() }
     }
 
     /// The other ways to open the folder: Finder, the other notes apps found, any app.

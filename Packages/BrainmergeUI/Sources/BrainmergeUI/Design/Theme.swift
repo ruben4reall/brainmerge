@@ -30,6 +30,9 @@ public enum Theme {
         public static let field = Color.white.opacity(0.07)
         public static let selection = accent.opacity(0.18)
         public static let accentSoft = accent.opacity(0.35)
+        /// The threads of the memory graph, at rest and lit by a hovered or selected note.
+        public static let graphLink = Color(hex: "#F4EFE6").opacity(0.13)
+        public static let graphLinkLit = Color(hex: "#F4EFE6").opacity(0.55)
 
         // States: open, saved.
         public static let sage = Color(hex: "#8FC7A6")

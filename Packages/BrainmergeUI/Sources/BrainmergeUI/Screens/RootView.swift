@@ -39,6 +39,7 @@ public struct RootView: View {
         }
         .frame(minWidth: 960, minHeight: 640)
         .font(Theme.Fonts.body)
+        .tint(Theme.Colors.accent)
         .preferredColorScheme(.dark)
         .task { model.offerMoveIfNeeded(); if !model.needsOnboarding { model.startWatching() } }
         // Back in front: Claude may have updated itself in the meantime.

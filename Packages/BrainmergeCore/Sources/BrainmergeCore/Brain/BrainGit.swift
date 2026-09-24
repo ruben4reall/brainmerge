@@ -51,6 +51,15 @@ public struct BrainGit: Sendable {
         }
     }
 
+    /// Who last saved each file, from the most recent commits: path to author name, email and date.
+    public func lastAuthors(limit: Int = 2000) throws -> [String: (name: String, email: String, date: Date)] {
+        var authors: [String: (name: String, email: String, date: Date)] = [:]
+        for entry in try log(limit: limit) {
+            for file in entry.files where authors[file] == nil { authors[file] = (entry.authorName, entry.authorEmail, entry.date) }
+        }
+        return authors
+    }
+
     /// Exclusive lock on `.brainmerge/lock`: two hooks never commit at the same time.
     public func withLock<T>(timeout: TimeInterval, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: brain.metaDir, withIntermediateDirectories: true)
