@@ -9,8 +9,7 @@
 - [ ] Réglages GitHub à faire par Ruben : protéger main (fusion par PR, CI verte), téléverser l'aperçu social (docs/brand/banner-1280x640.png), description et sujets du dépôt, activer « Report a vulnerability »
 - [ ] Codex et autres assistants (CODEX_HOME, AGENTS.md, notify) derrière une abstraction « provider » ; sessions Terminal dans la RAM par compte
 - [ ] Calibrer la détection de connexion sur une vraie connexion (un compte de test au clavier)
-- [ ] Attendre le verdict de la première notarisation (soumission ba80b09e), puis publier la 0.4.0 signée et notarisée avec `~/brainmerge-private/release-signed.sh` et retirer le « clic droit puis Ouvrir » du README et du site
-- [ ] Site vitrine : finir, relire, déployer sur Vercel (scope perso, brainmerge.vercel.app), l'ajouter à ruben-analytics, lier la page d'accueil du dépôt
+- [ ] Notarisation : quand Apple accepte la soumission 00621551 (DMG 0.4.0), agrafer `dist/Brainmerge-0.4.0.dmg` et `dist/Brainmerge.dmg` (`xcrun stapler staple`), les remplacer dans la release v0.4.0 (`gh release upload --clobber`), puis retirer « Open Anyway » de la note d'installation du site (`<!-- install-note -->`), du README et des notes de release
 - [ ] Envoyer à Anthropic la demande d'autorisation pour la mascotte (lettre dans ~/brainmerge-private/docs/anthropic-brand-request.md) avant la sortie publique ; si refus, remplacer la créature (un seul fichier)
 - [ ] Trouver un nom à la créature avec Ruben
 - [ ] v0.1 « Ton montage, automatisé » : identités, cerveau local, attribution, doctor, interface, tests, build signée et notarisée
@@ -19,6 +18,8 @@
 - [ ] Windows en natif, après la v1
 
 ## Fait
+
+- [x] 2026-09-25 : v0.4.0 publiée (signée Developer ID, soumise à la notarisation), installée dans /Applications, doctor vert ; site vitrine en ligne sur https://brainmerge.vercel.app (Vercel perso, mesure d'audience, page d'accueil du dépôt)
 
 - [x] 2026-09-24 : signature Developer ID via le compte Xcode de Ruben (export developer-id avec signature cloud), release.sh qui signe, notarise, agrafe et produit dist/Brainmerge.dmg
 - [x] 2026-09-24 : écran Mémoire en graphe vivant façon Obsidian (bulles par compte, liens, projets, pulsations, survol, clic, double-clic, frise en second onglet), branche memory-graph
