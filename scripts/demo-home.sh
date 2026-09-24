@@ -53,8 +53,9 @@ printf '{"projects":{"%s/website":{},"%s/mobile-app":{}}}\n' "$H" "$H" > "$H/.cl
 "$CLI" brain add --name Work > /dev/null
 "$CLI" identity edit work --brain work > /dev/null
 # The Client account has its own icon in the Dock (a tinted copy), built for an older Claude: the app offers to update it.
+# BRAINMERGE_DEMO_UPDATE=0 leaves it current (no update banner), for a clean Accounts screen.
 "$CLI" identity edit client --icon distinct > /dev/null
-python3 - "$H/Library/Application Support/Brainmerge/state.json" <<'PY3'
+[ "${BRAINMERGE_DEMO_UPDATE:-1}" = "0" ] || python3 - "$H/Library/Application Support/Brainmerge/state.json" <<'PY3'
 import json, sys
 path = sys.argv[1]; state = json.load(open(path))
 for identity in state["identities"]:

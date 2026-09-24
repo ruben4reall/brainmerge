@@ -1,10 +1,10 @@
 #!/bin/bash
 # scripts/readme-captures.sh: the README's screenshots, on a demo home with generic accounts, with an active window.
 # Each capture waits until the Mac is idle (see capture.sh --active): run it when you are away from the keyboard.
-set -e
+set -eo pipefail
 cd "$(dirname "$0")/.."
 EXPORTS=$(scripts/demo-home.sh 2>/dev/null | tail -n1)
-eval "$EXPORTS"
+case "$EXPORTS" in export\ BRAINMERGE_HOME=*) eval "$EXPORTS" ;; *) echo "the demo home could not be prepared" >&2; exit 1 ;; esac
 export BRAINMERGE_MEMORY_PRESSURE=normal
 cleanup() { scripts/demo-home.sh clean "$BRAINMERGE_HOME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT

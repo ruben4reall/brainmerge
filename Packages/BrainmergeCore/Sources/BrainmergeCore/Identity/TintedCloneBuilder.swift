@@ -17,7 +17,10 @@ public struct TintedCloneBuilder: Sendable {
     public func build(for identity: Identity, claude: ClaudeApp, icon: URL, register: Bool = true) throws -> URL {
         let fm = FileManager.default
         // A signed Claude whose signature no longer matches its files is never copied: it is not Claude any more.
-        if try shell.run("/usr/bin/codesign", ["-d", claude.url.path]).status == 0,
+        // "Signed" means the bundle itself carries a signature that seals its resources; an executable signed only
+        // by the linker, inside an unsigned bundle, is not a broken signature.
+        let description = try shell.run("/usr/bin/codesign", ["-dv", claude.url.path])
+        if description.status == 0, description.stderr.contains("Sealed Resources version="), !description.stderr.contains("linker-signed"),
            try shell.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", claude.url.path]).status != 0 {
             throw BrainmergeError.claudeAppTampered(claude.url.path)
         }
