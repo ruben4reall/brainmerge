@@ -59,18 +59,20 @@ public final class IdentityManager: @unchecked Sendable {
     public func add(_ request: AddRequest) throws -> Identity {
         var state = try store.load()
         _ = try configuredBrain(state)
-        try ensureNameAvailable(request.name, excluding: nil, in: state)
+        let name = NameRules.clean(request.name)
+        guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
+        try ensureNameAvailable(name, excluding: nil, in: state)
         if let id = request.brain, state.brain(id: id) == nil { throw BrainmergeError.brainUnknown(id) }
         let claude = try ClaudeApp.detect(at: claudeAppURL)
-        var identity = Identity(slug: IdentitySlug.make(from: request.name, taken: state.takenSlugs),
-                                name: request.name, tint: request.tint, logoPath: request.logo?.path, note: request.note,
+        var identity = Identity(slug: IdentitySlug.make(from: name, taken: state.takenSlugs),
+                                name: name, tint: request.tint, logoPath: request.logo?.path, note: request.note.map(NameRules.clean),
                                 surfaces: request.surfaces, iconMode: request.iconMode,
                                 sharedHistory: request.sharedHistory,
                                 cliProfilePath: request.adoptCLIProfile?.path,
                                 desktopDataPath: request.adoptDesktopData?.path,
                                 brain: request.brain)
         if request.ownBrain {
-            identity.brain = try addBrain(name: request.name, path: nil, language: state.brainLanguage, in: &state).id
+            identity.brain = try addBrain(name: name, path: nil, language: state.brainLanguage, in: &state).id
         }
 
         // The CLI profile also serves the Desktop app's Code tab: it always exists.
@@ -96,7 +98,11 @@ public final class IdentityManager: @unchecked Sendable {
     public func update(slug: String, name: String?, tint: Tint?, logo: URL?, note: String? = nil, iconMode: IconMode? = nil, clearLogo: Bool = false) throws -> Identity {
         var state = try store.load()
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
-        if let name { try ensureNameAvailable(name, excluding: slug, in: state) }
+        let name = name.map(NameRules.clean)
+        if let name {
+            guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
+            try ensureNameAvailable(name, excluding: slug, in: state)
+        }
         try ensureStopped(identity)
         let fm = FileManager.default
         let oldName = identity.bundleDisplayName
@@ -104,7 +110,7 @@ public final class IdentityManager: @unchecked Sendable {
         if let tint { identity.tint = tint }
         if let logo { identity.logoPath = logo.path }
         if clearLogo { identity.logoPath = nil }
-        if let note { identity.note = note }
+        if let note { identity.note = NameRules.clean(note) }
         if let iconMode { identity.iconMode = iconMode }
         try attachBrain(to: identity, state: state)
         if identity.surfaces.desktop, !identity.isPrimary {
@@ -190,7 +196,7 @@ public final class IdentityManager: @unchecked Sendable {
     }
 
     func addBrain(name: String, path: URL?, language: BrainLanguage, in state: inout AppState) throws -> MemoryFolder {
-        let clean = name.trimmingCharacters(in: .whitespaces)
+        let clean = NameRules.clean(name)
         if clean.isEmpty { throw BrainmergeError.brainNameEmpty }
         if let taken = state.brains.first(where: { $0.name.caseInsensitiveCompare(clean) == .orderedSame }) {
             throw BrainmergeError.brainNameTaken(taken.name)
@@ -218,7 +224,7 @@ public final class IdentityManager: @unchecked Sendable {
     public func renameBrain(id: String, name: String) throws {
         var state = try store.load()
         guard let index = state.brains.firstIndex(where: { $0.id == id }) else { throw BrainmergeError.brainUnknown(id) }
-        let clean = name.trimmingCharacters(in: .whitespaces)
+        let clean = NameRules.clean(name)
         if clean.isEmpty { throw BrainmergeError.brainNameEmpty }
         if let taken = state.brains.first(where: { $0.id != id && $0.name.caseInsensitiveCompare(clean) == .orderedSame }) {
             throw BrainmergeError.brainNameTaken(taken.name)

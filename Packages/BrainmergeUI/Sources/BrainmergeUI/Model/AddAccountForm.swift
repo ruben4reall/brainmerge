@@ -16,7 +16,7 @@ public struct AddAccountForm: Equatable, Sendable {
     public var adoptDesktop: URL? = nil
     public init() {}
 
-    var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var trimmedName: String { NameRules.clean(name) }
 
     public func validate(existing: [Identity]) -> String? {
         if trimmedName.isEmpty { return "Give this account a name." }

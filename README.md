@@ -23,6 +23,10 @@ Brainmerge is a native macOS app that turns each of your Claude accounts into a 
 
 ![Your accounts, side by side](docs/design/captures/03-comptes.png)
 
+## Safe for your accounts, by design
+
+Brainmerge is built so that there is nothing in it Anthropic's terms could object to. It only starts the official Claude app and the official Claude Code, each account logs in by itself, and it never reads, stores or sends a login, a token or a cookie. It has no account switching, no rotation, no pooled usage, and it makes no network call at all. Those are not just words: tests scan the source tree at every run to keep them true, and `SECURITY.md` lists exactly what the app touches on your Mac. One account is one person; Brainmerge keeps several of yours tidy, nothing more.
+
 ## What you get
 
 - **One app per account.** A personal account and a business one, a client's, a team's: up to fifty. Each has a name, a color or a photo, a note, and an app of its own in `~/Applications/Brainmerge` that you can drag to the Dock. Open, quit, edit, remove, from buttons.

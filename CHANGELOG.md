@@ -10,6 +10,7 @@
 - Remove Brainmerge from Settings or with `brainmerge uninstall`: hooks, blocks, account apps, command line link and settings go; each project keeps a copy of its notes; memories, Claude data and logins stay.
 - Design finishing pass: one header component, AA contrasts, a left-aligned add sheet with Return and Escape, usage figures that fit at the minimum window size, a reading width for long screens, tokens for fields and selection, aligned notes app tiles, pinned progress dots.
 - The README and the welcome step say what the app is for; the "All set" step gives three tips to go further.
+- Security: guard tests that keep the source tree free of networking, shells and credential reads; names kept to one clean line everywhere they end up; a launcher that only ever starts Claude; a tinted copy refused when Claude's signature is broken; Dependabot and read-only CI permissions; a SECURITY.md that says what the app touches and what it never does.
 
 ## 0.2.0
 

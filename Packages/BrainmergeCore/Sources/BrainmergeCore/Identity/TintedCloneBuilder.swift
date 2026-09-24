@@ -16,6 +16,11 @@ public struct TintedCloneBuilder: Sendable {
     @discardableResult
     public func build(for identity: Identity, claude: ClaudeApp, icon: URL, register: Bool = true) throws -> URL {
         let fm = FileManager.default
+        // A signed Claude whose signature no longer matches its files is never copied: it is not Claude any more.
+        if try shell.run("/usr/bin/codesign", ["-d", claude.url.path]).status == 0,
+           try shell.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", claude.url.path]).status != 0 {
+            throw BrainmergeError.claudeAppTampered(claude.url.path)
+        }
         let app = paths.tintedClone(name: identity.bundleDisplayName)
         try fm.createDirectory(at: paths.launchersDir, withIntermediateDirectories: true)
         if fm.fileExists(atPath: app.path) { try fm.removeItem(at: app) }

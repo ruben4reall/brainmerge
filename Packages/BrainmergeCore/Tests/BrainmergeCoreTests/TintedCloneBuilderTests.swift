@@ -43,4 +43,19 @@ import BrainmergeTestSupport
         _ = try builder.build(for: identity, claude: claude, icon: icon, register: false)
         #expect(try FileManager.default.contentsOfDirectory(atPath: home.paths.launchersDir.path) == ["Client (Claude).app"])
     }
+
+    @Test func aClaudeWithABrokenSignatureIsNeverCopied() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        // Signed, then tampered with: the signature no longer matches the binary.
+        try Shell().check("/usr/bin/codesign", ["--force", "--sign", "-", claude.url.path])
+        let handle = try FileHandle(forWritingTo: claude.executable)
+        try handle.seekToEnd(); handle.write(Data("\n# tampered\n".utf8)); try handle.close()
+        let builder = TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher)
+        let icon = try FakeIcon.orangePNG(in: home.url)
+        #expect(throws: BrainmergeError.claudeAppTampered(claude.url.path)) {
+            try builder.build(for: Identity(slug: "client", name: "Client"), claude: claude, icon: icon, register: false)
+        }
+        #expect(!FileManager.default.fileExists(atPath: home.paths.tintedClone(name: "Client").path))
+    }
 }

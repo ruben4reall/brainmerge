@@ -18,6 +18,15 @@ guard let data = try? Data(contentsOf: configURL),
     exit(2)
 }
 
+// This launcher starts Claude and nothing else: the executable must be a Claude binary inside an app bundle,
+// and the folders must be absolute. A rewritten config cannot turn it into a launcher for another program.
+let claudeBinary = config.claudeExecutable.hasSuffix("/Contents/MacOS/Claude") || config.claudeExecutable.hasSuffix("/Contents/MacOS/Claude-bin")
+guard config.claudeExecutable.hasPrefix("/"), claudeBinary, config.configDir.hasPrefix("/"), config.dataDir.hasPrefix("/"),
+      !config.configDir.contains("/../"), !config.dataDir.contains("/../"), !config.claudeExecutable.contains("/../") else {
+    FileHandle.standardError.write(Data("brainmerge launcher: this launcher only starts Claude; refusing \(config.claudeExecutable) with \(config.configDir) and \(config.dataDir)\n".utf8))
+    exit(3)
+}
+
 setenv("CLAUDE_CONFIG_DIR", config.configDir, 1)
 let arguments = [config.claudeExecutable, "--user-data-dir=\(config.dataDir)"] + CommandLine.arguments.dropFirst()
 let cArguments: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]

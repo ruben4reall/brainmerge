@@ -645,6 +645,10 @@ public final class AppModel {
             return UserMessage(title: "That memory is gone", detail: "It is no longer in the list. Pick another one.")
         case .brainNameTaken(let name):
             return UserMessage(title: "Name already used", detail: "There is already a memory called \(name). Pick another name.")
+        case .nameInvalid:
+            return UserMessage(title: "Give it a name", detail: "One line, up to \(NameRules.maxLength) characters.")
+        case .claudeAppTampered:
+            return UserMessage(title: "Claude's signature is broken", detail: "The Claude app on this Mac does not match its own signature, so Brainmerge will not copy it. Reinstall Claude from claude.ai/download, then try again.", action: .getClaude, actionLabel: "Get Claude")
         default:
             return UserMessage(title: "Something went wrong", detail: "\(e.description)")
         }

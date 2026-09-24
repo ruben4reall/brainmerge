@@ -21,8 +21,8 @@ public struct AccountEdit: Equatable, Sendable {
         self.memory = memory
     }
 
-    var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var trimmedNote: String { note.trimmingCharacters(in: .whitespaces) }
+    var trimmedName: String { NameRules.clean(name) }
+    var trimmedNote: String { NameRules.clean(note) }
 
     /// A name is required and must not clash with another account's.
     public func validate(existing: [Identity]) -> String? {

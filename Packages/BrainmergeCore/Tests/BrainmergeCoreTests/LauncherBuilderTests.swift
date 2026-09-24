@@ -54,4 +54,24 @@ import BrainmergeTestSupport
         #expect(try JSONDecoder().decode(LauncherConfig.self, from: data).claudeExecutable == claude2.executable.path)
         #expect(try FileManager.default.contentsOfDirectory(atPath: home.paths.launchersDir.path) == ["Client.app"])
     }
+
+    @Test func launcherRefusesToStartAnythingButClaude() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        let identity = Identity(slug: "client", name: "Client")
+        let app = try LauncherBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .build(for: identity, claude: claude, icon: nil, register: false)
+        // Someone rewrites the launcher's config to point at another program: the launcher says no.
+        let config = LauncherConfig(configDir: home.paths.cliProfile(slug: "client", isPrimary: false).path,
+                                    dataDir: home.paths.desktopData(slug: "client", isPrimary: false).path,
+                                    claudeExecutable: "/bin/echo")
+        try JSONEncoder().encode(config).write(to: app.appending(path: "Contents/Resources/brainmerge.json"), options: .atomic)
+        let result = try Shell().run(app.appending(path: "Contents/MacOS/launcher").path, [])
+        #expect(result.status == 3)
+        #expect(result.stderr.contains("only starts Claude"))
+        // Relative folders are refused as well.
+        let relative = LauncherConfig(configDir: "../elsewhere", dataDir: config.dataDir, claudeExecutable: claude.executable.path)
+        try JSONEncoder().encode(relative).write(to: app.appending(path: "Contents/Resources/brainmerge.json"), options: .atomic)
+        #expect(try Shell().run(app.appending(path: "Contents/MacOS/launcher").path, []).status == 3)
+    }
 }

@@ -89,10 +89,10 @@ func drawBanner(_ r: NSRect, creatureSize: CGFloat, title: CGFloat, tagline: CGF
     let x = r.width * 0.42
     let titleFont = serif(title)
     text("Brainmerge", font: titleFont, color: cream, at: NSPoint(x: x, y: r.midY + r.height * 0.02))
-    text("Every Claude account you own,", font: NSFont.systemFont(ofSize: tagline), color: cream.withAlphaComponent(0.72), at: NSPoint(x: x + 4, y: r.midY - tagline * 1.5))
-    text("one shared brain.", font: NSFont.systemFont(ofSize: tagline), color: cream.withAlphaComponent(0.72), at: NSPoint(x: x + 4, y: r.midY - tagline * 2.8))
+    text("Every Claude account you own, side by side,", font: NSFont.systemFont(ofSize: tagline), color: cream.withAlphaComponent(0.72), at: NSPoint(x: x + 4, y: r.midY - tagline * 1.5))
+    text("one memory, or one each.", font: NSFont.systemFont(ofSize: tagline), color: cream.withAlphaComponent(0.72), at: NSPoint(x: x + 4, y: r.midY - tagline * 2.8))
     let small = NSFont.systemFont(ofSize: tagline * 0.55)
-    let note = "Free and open source · macOS · Works with Claude. Not made by Anthropic."
+    let note = "Official Claude app, your own logins, no tokens touched, no account switching · Free and open source · Not made by Anthropic."
     text(note, font: small, color: cream.withAlphaComponent(0.4), at: NSPoint(x: r.width - textWidth(note, font: small) - r.height * 0.06, y: r.height * 0.06))
 }
 try save(bitmap(1280, 640) { r in drawBanner(r, creatureSize: 300, title: 92, tagline: 30) }, "docs/brand/banner-1280x640.png")
