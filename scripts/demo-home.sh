@@ -49,6 +49,11 @@ printf '{"projects":{"%s/website":{},"%s/mobile-app":{}}}\n' "$H" "$H" > "$H/.cl
 "$CLI" identity add --name Studio --tint pink --note "Design studio" --shared-history > /dev/null
 "$CLI" identity add --name Client --tint purple --note "Client work" > /dev/null
 "$CLI" identity add --name Work --tint blue --note "Day job" > /dev/null
+# Personal and Studio have logged in: Claude's storage files exist in their data folders (empty placeholders;
+# Brainmerge only looks at the names). Work and Client have not logged in yet.
+for data in "$H/Library/Application Support/Claude" "$H/Library/Application Support/Claude-studio"; do
+  mkdir -p "$data/IndexedDB/https_claude.ai_0.indexeddb.leveldb" && touch "$data/Cookies"
+done
 # A second memory, for the Work account only: what it learns stays apart from the shared one.
 "$CLI" brain add --name Work > /dev/null
 "$CLI" identity edit work --brain work > /dev/null
@@ -73,6 +78,49 @@ printf '# Feedback\n\nAlways run the suite before a commit.\n' > "$BRAIN/memory/
 "$CLI" sync --identity personal > /dev/null
 printf '\nLaunch offer extended to November.\n' >> "$BRAIN/memory/website/decision_pricing.md"
 "$CLI" sync --identity studio > /dev/null
+# A richer memory for the graph: notes linked to each other across projects, saved by different accounts.
+notes() {   # notes GROUP: writes one account's notes, so each save carries its own author
+python3 - "$BRAIN" "$H/Brain-work" "$1" <<'PYNOTES'
+import os, sys
+brain, work, group = sys.argv[1], sys.argv[2], sys.argv[3]
+def note(root, path, text):
+    full = os.path.join(root, path); os.makedirs(os.path.dirname(full), exist_ok=True)
+    open(full, "w").write(text)
+groups = {
+  "studio": {
+    "memory/website/MEMORY.md": "- [Pricing](decision_pricing.md)\n- [Brand voice](feedback_voice.md)\n- [Launch plan](project_launch_plan.md)\n- [Hosting](reference_hosting.md)\n",
+    "memory/website/feedback_voice.md": "Short sentences, no jargon. Same voice as [[design-system/tokens|the design tokens]] describe.\n",
+    "memory/website/project_launch_plan.md": "Launch on the 14th. Depends on [[decision_pricing]] and [[checkout_flow]].\n",
+    "memory/website/reference_hosting.md": "Static site, deploys on push. See [[deploy_checklist]].\n",
+    "memory/design-system/MEMORY.md": "- [Tokens](tokens.md)\n- [Type scale](type_scale.md)\n- [Icons](icons.md)\n",
+    "memory/design-system/tokens.md": "One accent color. Spacing on a 4 pt grid. Used by [[website/MEMORY]] and [[mobile-app/MEMORY]].\n",
+    "memory/design-system/type_scale.md": "Five sizes. Titles in the serif. See [[tokens]].\n",
+    "memory/design-system/icons.md": "Line icons, 1.5 pt stroke. Match [[type_scale]].\n",
+  },
+  "personal": {
+    "memory/mobile-app/checkout_flow.md": "Three steps, Apple Pay first. Prices from [[decision_pricing]].\n",
+    "memory/mobile-app/project_offline.md": "Cache the last sync; conflicts resolved per field. Related: [[checkout_flow]].\n",
+    "memory/mobile-app/reference_api.md": "REST, versioned. Errors as sentences. See [[project_offline]].\n",
+    "memory/mobile-app/deploy_checklist.md": "Bump the build, run [[feedback_tests]], then upload.\n",
+    "memory/mobile-app/MEMORY.md": "- [Tests](feedback_tests.md)\n- [Checkout](checkout_flow.md)\n- [Offline](project_offline.md)\n- [API](reference_api.md)\n- [Deploy](deploy_checklist.md)\n",
+  },
+  "client": {
+    "memory/client-site/MEMORY.md": "- [Brief](project_brief.md)\n- [Feedback](feedback_client.md)\n- [Timeline](project_timeline.md)\n",
+    "memory/client-site/project_brief.md": "Portfolio site, four pages. Reuse [[design-system/tokens|our tokens]].\n",
+    "memory/client-site/feedback_client.md": "Prefers fewer words and bigger images. See [[project_brief]].\n",
+    "memory/client-site/project_timeline.md": "Review on Friday, launch the week after. Depends on [[feedback_client]].\n",
+  },
+}
+if group == "work":
+    note(work, "memory/intranet/MEMORY.md", "- [Access](reference_access.md)\n- [Release](project_release.md)\n")
+    note(work, "memory/intranet/reference_access.md", "Single sign-on only. See [[project_release]].\n")
+    note(work, "memory/intranet/project_release.md", "Monthly, on the first Tuesday.\n")
+else:
+    for path, text in groups[group].items(): note(brain, path, text)
+PYNOTES
+"$CLI" sync --identity "$1" > /dev/null
+}
+for group in studio personal client work; do notes "$group"; done
 # Demo transcripts (usage): a few assistant messages per day over two weeks, two projects, two models.
 python3 - "$H" <<'PY2'
 import json, os, sys, datetime, random

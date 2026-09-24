@@ -8,9 +8,14 @@ import CoreGraphics
 let argument = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Brainmerge"
 let pid = Int32(argument)
 let list = CGWindowListCopyWindowInfo([.optionAll, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+func size(_ window: [String: Any]) -> (Double, Double) {
+    let bounds = window[kCGWindowBounds as String] as? [String: Double] ?? [:]
+    return (bounds["Width"] ?? 0, bounds["Height"] ?? 0)
+}
+// A real window: layer 0 and taller than a menu bar strip. The largest by area wins.
 let windows = list.filter { window in
-    guard ((window[kCGWindowLayer as String] as? Int) ?? 0) == 0 else { return false }
+    guard ((window[kCGWindowLayer as String] as? Int) ?? 0) == 0, size(window).1 > 200 else { return false }
     if let pid { return (window[kCGWindowOwnerPID as String] as? Int32) == pid }
     return (window[kCGWindowOwnerName as String] as? String) == argument
-}.sorted { (($0[kCGWindowBounds as String] as? [String: Double])?["Width"] ?? 0) > (($1[kCGWindowBounds as String] as? [String: Double])?["Width"] ?? 0) }
+}.sorted { size($0).0 * size($0).1 > size($1).0 * size($1).1 }
 if let id = windows.first?[kCGWindowNumber as String] as? Int { print(id) } else { exit(1) }

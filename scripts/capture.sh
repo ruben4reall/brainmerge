@@ -18,7 +18,7 @@ APP=".build/xcode/Build/Products/Debug/Brainmerge.app"
 EXE="$APP/Contents/MacOS/Brainmerge"
 mkdir -p docs/design/captures
 PID=""
-launch() { "$EXE" > /dev/null 2>&1 & PID=$!; }
+launch() { BRAINMERGE_CAPTURE=1 "$EXE" > /dev/null 2>&1 & PID=$!; }
 # The demo's own process when we launched it, the app by name otherwise (--attach).
 window_id() { swift scripts/window-id.swift "${PID:-Brainmerge}" 2>/dev/null; }
 # System Events addresses the process by its PID when we have one: never another copy of Brainmerge that is open.
@@ -47,7 +47,7 @@ fi
 # Size and position without activation (System Events does not need to be in front for this).
 osascript -e "tell application \"System Events\" to tell ($(process_ref)) to set position of window 1 to {80, 80}" \
          -e "tell application \"System Events\" to tell ($(process_ref)) to set size of window 1 to {1080, 700}" > /dev/null 2>&1 || true
-sleep 1
+sleep "${CAPTURE_DELAY:-1}"   # longer for screens that animate in (the memory graph)
 ID=$(window_id)
 PREVIOUS=""
 if [ -n "$ACTIVE" ]; then
