@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brainmerge: every Claude account, side by side</title>
+  <meta name="description" content="A free, open-source Mac app. Each of your Claude accounts opens in its own window of the official Claude app, with one memory of your projects, or one each, and a live graph of what each account remembers.">
+  <link rel="canonical" href="https://brainmerge.vercel.app/">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#1A1918">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Brainmerge">
+  <meta property="og:url" content="https://brainmerge.vercel.app/">
+  <meta property="og:title" content="Brainmerge: every Claude account, side by side">
+  <meta property="og:description" content="A free, open-source Mac app. Each of your Claude accounts in its own window, with one memory of your projects, or one each.">
+  <meta property="og:image" content="https://brainmerge.vercel.app/assets/og.jpg">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="The Brainmerge creature, a small purple pixel figure, and the words: every Claude account, side by side.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Brainmerge: every Claude account, side by side">
+  <meta name="twitter:description" content="A free, open-source Mac app. Each of your Claude accounts in its own window, with one memory of your projects, or one each.">
+  <meta name="twitter:image" content="https://brainmerge.vercel.app/assets/og.jpg">
+  <link rel="icon" type="image/png" href="assets/favicon-32.png">
+  <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="nav">
+    <nav class="nav-inner" aria-label="Brainmerge">
+      <a class="nav-brand" href="#top">
+        <img src="assets/icon-512.webp" alt="" width="28" height="28">
+        <span>Brainmerge</span>
+      </a>
+      <ul class="nav-links">
+        <li><a href="#accounts">Accounts</a></li>
+        <li><a href="#memory">Memory</a></li>
+        <li><a href="#usage">Usage</a></li>
+        <li><a href="#safety">Safety</a></li>
+      </ul>
+      <a class="nav-gh" href="https://github.com/ruben4reall/brainmerge">GitHub</a>
+      <a class="nav-cta" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg">Download</a>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <!-- Hero -->
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="wrap hero-copy">
+        <img class="hero-icon" src="assets/icon-512.webp" width="512" height="512" alt="The Brainmerge app icon: a small purple pixel creature on a dark rounded square.">
+        <p class="hero-name">Brainmerge</p>
+        <h1 id="hero-title">Every Claude account,<br class="br-wide"> side by&nbsp;side.</h1>
+        <p class="hero-sub">A free Mac app that opens each of your Claude accounts in its own window of the official Claude app, and gives them one memory of your projects, or one&nbsp;each.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg">Download for Mac</a>
+          <a class="btn btn-ghost" href="https://github.com/ruben4reall/brainmerge">View on GitHub</a>
+        </div>
+        <p class="fine hero-fine"><span class="nw">Version 0.4.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span> <span aria-hidden="true">·</span> <span class="nw">Free and open source</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Works with Claude.</span> <span class="nw">Not made by Anthropic.</span></p>
+      </div>
+      <figure class="hero-shot">
+        <!-- Phones get readable crops of each screen. The device-width test keeps desktop windows on the full screenshots, even when narrowed. -->
+        <picture>
+          <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/accounts-phone-1x.webp 1x, assets/crops/accounts-phone.webp 2x" width="412" height="272">
+          <img class="window" src="assets/screens/accounts-1x.webp" srcset="assets/screens/accounts-1x.webp 1x, assets/screens/accounts.webp 2x" width="1080" height="700" fetchpriority="high" alt="The Brainmerge Accounts screen: each account is a card with its name, its note and the memory it uses. Personal is open, and Work is not logged in yet.">
+        </picture>
+      </figure>
+    </section>
+
+    <!-- The problem -->
+    <section class="problem" aria-labelledby="problem-title">
+      <div class="wrap">
+        <p class="problem-kicker reveal">One account for you, one for work. Maybe one for a&nbsp;client.</p>
+        <h2 class="problem-title reveal" id="problem-title">The Claude app knows one account at a&nbsp;time.</h2>
+        <p class="problem-body reveal">So the day goes: log out, log in, log out again. Or a folder of hand-made scripts. And what Claude learns about your projects in one account is <span class="hi">lost to the&nbsp;other.</span></p>
+        <p class="problem-turn reveal">Brainmerge keeps them all open at once, and lets them share one&nbsp;memory.</p>
+      </div>
+    </section>
+
+    <!-- Every account, in its own window -->
+    <section class="section accounts" id="accounts" aria-labelledby="accounts-title">
+      <div class="wrap split split-stat">
+        <div class="reveal">
+          <p class="eyebrow">Accounts</p>
+          <h2 class="h2" id="accounts-title">Every account, in its own&nbsp;window.</h2>
+          <p class="lead">Each of your Claude accounts opens in its own window of the official Claude app. You log in once, and it stays logged in. <strong>No more logging out to&nbsp;switch.</strong></p>
+        </div>
+        <p class="stat reveal"><span class="stat-pre">Up to</span> <span class="stat-fig">50</span> <span class="stat-label">accounts, side by&nbsp;side.</span></p>
+      </div>
+    </section>
+
+    <!-- An app of its own -->
+    <section class="section apps" aria-labelledby="apps-title">
+      <div class="wrap">
+        <h2 class="h2 center reveal" id="apps-title">Each account is an app of its&nbsp;own.</h2>
+        <div class="dock-stage reveal">
+          <div class="dock" role="img" aria-label="A Mac Dock with Brainmerge and four account apps, each in its own color: Personal in orange, Studio in pink, Work in blue and Client in purple. Personal and Studio are running.">
+            <span class="dock-item"><img src="assets/icon-512.webp" alt="" width="512" height="512" loading="lazy"></span>
+            <span class="dock-sep"></span>
+            <span class="dock-item acc-p"><span class="tile">P</span><span class="run"></span></span>
+            <span class="dock-item acc-s"><span class="tip">Studio</span><span class="tile">S</span><span class="run"></span></span>
+            <span class="dock-item acc-w"><span class="tile">W</span></span>
+            <span class="dock-item acc-c"><span class="tile">C</span></span>
+          </div>
+          <p class="dock-path"><code>~/Applications/Brainmerge</code></p>
+        </div>
+        <div class="apps-copy reveal">
+          <p>Every account gets its own small app, with its name and its color or photo. Open it from the Dock, from Launchpad or from Brainmerge, like any other&nbsp;app.</p>
+          <p class="apps-optional">Optional: its own icon in the Dock while it runs. It is a local, tinted copy of Claude, made on your Mac and rebuilt after each Claude&nbsp;update.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Edit in one place -->
+    <section class="section edit" aria-labelledby="edit-title">
+      <div class="wrap split split-media">
+        <div class="edit-copy reveal">
+          <h2 class="h3-lg" id="edit-title">Edit everything in one&nbsp;place.</h2>
+          <ul class="spec-list">
+            <li>Name</li>
+            <li>Color or photo</li>
+            <li>A note: Personal, Work, a client</li>
+            <li>Its memory</li>
+            <li>Its Dock icon</li>
+          </ul>
+        </div>
+        <figure class="edit-shot reveal">
+          <img class="window" src="assets/crops/edit-sheet-1x.webp" srcset="assets/crops/edit-sheet-1x.webp 1x, assets/crops/edit-sheet.webp 2x" width="478" height="562" loading="lazy" alt="The Edit Studio sheet: the name Studio, a row of colors with Use a photo, the note Design studio, the memory set to Shared, the Own icon in the Dock switch, and the account’s app in ~/Applications/Brainmerge with Show in Finder.">
+        </figure>
+      </div>
+    </section>
+
+    <!-- One memory, or one each -->
+    <section class="section memory" id="memory" aria-labelledby="memory-title">
+      <div class="wrap">
+        <div class="memory-head reveal">
+          <p class="eyebrow">Memory</p>
+          <h2 class="h2" id="memory-title">One memory. Or one&nbsp;each.</h2>
+          <p class="lead">By default, all your accounts share one memory of your projects: a folder of plain Markdown notes in <code>~/Brain</code>, or in a folder you already have. An Obsidian vault works well. What Claude Code learns about a project in one account, the others know&nbsp;too.</p>
+        </div>
+        <div class="memory-split">
+          <figure class="memory-shot reveal">
+            <picture>
+              <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/memories-phone-1x.webp 1x, assets/crops/memories-phone.webp 2x" width="353" height="196">
+              <img class="window" src="assets/crops/memories-1x.webp" srcset="assets/crops/memories-1x.webp 1x, assets/crops/memories.webp 2x" width="660" height="238" loading="lazy" alt="The Memories list in Brainmerge settings: Shared, the default, in ~/Brain, written by Personal, Studio and Client; and Work, in ~/Brain-work, written by Work.">
+            </picture>
+          </figure>
+          <div class="memory-rule reveal">
+            <p class="rule-big">Give any account a memory of its own in one click, and work or client things stay&nbsp;apart.</p>
+            <p class="rule-small">Every account writes to exactly one memory. Switching never moves or deletes a&nbsp;note.</p>
+          </div>
+        </div>
+        <p class="apps-line reveal">Open it in <b>Finder</b>, <b>Obsidian</b>, <b>Logseq</b>, <b>iA&nbsp;Writer</b>, <b>Typora</b>, <b>VS&nbsp;Code</b>, <b>Cursor</b>, <b>Zed</b>, or any other&nbsp;app.</p>
+        <p class="apps-note reveal">No notes app yet? Brainmerge suggests free&nbsp;ones.</p>
+      </div>
+    </section>
+
+    <!-- The memory graph, and the timeline -->
+    <section class="band graph" aria-labelledby="graph-title">
+      <div class="wrap split split-head reveal">
+        <h2 class="h2" id="graph-title">See what every account&nbsp;remembers.</h2>
+        <p class="lead">The Memory screen opens on a live graph of your notes. It only reads the folder, and nothing leaves your&nbsp;Mac.</p>
+      </div>
+      <figure class="graph-shot reveal">
+        <picture>
+          <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/graph-phone-1x.webp 1x, assets/crops/graph-phone.webp 2x" width="370" height="445">
+          <img class="window" src="assets/screens/memory-1x.webp" srcset="assets/screens/memory-1x.webp 1x, assets/screens/memory.webp 2x" width="1080" height="700" loading="lazy" alt="The memory graph: notes as small bubbles in pink for Studio, orange for Personal and purple for Client, gathered around cream project bubbles named mobile-app, website, design-system and client-site, with thin threads linking them.">
+        </picture>
+      </figure>
+      <div class="wrap">
+        <dl class="legend reveal">
+          <div>
+            <dt>Bubbles and threads</dt>
+            <dd>Each note is a bubble in the color of the account that last saved it. Each project is a larger cream bubble with its notes around it, and the threads are the links between&nbsp;notes.</dd>
+          </div>
+          <div>
+            <dt>Pulses</dt>
+            <dd>A note pulses while Claude Code writes it, and again, in the account’s color, when that account saves&nbsp;it.</dd>
+          </div>
+          <div>
+            <dt>Hover, click</dt>
+            <dd>Hover a bubble to light it and its neighbors. Click it to read it. Double-click to open it in your notes&nbsp;app.</dd>
+          </div>
+        </dl>
+
+        <div class="timeline">
+          <h3 class="timeline-intro reveal">Prefer words? One click away, the timeline tells it in&nbsp;sentences.</h3>
+          <ol class="said">
+            <li class="acc-s">
+              <span class="av" aria-hidden="true">S</span>
+              <p class="said-line"><strong>Studio</strong> remembered something about <em>website</em>.</p>
+              <p class="said-meta"><span>website · decision_pricing.md</span><span>just now</span></p>
+            </li>
+            <li class="acc-p">
+              <span class="av" aria-hidden="true">P</span>
+              <p class="said-line"><strong>Personal</strong> updated 2&nbsp;notes about <em>mobile-app</em>.</p>
+              <p class="said-meta"><span>mobile-app · MEMORY.md, feedback_tests.md</span><span>just now</span></p>
+            </li>
+            <li class="acc-c">
+              <span class="av" aria-hidden="true">C</span>
+              <p class="said-line"><strong>Client</strong> updated its notes about <em>client-site</em>.</p>
+              <p class="said-meta"><span>client-site · MEMORY.md</span><span>just now</span></p>
+            </li>
+          </ol>
+          <p class="timeline-foot reveal">Each memory is a git repository, and each account signs its own&nbsp;saves.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Connected, and up to date -->
+    <section class="section status" aria-labelledby="status-title">
+      <div class="wrap">
+        <h2 class="h2 reveal" id="status-title">Connected, or not yet. Always up to&nbsp;date.</h2>
+        <figure class="status-shot reveal">
+          <picture>
+            <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/status-phone-1x.webp 1x, assets/crops/status-phone.webp 2x" width="406" height="185">
+            <img class="window" src="assets/crops/status-1x.webp" srcset="assets/crops/status-1x.webp 1x, assets/crops/status.webp 2x" width="815" height="306" loading="lazy" alt="Account cards in Brainmerge. Studio is open; Client is closed and was built for an older Claude, so its card shows an Update button.">
+          </picture>
+        </figure>
+        <div class="cols-2 status-cols">
+          <p class="reveal"><strong>Each card says whether its account has logged in.</strong> In the guided setup, the step turns to “Connected” on its own once you have. Brainmerge only looks at the names of Claude’s own storage files, never at what is&nbsp;inside.</p>
+          <p class="reveal"><strong>When Claude updates itself,</strong> the accounts that keep their own copy of it are flagged, then updated in one click, or on their own. The version is checked every few minutes, and whenever the Brainmerge window comes to the&nbsp;front.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Usage -->
+    <section class="section usage" id="usage" aria-labelledby="usage-title">
+      <div class="wrap">
+        <div class="split split-head reveal">
+          <div>
+            <p class="eyebrow">Usage</p>
+            <h2 class="h2" id="usage-title">What each account&nbsp;spent.</h2>
+          </div>
+          <p class="lead">Read from Claude Code’s own transcripts on your Mac: today, seven days and thirty days, by project and by&nbsp;model.</p>
+        </div>
+        <figure class="usage-shot reveal">
+          <picture>
+            <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/usage-phone-1x.webp 1x, assets/crops/usage-phone.webp 2x" width="319" height="180">
+            <img class="window" src="assets/screens/usage-1x.webp" srcset="assets/screens/usage-1x.webp 1x, assets/screens/usage.webp 2x" width="1080" height="700" loading="lazy" alt="The Usage screen: what each account wrote today and over seven days, by project. Client wrote 3.9k today and 18.4k in seven days, all on client-site.">
+          </picture>
+        </figure>
+        <p class="usage-figure reveal"><b>Eight gigabytes</b> of transcripts, read in <b>under twenty seconds</b> with about <b>seventy megabytes</b> of RAM. The next read takes <b>under a&nbsp;second</b>.</p>
+        <p class="usage-note reveal">Informative only: Brainmerge never switches accounts for you and never reads your limits. Only Claude knows them, and a button opens Claude’s usage page. It also shows how much RAM each open Claude window uses, with a quiet warning when your Mac runs&nbsp;low.</p>
+      </div>
+    </section>
+
+    <!-- Guided setup -->
+    <section class="section setup" aria-labelledby="setup-title">
+      <div class="wrap">
+        <div class="setup-head reveal">
+          <h2 class="h2" id="setup-title">A guided setup. No&nbsp;terminal.</h2>
+          <p class="lead">Six short steps, all inside the&nbsp;app.</p>
+        </div>
+        <div class="setup-split">
+          <ol class="steps reveal">
+            <li>What Brainmerge is&nbsp;for.</li>
+            <li>How it works, in an animated&nbsp;diagram.</li>
+            <li>Where the memory lives, and which app opens&nbsp;it.</li>
+            <li>Your current Claude becomes your first&nbsp;account.</li>
+            <li>An optional second account, with shared memory or its own. The login is&nbsp;guided.</li>
+            <li>A checklist of what is&nbsp;ready.</li>
+          </ol>
+          <figure class="setup-shot reveal">
+            <picture>
+              <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/setup-phone-1x.webp 1x, assets/crops/setup-phone.webp 2x" width="475" height="272">
+              <img class="window" src="assets/crops/setup-1x.webp" srcset="assets/crops/setup-1x.webp 1x, assets/crops/setup.webp 2x" width="560" height="450" loading="lazy" alt="Step two of the setup, How it works: the Personal, Work and Client accounts all lead to one Memory, which Claude Code reads and writes.">
+            </picture>
+            <figcaption>Step 2, How it works.</figcaption>
+          </figure>
+        </div>
+        <p class="cli reveal">For those who want one, the <code>brainmerge</code> command sets up accounts and memories, checks them and reads usage from a terminal. It is never&nbsp;required.</p>
+      </div>
+    </section>
+
+    <!-- Safety -->
+    <section class="band safety" id="safety" aria-labelledby="safety-title">
+      <div class="wrap split split-safety">
+        <div class="safety-head">
+          <p class="eyebrow">Safety</p>
+          <h2 class="h2" id="safety-title">Safe for<br class="br-split"> your accounts,<br class="br-split"> by&nbsp;design.</h2>
+          <p class="lead">Brainmerge only starts the official Claude app and the official Claude Code you already have. Each account logs in by itself, inside&nbsp;them.</p>
+          <a class="more" href="https://github.com/ruben4reall/brainmerge/blob/main/SECURITY.md">Read SECURITY.md</a>
+        </div>
+        <ul class="promises">
+          <li class="reveal">
+            <h3>No logins, tokens or cookies.</h3>
+            <p>Brainmerge never reads, stores or sends a login, a token or a cookie. There is no code path for&nbsp;it.</p>
+          </li>
+          <li class="reveal">
+            <h3>No switching, no rotation.</h3>
+            <p>No account switching, no pooled usage, no automation of the&nbsp;login.</p>
+          </li>
+          <li class="reveal">
+            <h3>No network calls.</h3>
+            <p>No server, no account of ours, no telemetry. “Check for updates” opens the releases page in your&nbsp;browser.</p>
+          </li>
+          <li class="reveal">
+            <h3>Claude stays as it is.</h3>
+            <p>Claude itself is not modified. The optional Dock icon is a local copy, made after checking that Claude’s signature is intact, and it is never&nbsp;distributed.</p>
+          </li>
+          <li class="reveal">
+            <h3>Promises that are tested.</h3>
+            <p>Tests scan the source code at every run to keep these promises true. SECURITY.md lists exactly what the app touches on your&nbsp;Mac.</p>
+          </li>
+          <li class="reveal">
+            <h3>Leaves cleanly.</h3>
+            <p>Remove Brainmerge from Settings: its hooks, account apps, command-line link and settings go. Each project keeps a copy of its notes. Your memories and logins&nbsp;stay.</p>
+          </li>
+        </ul>
+      </div>
+      <div class="wrap">
+        <p class="closing reveal">One account is one person. <span class="dim">Brainmerge keeps several of yours tidy, nothing&nbsp;more.</span></p>
+      </div>
+    </section>
+
+    <!-- Free and open source -->
+    <section class="section oss" aria-labelledby="oss-title">
+      <div class="wrap split split-oss reveal">
+        <h2 class="h2" id="oss-title">Free and open&nbsp;source.</h2>
+        <div>
+          <p class="lead">A native Mac app, written in Swift and SwiftUI and released under the MIT license. Every line, including the tests behind the promises above, is on&nbsp;GitHub.</p>
+          <p class="oss-link"><a class="more" href="https://github.com/ruben4reall/brainmerge">github.com/ruben4reall/brainmerge</a></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Download -->
+    <section class="download" id="download" aria-labelledby="download-title">
+      <div class="wrap download-head">
+        <h2 class="h2-xl" id="download-title">Get Brainmerge.</h2>
+        <div class="actions">
+          <a class="btn btn-primary" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg">Download for Mac</a>
+          <a class="btn btn-ghost" href="https://github.com/ruben4reall/brainmerge">View on GitHub</a>
+        </div>
+        <!-- install-note -->
+        <p class="install-note">Signed with a Developer ID, with Apple’s notarization on its way. Until it lands, macOS may stop the first opening: open System Settings, then Privacy &amp; Security, and click Open&nbsp;Anyway.</p>
+        <!-- /install-note -->
+        <p class="fine"><span class="nw">Version 0.4.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Requires the Claude app</span></p>
+      </div>
+      <div class="wrap install">
+        <figure class="install-shot reveal">
+          <img class="window" src="assets/crops/dmg-1x.webp" srcset="assets/crops/dmg-1x.webp 1x, assets/crops/dmg.webp 2x" width="660" height="378" loading="lazy" alt="The Brainmerge disk image window: an arrow leads from the Brainmerge icon to the Applications folder, above the words Drag Brainmerge to your Applications folder, then open it from there.">
+        </figure>
+        <div class="install-copy reveal">
+          <p class="install-step">Open the disk image and drag Brainmerge to Applications. Opened from anywhere else, it offers to move itself&nbsp;there.</p>
+          <p class="fine">The first time each new account opens, macOS asks to allow “Claude Safe Storage” (choose Always Allow), and may ask for access to Documents (choose Allow). That is Claude’s normal first&nbsp;launch.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <a class="footer-brand" href="#top">
+          <img src="assets/icon-512.webp" alt="" width="24" height="24" loading="lazy">
+          <span>Brainmerge</span>
+        </a>
+        <ul class="footer-links">
+          <li><a href="https://github.com/ruben4reall/brainmerge">GitHub</a></li>
+          <li><a href="https://github.com/ruben4reall/brainmerge/releases">Releases</a></li>
+          <li><a href="https://github.com/ruben4reall/brainmerge/blob/main/SECURITY.md">Security</a></li>
+          <li><a href="https://github.com/ruben4reall/brainmerge/blob/main/CHANGELOG.md">Changelog</a></li>
+          <li><a href="https://github.com/ruben4reall/brainmerge/blob/main/LICENSE">License</a></li>
+        </ul>
+      </div>
+      <p class="legal">Works with Claude. Not made by Anthropic. Not affiliated with Anthropic. Claude is a trademark of&nbsp;Anthropic.</p>
+      <p class="legal">MIT license <span aria-hidden="true">·</span> Version&nbsp;0.4.0</p>
+    </div>
+  </footer>
+</body>
+</html>
