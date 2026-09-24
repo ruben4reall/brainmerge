@@ -13,6 +13,8 @@
 
 **Every Claude account you own, side by side, each with its own window, and one memory between them (or one each).**
 
+[Website](https://brainmerge.vercel.app) · [Download for Mac](https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg) · [Changelog](CHANGELOG.md)
+
 ## The problem
 
 The Claude app knows one account at a time. If you have two, a personal one and one for work, a client's or a team's, you spend the day logging out and back in. Nothing you learned in one account exists in the other. People end up with home-made scripts, duplicated folders and a terminal window they would rather not have.
