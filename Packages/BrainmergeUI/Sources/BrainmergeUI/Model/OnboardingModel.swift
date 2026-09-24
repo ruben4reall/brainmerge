@@ -1,0 +1,103 @@
+import Foundation
+import Observation
+import BrainmergeCore
+
+@MainActor @Observable
+public final class OnboardingModel {
+    public enum Step: Int, CaseIterable { case welcome, howItWorks, brainLocation, adopt, secondAccount, allSet }
+    public enum BrainChoice: Equatable { case newFolder, existing(URL) }
+
+    /// BRAINMERGE_ONBOARDING_STEP=0...3 opens the onboarding on that step (captures, demos).
+    public var step: Step = Step(rawValue: Int(ProcessInfo.processInfo.environment["BRAINMERGE_ONBOARDING_STEP"] ?? "") ?? 0) ?? .welcome
+    public var choice: BrainChoice = .newFolder
+    public var language: BrainLanguage = .en
+    /// What opens the memory: the first notes app found on the Mac, else the folder.
+    public var notesApp: String? = NotesApps.installed().first?.bundleIdentifier
+    public var primaryName: String
+    public private(set) var claude: ClaudeApp?
+    public private(set) var projectCount = 0
+    public var error: UserMessage?
+    /// The guided setup stays on screen until the person closes it, even once the first account is in place.
+    public var finished = false
+    /// The optional second account of the guided setup.
+    public var secondAccount = AddAccountForm()
+    public private(set) var addedSlug: String?
+
+    let app: AppModel
+
+    public init(app: AppModel) {
+        self.app = app
+        let full = NSFullUserName().trimmingCharacters(in: .whitespaces)
+        primaryName = full.split(separator: " ").first.map(String.init) ?? "Me"
+        if primaryName.isEmpty { primaryName = "Me" }
+        // Everything already in place: no guide. BRAINMERGE_ONBOARDING_STEP forces it (captures, demos).
+        finished = !app.needsOnboarding && ProcessInfo.processInfo.environment["BRAINMERGE_ONBOARDING_STEP"] == nil
+    }
+
+    public func complete() { finished = true }
+
+    /// Creates the second account without opening it; the step then guides the login.
+    public func addSecondAccount() async -> Bool {
+        guard await app.add(secondAccount, open: false) else { return false }
+        addedSlug = secondAccount.request.name.isEmpty ? nil : app.accounts.last?.id
+        return addedSlug != nil
+    }
+
+    public var addedAccount: Account? { addedSlug.flatMap { slug in app.accounts.first { $0.id == slug } } }
+
+    /// Other Claude windows must be closed before a new account logs in (the login link lands in the running one).
+    public var othersOpen: [Account] { app.openAccounts.filter { $0.id != addedSlug } }
+
+    public func openAddedAccount() {
+        guard let slug = addedSlug else { return }
+        if othersOpen.isEmpty { app.open(slug) } else { app.quitOthers(then: slug) }
+    }
+
+    public func detect() {
+        claude = try? ClaudeApp.detect(at: app.claudeAppURL)
+        let profile = CLIProfile(directory: app.paths.primaryCLIProfile)
+        projectCount = (try? profile.projects().count) ?? 0
+    }
+
+    /// The saved memory folder that can't be found or is empty: onboarding says so and offers to choose another one.
+    public var missingBrainPath: String? {
+        guard app.brain == nil, let path = (try? app.store.load())?.brainPath else { return nil }
+        return path
+    }
+
+    public func next() { error = nil; if let n = Step(rawValue: step.rawValue + 1) { step = n } }
+    public func back() { error = nil; if let p = Step(rawValue: step.rawValue - 1) { step = p } }
+
+    public func createBrain() throws {
+        let root: URL
+        switch choice {
+        case .newFolder: root = app.paths.defaultBrain
+        case .existing(let url): root = url
+        }
+        let brain = try Brain.initialize(at: root, language: language)
+        var state = try app.store.load()
+        state.brainPath = brain.root.path
+        state.brainLanguage = language
+        state.notesApp = notesApp
+        try app.store.save(state)
+        // A brain recreated or moved: every existing account is reattached to it (managed block, hook, memory links).
+        let saved = try app.store.load()
+        for identity in saved.identities { try app.manager.attachBrain(to: identity, state: saved) }
+        app.reload()
+    }
+
+    /// "Done": the memory folder is only created now (going back leaves nothing behind), then the first account is adopted.
+    public func finish() throws {
+        try createBrain()
+        try adoptPrimary()
+    }
+
+    /// The already-installed Claude becomes the first account. If Claude Code has never run, its folder is created.
+    public func adoptPrimary() throws {
+        // Each account's Stop hook calls ~/.local/bin/brainmerge: the link is set up here, with this screen's consent.
+        try app.linkCommandLineForHooks()
+        _ = try CLIProfile.create(at: app.paths.primaryCLIProfile, inheritingFrom: nil)
+        _ = try app.manager.adoptPrimary(name: primaryName.trimmingCharacters(in: .whitespaces))
+        app.reload()
+    }
+}

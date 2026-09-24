@@ -1,0 +1,66 @@
+name: Brainmerge
+options:
+  bundleIdPrefix: ch.rubencatalao
+  deploymentTarget:
+    macOS: "26.0"
+  xcodeVersion: "26.5"
+packages:
+  BrainmergeUI:
+    path: Packages/BrainmergeUI
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: YES
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  Brainmerge:
+    type: application
+    platform: macOS
+    sources: [App]
+    dependencies:
+      - package: BrainmergeUI
+        product: BrainmergeUI
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: Brainmerge
+        CFBundleDisplayName: Brainmerge
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: "26.0"
+        NSHumanReadableCopyright: "Ruben Catalao. Works with Claude. Not made by Anthropic."
+        LSApplicationCategoryType: public.app-category.developer-tools
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ch.rubencatalao.brainmerge
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    preBuildScripts:
+      - name: Build helpers
+        script: |
+          # One product per invocation: "--product A --product B" only builds B.
+          # Clean environment (Xcode's variables interfere with swift build); a failure breaks the build,
+          # we never ship a stale binary.
+          set -eo pipefail
+          cd "$SRCROOT/Packages/BrainmergeCore"
+          for product in brainmerge launcher; do
+            env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" swift build -c release --product "$product" 2>&1 | tail -1
+          done
+          test -x .build/release/brainmerge && test -x .build/release/launcher
+    postBuildScripts:
+      - name: Embed helpers
+        script: |
+          set -e
+          # The command-line tool is named brainmerge-cli in the package: next to "Brainmerge",
+          # "brainmerge" would be confused with the app on a case-insensitive disk.
+          BIN="$SRCROOT/Packages/BrainmergeCore/.build/release"
+          DEST="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
+          cp "$BIN/brainmerge" "$DEST/brainmerge-cli"
+          cp "$BIN/launcher" "$DEST/launcher"
+          if [ -n "$EXPANDED_CODE_SIGN_IDENTITY" ]; then
+            codesign --force --options runtime --sign "$EXPANDED_CODE_SIGN_IDENTITY" "$DEST/brainmerge-cli" "$DEST/launcher"
+          fi

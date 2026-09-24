@@ -1,0 +1,111 @@
+import AppKit
+import SwiftUI
+import BrainmergeCore
+
+/// What each account has consumed, read from Claude Code's local transcripts. Informational: never a switcher.
+public struct UsageView: View {
+    @Bindable var model: AppModel
+    public init(model: AppModel) { self.model = model }
+
+    public var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ScreenHeader("Usage", subtitle: "What your accounts spent, read from Claude Code's own transcripts on this Mac. Limits and reset times are only known to Claude.") {
+                    Button("See limits in Claude") { if let url = URL(string: "https://claude.ai/settings/usage") { NSWorkspace.shared.open(url) } }.buttonStyle(.glass)
+                }
+                if model.usage.isEmpty {
+                    GlassCard {
+                        Text(model.usageRefreshing ? "Reading the transcripts…" : "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
+                            .foregroundStyle(Theme.Colors.textMuted).padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+                }
+                ForEach(model.usage) { entry in card(entry).frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading) }
+                HStack(spacing: 6) {
+                    if let date = model.usageUpdatedAt { Text("Updated \(date.formatted(date: .omitted, time: .shortened)).") }
+                    Text("Estimates: output tokens are what Claude wrote, context is what it read (cache included). Brainmerge never switches accounts for you.")
+                }
+                .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+            }
+            .padding(Theme.Layout.padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .task { await model.refreshUsage() }
+    }
+
+    func card(_ entry: AccountUsage) -> some View {
+        GlassCard {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(spacing: 12) {
+                    ForEach(Array(entry.slugs.enumerated()), id: \.offset) { index, _ in
+                        OrbView(name: entry.names[index], tint: entry.tints[index], size: 32)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(entry.names.joined(separator: " and ")).font(Theme.Fonts.cardName)
+                        if entry.shared { Text("Shared history: these accounts write the same transcripts, so their usage is one number.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                    }
+                    Spacer()
+                }
+                // Figures on one line and the chart on the right; when the card is narrow, the chart goes under the figures.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 28) {
+                        figures(entry.summary)
+                        Spacer(minLength: 16)
+                        sparkline(entry.summary.byDay).frame(width: 220, height: 44)
+                    }
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .top, spacing: 28) { figures(entry.summary) }
+                        sparkline(entry.summary.byDay).frame(maxWidth: 360).frame(height: 36)
+                    }
+                }
+                HStack(alignment: .top, spacing: 24) {
+                    list("Projects", entry.summary.byProject.prefix(4).map { (ProjectSlug.projectName(forSlug: $0.key, home: model.paths.home), $0.output) })
+                    list("Models", entry.summary.byModel.prefix(4).map { ($0.key.replacingOccurrences(of: "claude-", with: ""), $0.output) })
+                }
+            }
+            .padding(16)
+        }
+    }
+
+    @ViewBuilder func figures(_ summary: UsageSummary) -> some View {
+        figure("Today", summary.todayOutput, summary.today)
+        figure("7 days", summary.weekOutput, summary.week)
+        figure("30 days", summary.monthOutput, summary.month)
+    }
+
+    func figure(_ label: String, _ output: Int, _ total: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased()).font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
+            Text(TokenFormat.short(output)).font(Theme.Fonts.figure)
+            Text("written · \(TokenFormat.short(total)) context").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+        }
+        .fixedSize()
+    }
+
+    func list(_ title: String, _ rows: [(String, Int)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased()).font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
+            if rows.isEmpty { Text("Nothing in the last 30 days.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack { Text(row.0).font(Theme.Fonts.secondary).lineLimit(1); Spacer(); Text(TokenFormat.short(row.1)).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+            }
+        }
+        .frame(maxWidth: 300, alignment: .leading)
+    }
+
+    /// Fourteen bars, one per day, the most recent on the right.
+    func sparkline(_ days: [UsageSummary.Bucket]) -> some View {
+        Canvas { context, size in
+            let maxValue = max(1, days.map(\.output).max() ?? 1)
+            let slot = size.width / CGFloat(max(1, days.count))
+            for (index, day) in days.enumerated() {
+                let height = max(2, size.height * CGFloat(day.output) / CGFloat(maxValue))
+                let rect = CGRect(x: CGFloat(index) * slot + 2, y: size.height - height, width: slot - 4, height: height)
+                let isToday = index == days.count - 1
+                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(isToday ? Theme.Colors.accent : Theme.Colors.accentSoft))
+            }
+        }
+        .accessibilityLabel("Output tokens per day, last 14 days")
+    }
+}

@@ -1,0 +1,23 @@
+node_modules/
+.next/
+dist/
+build/
+.DS_Store
+
+# secrets : jamais versionnes
+.env
+.env.*
+!.env.example
+
+# graphe de code local
+graphify-out/
+
+# espace de suivi des plans (scratch)
+.superpowers/
+
+# Swift
+.build/
+.swiftpm/
+*.xcodeproj
+DerivedData/
+.build/xcode/

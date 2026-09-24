@@ -1,0 +1,53 @@
+import Foundation
+
+public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
+    case stateTooNew(Int)
+    case claudeAppNotFound(String)
+    case invalidPlist(String)
+    case invalidJSON(String)
+    case identityExists(String)
+    case identityNotFound(String)
+    case brainNotConfigured
+    case brainNotFound(String)
+    case lockTimeout
+    case shellFailed(command: String, status: Int32, stderr: String)
+    case iconFailed(String)
+    case profileMissing(String)
+    case identityNameTaken(String)
+    case identityRunning(String)
+    case cliOnReadOnlyVolume(String)
+    case cliLinkOccupied(String)
+    case brainUnknown(String)
+    case brainInUse(String)
+    case brainIsDefault
+    case brainNameTaken(String)
+    case brainNameEmpty
+    case brainFolderInUse(String)
+
+    public var description: String {
+        switch self {
+        case .stateTooNew(let v): return "state.json was written by a newer Brainmerge (schema \(v)). Update Brainmerge."
+        case .claudeAppNotFound(let p): return "Claude.app not found at \(p). Install Claude Desktop first."
+        case .invalidPlist(let p): return "Cannot read property list \(p)."
+        case .invalidJSON(let p): return "Cannot read JSON file \(p)."
+        case .identityExists(let s): return "An identity with slug \(s) already exists."
+        case .identityNotFound(let s): return "No identity with slug \(s)."
+        case .brainNotConfigured: return "No brain configured yet. Run: brainmerge brain init"
+        case .brainNotFound(let p): return "Brain folder missing at \(p)."
+        case .lockTimeout: return "Another Brainmerge process holds the brain lock."
+        case .shellFailed(let c, let s, let e): return "Command failed (\(s)): \(c)\n\(e)"
+        case .iconFailed(let p): return "Cannot build an icon from \(p)."
+        case .profileMissing(let p): return "Claude Code profile missing at \(p)."
+        case .identityNameTaken(let n): return "An identity named \(n) already exists. Choose another name."
+        case .identityRunning(let s): return "Identity \(s) is running. Quit it first: brainmerge identity quit \(s)"
+        case .cliOnReadOnlyVolume(let p): return "Brainmerge runs from a read-only disk (\(p)). Move it to /Applications first."
+        case .cliLinkOccupied(let p): return "Something else is installed at \(p). Move it, then try again."
+        case .brainUnknown(let id): return "No memory called \(id). Run: brainmerge brain list"
+        case .brainInUse(let n): return "The memory \(n) is still used by an account. Attach that account to another memory first."
+        case .brainIsDefault: return "The default memory cannot be forgotten."
+        case .brainNameTaken(let n): return "A memory named \(n) already exists. Choose another name."
+        case .brainNameEmpty: return "Give the memory a name."
+        case .brainFolderInUse(let p): return "The folder \(p) is already one of your memories."
+        }
+    }
+}

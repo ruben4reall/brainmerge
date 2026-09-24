@@ -1,0 +1,19 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || true
+      - name: Tests
+        run: swift test --package-path Packages/BrainmergeCore
+  ui:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the launcher used by the UI tests
+        run: swift build --package-path Packages/BrainmergeCore --product launcher
+      - name: Tests UI
+        run: swift test --package-path Packages/BrainmergeUI

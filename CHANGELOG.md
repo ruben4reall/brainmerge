@@ -1,0 +1,39 @@
+# Changelog
+
+## 0.3.0
+
+- Several memories: one shared by default, and any account can get a memory of its own (from its card's menu, the edit sheet, the add sheet or the guided setup). Every account writes to exactly one memory; switching relinks its projects and moves no note. The Memory screen has a picker, Settings lists the memories (add, rename, forget without deleting), and the command line follows (`brain list | add | forget | rename`, `identity add --brain | --own-brain`, `identity edit --brain`). States written by 0.2 are migrated as they are.
+- Connected state: each card says whether the account has logged in, the guided setup turns to "Connected" on its own, `doctor` and `identity list` report it. Decided from the names of Claude's own storage files, never their contents.
+- Each account is a real app: an edit sheet (name, color or photo, note, memory, own icon in the Dock, show its app in Finder to drag it to the Dock), a visible menu on every card, and `identity edit --icon distinct|launcher`.
+- Alive: when Claude updates itself, the accounts with their own Dock icon are flagged and updated with one click (or all at once, or on their own when the setting is on); the version is re-checked when the window comes to the front. "Check for updates" opens the releases page without any connection from the app.
+- Usage reads eight gigabytes of transcripts in about seventeen seconds and seventy megabytes instead of forty-eight seconds and nine hundred (a byte walker instead of JSON decoding, one pool per file and per chunk); the next read takes under a second. Projects are named after their real folder. `brainmerge usage` prints the same numbers, with `--timing`.
+- Remove Brainmerge from Settings or with `brainmerge uninstall`: hooks, blocks, account apps, command line link and settings go; each project keeps a copy of its notes; memories, Claude data and logins stay.
+- Design finishing pass: one header component, AA contrasts, a left-aligned add sheet with Return and Escape, usage figures that fit at the minimum window size, a reading width for long screens, tokens for fields and selection, aligned notes app tiles, pinned progress dots.
+- The README and the welcome step say what the app is for; the "All set" step gives three tips to go further.
+
+## 0.2.0
+
+- Usage per account: output and context tokens for today, seven days and thirty days, by project and by model, read from Claude Code's local transcripts. Accounts that share their history are shown as one. A button opens Claude's own usage page for limits and reset times. Brainmerge never switches accounts for you.
+- Memory per account: the RAM of each open Claude window (with its helper processes) on its card and in the sidebar, and a quiet warning when the Mac runs low on memory.
+- A calmer, more professional look: one purple accent, neutral dark canvas, flat avatars, native controls, compact cards, no halos, the aura only as feedback. Design tokens documented in `docs/brand/DESIGN.md` so anyone can retheme.
+- Installer: a proper disk image (background, drag to Applications) and an offer to move the app to Applications when it runs from the image or from Downloads.
+- Safer first login: a new account is not opened while another Claude window is running (the login link would land in it); Brainmerge asks to quit the others first.
+- The command line link is created at the end of the first launch, never over a link you made, never from a disk image.
+- Fifty accounts stay smooth: the interface only redraws what changed, photos are decoded once.
+- Long operations (building an icon, removing an account) run in the background with a progress sentence.
+- Missing memory folder: a dedicated screen, and every account is re-attached to the folder you choose.
+- First launch: a guided setup in six steps, with an animated "How it works" diagram, a picker for the app that opens the memory (real icons of the notes apps found on the Mac, any other app, suggestions when none), an optional second account with login guidance, and a live checklist at the end.
+- Brand assets generated from the design tokens: app icon, GitHub avatar, social banner, README header, SVG logos.
+- Many small fixes from the v0.1 review: renaming validation, memory sentences, onboarding banner, delete options, notes language for the command line, graceful quit, CI.
+
+## 0.1.0
+
+First release, macOS 26.
+
+- Accounts: your current Claude becomes the first account; add up to fifty more, each with a name, a color or a photo, and a note. Open, quit, rename, recolor, rebuild, remove.
+- One memory: a folder of plain notes (`~/Brain` or a folder you already have), shared by every account, versioned with git, saved by a Claude Code hook after each session.
+- Memory screen: who remembered what, and when, in plain sentences.
+- Settings: Claude app detection, distinct icons rebuilt after Claude updates, memory folder, notes language, command line install.
+- Command line `brainmerge` with the same features, plus `doctor`.
+- Guided first launch in three screens. No terminal needed.
+- Builds are signed ad hoc (no Developer ID yet): macOS asks to confirm the first opening.

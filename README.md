@@ -1,0 +1,155 @@
+<p align="center">
+  <img src="docs/brand/readme-header.png" alt="Brainmerge" width="800">
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-a06be0" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/macOS-26%2B-1a1918" alt="macOS 26 or later">
+  <img src="https://img.shields.io/badge/Swift-6-1a1918" alt="Swift 6">
+  <a href="https://github.com/ruben4reall/brainmerge/actions/workflows/ci.yml"><img src="https://github.com/ruben4reall/brainmerge/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+# Brainmerge
+
+**Every Claude account you own, side by side, each with its own window, and one memory between them (or one each).**
+
+## The problem
+
+The Claude app knows one account at a time. If you have two, a personal one and one for work, a client's or a team's, you spend the day logging out and back in. Nothing you learned in one account exists in the other. People end up with home-made scripts, duplicated folders and a terminal window they would rather not have.
+
+## What Brainmerge does
+
+Brainmerge is a native macOS app that turns each of your Claude accounts into a real app on your Mac: its own window, its own name, color or photo, its own icon in the Dock if you want. Open it from the Dock or from Brainmerge, log in once, and it stays logged in. All your accounts share one memory of your projects, a folder of plain notes, unless you give an account a memory of its own (work things stay at work). Claude itself stays exactly as it is: the official app, the official Claude Code, your own logins. No terminal, ever: everything is a button.
+
+![Your accounts, side by side](docs/design/captures/03-comptes.png)
+
+## What you get
+
+- **One app per account.** A personal account and a business one, a client's, a team's: up to fifty. Each has a name, a color or a photo, a note, and an app of its own in `~/Applications/Brainmerge` that you can drag to the Dock. Open, quit, edit, remove, from buttons.
+- **One memory, or one each.** What Claude Code learns about a project in one account, the others know too, through a shared folder of Markdown notes (`~/Brain` by default, or a folder you already have: an Obsidian vault works well). Give an account its own memory in one click, for work or a client: what it learns then stays there. Every account writes to exactly one memory; nothing is ever moved or deleted behind your back.
+- **A timeline of what was remembered.** Who saved what, about which project, and when, in plain sentences, for each memory.
+- **Connected, or not yet.** Each card says whether the account has logged in, and the guided setup turns to "Connected" on its own once you have. Brainmerge only looks at the names of Claude's own storage files, never inside them.
+- **Alive.** When Claude updates itself, the accounts that keep a copy of it (the ones with their own Dock icon) are rebuilt for the new version, on their own or with one click. Claude's version is checked every few minutes and whenever the window comes to the front.
+- **Usage per account.** What each account spent, read from Claude Code's own transcripts on your Mac: today, seven days, thirty days, by project and by model. Informative only: Brainmerge never switches accounts for you, and it never reads your limits (only Claude knows them). Reading eight gigabytes of transcripts takes under twenty seconds and a few dozen megabytes; the next read takes under a second.
+- **Memory per account.** How much RAM each open Claude window uses, and a quiet warning when your Mac runs low.
+- **Nothing leaves your Mac.** No server, no account of ours, no network call. Everything is local files and git.
+- **Leaves cleanly.** Remove Brainmerge from Settings: its hooks, account apps, link and settings go, every project keeps a copy of its notes, your memories and logins stay.
+
+## How it works
+
+### First launch: a guided setup
+
+![First launch](docs/design/captures/02-premier-lancement.png)
+
+![How it works](docs/design/captures/02b-how-it-works.png)
+
+1. A welcome that says what Brainmerge is for.
+2. How it works, with a small animated diagram: several accounts, one memory, Claude Code reading and writing it in every account.
+3. Where the memory lives: a new folder, or one you already have. Notes can be written in English or in French. Pick what opens it: the folder, a notes app found on your Mac (Obsidian, Logseq, iA Writer, Typora, VS Code, Cursor, Zed, with their icons), or any other app; free apps are suggested when none is installed.
+4. Your current Claude becomes your first account, with every project it already remembers.
+5. A second account, optional: name, color, note, and whether it shares the memory or gets its own. It is created on the spot, the screen guides the login (Claude must not be open elsewhere, the login link would land there) and says "Connected" once you are.
+6. All set: a live checklist (Claude, memory, accounts, command line), what happens next, and three tips to go further.
+
+### Accounts
+
+![Add an account](docs/design/captures/04-ajout.png)
+
+Give it a name and a color (or a photo), optionally a note, and pick its memory: shared, another one, or its own. Claude opens in a new window and asks you to log in, like always. The card then shows whether it is open, logged in, and which memory it writes to. Every card has a menu: edit, memory, show its app in Finder, rebuild, quit, remove.
+
+![Edit an account](docs/design/captures/08-edit.png)
+
+Editing an account changes everything in one place: name, color or photo, note, memory, and the "Own icon in the Dock" option. With it, the Dock shows this account's icon and name while it runs (a local tinted copy of Claude, rebuilt after each Claude update); without it, a small launcher starts the real Claude with the right folders. Advanced options when adding: share the conversation history with your first account, or reuse folders you already had for that account.
+
+### The memory
+
+![Memory](docs/design/captures/05-memoire.png)
+
+Every account writes its notes into its memory, one subfolder per project. A memory is a git repository: each account signs its own saves, so the Memory screen can tell you who remembered what. Open it in Finder, Obsidian or any app; with several memories, a picker at the top switches between them. Settings lists every memory, the accounts that write to it, and lets you add one, rename one, or forget one you no longer use (its folder stays on disk).
+
+### Settings
+
+![Settings](docs/design/captures/06-reglages.png)
+
+Where Claude is, whether tinted copies are rebuilt after a Claude update, your memories, the notes app, the language of new notes, the optional command line, and the two exits: check for updates (opens the releases page, no connection from the app) and remove Brainmerge.
+
+### Usage
+
+![Usage](docs/design/captures/21-usage.png)
+
+Each card is one account, or two accounts that share their history (they write the same transcripts, so their usage is one number). Numbers are output tokens (what Claude wrote) and context (what it read, cache included), from the transcripts Claude Code keeps locally. Limits and reset times are only known to Claude: the button opens its usage page.
+
+### Under the hood
+
+- Each account is the official Claude app launched with its own data folder (a standard setting of the app) and Claude Code launched with its own `CLAUDE_CONFIG_DIR` (a variable documented by Anthropic).
+- Brainmerge links each project's memory folder into the account's memory, and installs a small Claude Code hook that saves that memory to git at the end of each session.
+- The Dock icon of a second account is a small launcher app that starts the real Claude with the right folders. By default nothing else is created. The "own icon" option makes a local copy of Claude on your own Mac, never shared.
+- "Connected" comes from the presence of Claude's own storage files in the account's data folder. Their contents are never read.
+
+## Install
+
+1. Download the disk image from the releases page, open it and drag Brainmerge to Applications. If you open the app from somewhere else, it offers to move itself there.
+2. Open Brainmerge and follow the guided setup. That is all: no terminal, no configuration file.
+3. Add a second account whenever you like. Claude opens in a new window and asks you to log in.
+
+Brainmerge needs macOS 26 and the Claude app. The first time a new account opens, macOS asks once to allow "Claude Safe Storage" in the keychain: click Always Allow. It may also ask whether the new account may access your Documents folder: click Allow. Both prompts come from the Claude app doing exactly what it does on first launch, under the new account's name. Quit your other Claude windows before logging a new account in: the login link from your browser opens in the Claude window that is already running.
+
+The current builds are signed ad hoc, not notarized: macOS will ask you to confirm the first opening (right-click, Open). Notarized builds come with a later release.
+
+## Why this stays within Anthropic's terms
+
+Anthropic's Consumer Terms forbid sharing or lending accounts, rotating accounts to get around usage limits, and using a subscription token outside Claude Code and the Claude apps. Brainmerge is built to stay on the right side of every one of those rules:
+
+1. It only launches the official Claude app and the official Claude Code that are already installed. Each account logs in by itself, inside them.
+2. It never reads, stores or transmits a credential or a token. There is no code path for it. Even "Connected" is decided from file names alone.
+3. It separates accounts with `CLAUDE_CONFIG_DIR`, a variable documented by Anthropic, and with a data folder per instance, a standard setting of the app.
+4. The memory is a folder of local files. Brainmerge makes no network call, to Anthropic or to anyone else.
+5. It has no account rotation, no switching when a limit is reached, no pooled usage, and never will.
+6. It does not redistribute or modify Anthropic's binaries. By default the Claude app is not touched. The optional "own icon" makes a local copy on your own Mac, never shared.
+
+One account is one person. Brainmerge helps people who legitimately hold several accounts, for instance a personal one and one for a business, keep them tidy. It does not promise anything about bans: how you use your accounts is up to you.
+
+## Disclaimer and terms of use
+
+Brainmerge is free and open-source software, published under the MIT license. It is provided "as is", without warranty of any kind. By using it you accept that:
+
+- You are responsible for the Claude accounts you use with it, and for complying with Anthropic's terms of service. Brainmerge does not create, share, rotate or pool accounts, and must not be used to.
+- The author is not liable for any suspension of an account, loss of data, or damage arising from the use or misuse of this software. Back up your memory folders; they are git repositories, so you can also push them wherever you like.
+- Brainmerge is an independent project. It is not affiliated with, endorsed by, or supported by Anthropic. Claude is a trademark of Anthropic.
+
+If any of this is not acceptable to you, do not use the software.
+
+## Other assistants
+
+The idea is generic: one folder per account, one memory (or several), a hook that saves it. Today the code speaks to the Claude app and Claude Code, because that is what the author uses every day. Codex and other assistants with a desktop app have similar levers (Codex CLI honors `CODEX_HOME`, reads `AGENTS.md`, and can run a command on events), but not the same automatic memory, so support is on the roadmap rather than promised. If you want to bring your assistant, open an issue: the account and memory models are designed to take a second provider.
+
+## Command line
+
+For people who like one. The app links `brainmerge` into `~/.local/bin` at the end of the first launch (Settings, Command line, to reinstall). Everything the app does is available there:
+
+```
+brainmerge brain init [path] [--lang en|fr]     create the default memory
+brainmerge brain list | add --name NAME [path] | forget ID | rename ID --name NAME
+brainmerge brain status | wire | timeline [--brain ID]
+brainmerge adopt-primary [--name NAME]          your current Claude becomes the first account
+brainmerge identity list [--json]
+brainmerge identity add --name NAME [--tint COLOR] [--logo FILE] [--note TEXT]
+                        [--brain ID | --own-brain] [--no-desktop] [--tinted-icon]
+                        [--shared-history] [--adopt-cli DIR] [--adopt-desktop DIR]
+brainmerge identity edit SLUG [--name] [--tint] [--logo] [--note] [--brain ID] [--icon distinct|launcher]
+brainmerge identity remove SLUG [--delete-data]
+brainmerge identity launch | quit | rebuild SLUG
+brainmerge usage [--identity SLUG] [--json] [--timing]
+brainmerge sync --identity SLUG                 save the memory (called by a Claude Code hook)
+brainmerge doctor [--json]                      check that everything is in place
+brainmerge uninstall [--yes]                    undo everything, keep every note and login
+```
+
+## Contributing
+
+Issues and pull requests are welcome: see `CONTRIBUTING.md` for the workflow and the rules, `docs/brand/DESIGN.md` for the design tokens. The code is Swift: `Packages/BrainmergeCore` (engine and command line), `Packages/BrainmergeUI` (SwiftUI screens and models), and an Xcode project generated with `xcodegen generate`. Please keep the six points above true.
+
+## License
+
+MIT. See `LICENSE`.
+
+Works with Claude. Not made by Anthropic.

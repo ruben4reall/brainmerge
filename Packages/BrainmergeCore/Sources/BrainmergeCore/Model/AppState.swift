@@ -1,0 +1,94 @@
+import Foundation
+
+public enum BrainLanguage: String, Codable, Sendable { case en, fr }
+
+/// A memory the app knows by name: a Brain folder. The first one in the list is the default, shared one.
+public struct MemoryFolder: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var name: String
+    public var path: String
+    public init(id: String, name: String, path: String) { self.id = id; self.name = name; self.path = path }
+    public var url: URL { URL(fileURLWithPath: path, isDirectory: true) }
+}
+
+public struct AppState: Codable, Equatable, Sendable {
+    public static let currentSchema = 2
+    public static let defaultBrainID = "shared"
+    public static let defaultBrainName = "Shared"
+
+    public var schemaVersion: Int
+    public var machineID: String
+    /// Every memory folder; the first one is the default, the one accounts use unless they name another.
+    public var brains: [MemoryFolder]
+    public var identities: [Identity]
+    public var autoRebuild: Bool
+    public var brainLanguage: BrainLanguage
+    /// The app that opens the memory folder: a bundle identifier, "path:<app>" for any other app, nil for the folder itself.
+    public var notesApp: String?
+
+    public init(schemaVersion: Int = AppState.currentSchema, machineID: String = UUID().uuidString,
+                brainPath: String? = nil, identities: [Identity] = [], autoRebuild: Bool = true,
+                brainLanguage: BrainLanguage = .en, notesApp: String? = nil, brains: [MemoryFolder] = []) {
+        self.schemaVersion = schemaVersion; self.machineID = machineID
+        self.identities = identities; self.autoRebuild = autoRebuild; self.brainLanguage = brainLanguage; self.notesApp = notesApp
+        self.brains = brains
+        if brains.isEmpty, let brainPath { self.brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: brainPath)] }
+    }
+
+    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp }
+
+    /// Schema 1 (a single `brainPath`) becomes a list with one memory called Shared.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        machineID = try c.decode(String.self, forKey: .machineID)
+        identities = try c.decode([Identity].self, forKey: .identities)
+        autoRebuild = try c.decode(Bool.self, forKey: .autoRebuild)
+        brainLanguage = try c.decode(BrainLanguage.self, forKey: .brainLanguage)
+        notesApp = try c.decodeIfPresent(String.self, forKey: .notesApp)
+        let list = try c.decodeIfPresent([MemoryFolder].self, forKey: .brains) ?? []
+        if list.isEmpty, let path = try c.decodeIfPresent(String.self, forKey: .brainPath) {
+            brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: path)]
+        } else {
+            brains = list
+        }
+    }
+
+    /// `brainPath` is written too (the default memory's folder), for anything that reads the file by hand.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(schemaVersion, forKey: .schemaVersion)
+        try c.encode(machineID, forKey: .machineID)
+        try c.encodeIfPresent(brainPath, forKey: .brainPath)
+        try c.encode(brains, forKey: .brains)
+        try c.encode(identities, forKey: .identities)
+        try c.encode(autoRebuild, forKey: .autoRebuild)
+        try c.encode(brainLanguage, forKey: .brainLanguage)
+        try c.encodeIfPresent(notesApp, forKey: .notesApp)
+    }
+
+    /// The default memory's folder. Setting it moves the default memory to that folder, or creates it.
+    public var brainPath: String? {
+        get { brains.first?.path }
+        set {
+            if let newValue {
+                if brains.isEmpty { brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: newValue)] }
+                else { brains[0].path = newValue }
+            } else if !brains.isEmpty {
+                brains.removeFirst()
+            }
+        }
+    }
+    public var brainURL: URL? { defaultBrain?.url }
+    public var defaultBrain: MemoryFolder? { brains.first }
+    public func brain(id: String) -> MemoryFolder? { brains.first { $0.id == id } }
+    /// The identity's memory: the one it names while it exists, otherwise the default one.
+    public func brain(for identity: Identity) -> MemoryFolder? { identity.brain.flatMap(brain(id:)) ?? defaultBrain }
+    public var takenBrainIDs: Set<String> { Set(brains.map(\.id)) }
+    /// The identities attached to a memory.
+    public func identities(using brainID: String) -> [Identity] { identities.filter { brain(for: $0)?.id == brainID } }
+
+    public var primary: Identity? { identities.first { $0.isPrimary } }
+    public func identity(slug: String) -> Identity? { identities.first { $0.slug == slug } }
+    public var takenSlugs: Set<String> { Set(identities.map(\.slug)) }
+}

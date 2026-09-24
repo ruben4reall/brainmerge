@@ -1,0 +1,313 @@
+import Foundation
+import Testing
+import BrainmergeTestSupport
+@testable import BrainmergeCore
+
+@Suite struct IdentityManagerTests {
+    @Test func adoptsPrimaryWithoutTouchingItsFiles() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let identity = try e.manager.adoptPrimary(name: "Perso")
+        #expect(identity.isPrimary && identity.slug == "perso")
+        let claudeMD = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        #expect(claudeMD.hasPrefix("# Mes règles\n\n- pas de tiret cadratin\n"))
+        #expect(ManagedBlock.contains(claudeMD))
+        #expect(try HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile))
+        let root = try JSONSerialization.jsonObject(with: Data(contentsOf: e.primaryProfile.settingsFile)) as! [String: Any]
+        #expect(HookInstaller.stopCommands(root).first == "cd vault && git push")
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "atelier").path)
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["perso"]?.name == "Perso")
+        #expect(try e.store.load().primary?.slug == "perso")
+        #expect(try e.manager.adoptPrimary(name: "Autre").slug == "perso")
+    }
+
+    @Test func addsLauncherIdentityWithProfileDataDirAndApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        var request = IdentityManager.AddRequest(name: "ClientStudio")
+        request.tint = .blue
+        let identity = try e.manager.add(request)
+        #expect(identity.slug == "clientstudio")
+        let profile = CLIProfile(directory: identity.cliProfile(in: e.home.paths))
+        #expect(profile.directory.lastPathComponent == ".claude-clientstudio")
+        let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: profile.settingsFile)) as! [String: Any]
+        #expect(settings["language"] as? String == "french")
+        #expect(HookInstaller.stopCommands(settings).count == 1)
+        #expect(ManagedBlock.contains(try String(contentsOf: profile.claudeMD, encoding: .utf8)))
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: profile.skillsDir.path) == e.primaryProfile.skillsDir.path)
+        #expect(FileManager.default.fileExists(atPath: identity.desktopData(in: e.home.paths).path))
+        let app = e.home.paths.launcherApp(name: "ClientStudio")
+        #expect(FileManager.default.fileExists(atPath: app.appending(path: "Contents/Resources/icon.icns").path))
+        #expect(try e.store.load().identity(slug: "clientstudio")?.builtForClaudeVersion == "2.7032.0")
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["clientstudio"]?.tint == "blue")
+        #expect(throws: BrainmergeError.identityNameTaken("ClientStudio")) { try e.manager.add(IdentityManager.AddRequest(name: "ClientStudio")) }
+    }
+
+    @Test func sharedHistoryLinksProjectsToPrimary() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        var request = IdentityManager.AddRequest(name: "Client")
+        request.sharedHistory = true
+        let identity = try e.manager.add(request)
+        let projects = CLIProfile(directory: identity.cliProfile(in: e.home.paths)).projectsDir
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: projects.path) == e.primaryProfile.projectsDir.path)
+    }
+
+    @Test func adoptsExistingProfileAndDataDir() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let cli = e.home.url.appending(path: ".claude-second", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cli, withIntermediateDirectories: true)
+        try Data(#"{"model":"sonnet"}"#.utf8).write(to: cli.appending(path: "settings.json"))
+        let data = e.home.url.appending(path: "Library/Application Support/Claude-Second", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        try Data("cookie".utf8).write(to: data.appending(path: "Cookies"))
+        var request = IdentityManager.AddRequest(name: "Client")
+        request.adoptCLIProfile = cli
+        request.adoptDesktopData = data
+        let identity = try e.manager.add(request)
+        let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: cli.appending(path: "settings.json"))) as! [String: Any]
+        #expect(settings["model"] as? String == "sonnet")
+        #expect(HookInstaller.stopCommands(settings).count == 1)
+        #expect(FileManager.default.fileExists(atPath: data.appending(path: "Cookies").path))
+        let config = try JSONDecoder().decode(LauncherConfig.self, from: Data(contentsOf:
+            e.home.paths.launcherApp(name: "Client").appending(path: "Contents/Resources/brainmerge.json")))
+        #expect(config.configDir == cli.path && config.dataDir == data.path)
+        #expect(identity.cliProfilePath == cli.path)
+    }
+
+    @Test func updatesNameTintAndRebuildsLauncher() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let updated = try e.manager.update(slug: "client", name: "ClientStudio", tint: .green, logo: nil, note: "Institut")
+        #expect(updated.name == "ClientStudio" && updated.tint == .green && updated.slug == "client")
+        #expect(updated.note == "Institut")
+        #expect(FileManager.default.fileExists(atPath: e.home.paths.launcherApp(name: "ClientStudio").path))
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+        let claudeMD = try String(contentsOf: CLIProfile(directory: updated.cliProfile(in: e.home.paths)).claudeMD, encoding: .utf8)
+        #expect(claudeMD.contains("identity \"ClientStudio\""))
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["client"] == IdentityRegistry.Entry(name: "ClientStudio", tint: "green"))
+    }
+
+    @Test func removeDeletesSecondaryAndOnlyDetachesPrimary() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let identity = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try e.manager.remove(slug: "client", deleteData: true)
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+        #expect(!FileManager.default.fileExists(atPath: identity.cliProfile(in: e.home.paths).path))
+        #expect(!FileManager.default.fileExists(atPath: identity.desktopData(in: e.home.paths).path))
+        #expect(try e.store.load().identity(slug: "client") == nil)
+
+        try e.manager.remove(slug: "perso", deleteData: true)
+        #expect(FileManager.default.fileExists(atPath: e.primaryProfile.claudeMD.path))
+        #expect(!ManagedBlock.contains(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)))
+        #expect(try !HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile))
+        #expect(try e.store.load().identities.isEmpty)
+    }
+
+    @Test func addWithoutBrainCreatesNothing() throws {
+        let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
+        #expect(throws: BrainmergeError.brainNotConfigured) { try e.manager.add(IdentityManager.AddRequest(name: "Client")) }
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.cliProfile(slug: "client", isPrimary: false).path))
+        #expect(try e.store.load().identities.isEmpty)
+    }
+
+    @Test func rebuildFollowsClaudeVersion() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        var plist = try Plist.read(e.claude.infoPlist)
+        plist["CFBundleShortVersionString"] = "2.8000.0"
+        try Plist.write(plist, to: e.claude.infoPlist)
+        try e.manager.rebuild(slug: "client")
+        #expect(try e.store.load().identity(slug: "client")?.builtForClaudeVersion == "2.8000.0")
+        #expect(throws: BrainmergeError.identityNotFound("nope")) { try e.manager.rebuild(slug: "nope") }
+        #expect(throws: BrainmergeError.identityNotFound("nope")) { try e.manager.launch(slug: "nope") }
+    }
+
+    @Test func duplicateNamesAreRefusedCaseInsensitively() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        #expect(throws: BrainmergeError.identityNameTaken("client")) { try e.manager.add(IdentityManager.AddRequest(name: "client")) }
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        #expect(throws: BrainmergeError.identityNameTaken("PERSO")) { try e.manager.update(slug: "work", name: "PERSO", tint: nil, logo: nil) }
+        #expect(try e.store.load().identities.count == 3)
+    }
+
+    @Test func refusesRebuildEditAndRemoveWhileRunning() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let dataDir = client.desktopData(in: e.home.paths).path
+        let exe = e.claude.executable.path
+        let running = ProcessMonitor(psOutput: { "  900 1 120000 \(exe) --user-data-dir=\(dataDir)\n" })
+        let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
+                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: running)
+        #expect(try manager.isRunning(client))
+        #expect(throws: BrainmergeError.identityRunning("client")) { try manager.rebuild(slug: "client") }
+        #expect(throws: BrainmergeError.identityRunning("client")) { try manager.update(slug: "client", name: "Autre", tint: nil, logo: nil) }
+        #expect(throws: BrainmergeError.identityRunning("client")) { try manager.remove(slug: "client", deleteData: false) }
+        #expect(FileManager.default.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+    }
+
+    @Test func removeNeverDeletesAdoptedFolders() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let cli = e.home.url.appending(path: ".claude-second", directoryHint: .isDirectory)
+        let data = e.home.url.appending(path: "Library/Application Support/Claude-Second", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: cli, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        var request = IdentityManager.AddRequest(name: "Client")
+        request.adoptCLIProfile = cli
+        request.adoptDesktopData = data
+        _ = try e.manager.add(request)
+        try e.manager.remove(slug: "client", deleteData: true)
+        #expect(FileManager.default.fileExists(atPath: cli.path))
+        #expect(FileManager.default.fileExists(atPath: data.path))
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+    }
+
+    @Test func writesThroughSymlinkedSettingsAndClaudeMD() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let dotfiles = e.home.url.appending(path: "dotfiles", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dotfiles, withIntermediateDirectories: true)
+        for name in ["settings.json", "CLAUDE.md"] {
+            let original = e.primaryProfile.directory.appending(path: name)
+            let target = dotfiles.appending(path: name)
+            try FileManager.default.moveItem(at: original, to: target)
+            try FileManager.default.createSymbolicLink(at: original, withDestinationURL: target)
+        }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        for name in ["settings.json", "CLAUDE.md"] {
+            let link = e.primaryProfile.directory.appending(path: name)
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == dotfiles.appending(path: name).path)
+        }
+        #expect(try String(contentsOf: dotfiles.appending(path: "CLAUDE.md"), encoding: .utf8).contains(ManagedBlock.start))
+        #expect(try HookInstaller.isInstalled(settingsFile: dotfiles.appending(path: "settings.json")))
+    }
+
+    // MARK: Several memories
+
+    @Test func addsAMemoryAndAttachesAnAccountToIt() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        #expect(work.id == "work" && work.name == "Work")
+        #expect(work.path == e.home.url.appending(path: "Brain-work").path)
+        #expect(Brain(root: work.url).isInitialized)
+        #expect(try e.store.load().brains.map(\.id) == ["shared", "work"])
+        var request = IdentityManager.AddRequest(name: "Client")
+        request.brain = "work"
+        let client = try e.manager.add(request)
+        #expect(client.brain == "work")
+        let profile = CLIProfile(directory: client.cliProfile(in: e.home.paths))
+        #expect(try String(contentsOf: profile.claudeMD, encoding: .utf8).contains(work.path))
+        #expect(try IdentityRegistry.load(Brain(root: work.url).identitiesFile).identities["client"]?.name == "Client")
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["client"] == nil)
+        #expect(throws: BrainmergeError.brainNameTaken("Work")) { try e.manager.addBrain(name: "work", path: nil, language: .en) }
+        var unknown = IdentityManager.AddRequest(name: "Nope"); unknown.brain = "gone"
+        #expect(throws: BrainmergeError.brainUnknown("gone")) { try e.manager.add(unknown) }
+        #expect(try e.store.load().identity(slug: "nope") == nil)
+    }
+
+    @Test func switchingMemoryRelinksProjectsAndKeepsNotesWhereTheyWere() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        let sharedNotes = e.brain.memoryDir(forProject: "atelier")
+        try Data("# pricing\n".utf8).write(to: sharedNotes.appending(path: "decision_pricing.md"))
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+
+        try e.manager.setBrain(of: "perso", to: "work")
+
+        let state = try e.store.load()
+        #expect(state.identity(slug: "perso")?.brain == "work")
+        #expect(state.brain(for: state.identity(slug: "perso")!)?.id == "work")
+        let workNotes = Brain(root: work.url).memoryDir(forProject: "atelier")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == workNotes.path)
+        // The note stays where it was written; the new memory starts from what it already holds.
+        #expect(FileManager.default.fileExists(atPath: sharedNotes.appending(path: "decision_pricing.md").path))
+        #expect(!FileManager.default.fileExists(atPath: workNotes.appending(path: "decision_pricing.md").path))
+        let claudeMD = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        #expect(claudeMD.contains(work.path) && !claudeMD.contains(e.brain.root.path + "\n"))
+        // Back to the shared memory: the link comes back, the note is there again.
+        try e.manager.setBrain(of: "perso", to: "shared")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == sharedNotes.path)
+        #expect(throws: BrainmergeError.brainUnknown("gone")) { try e.manager.setBrain(of: "perso", to: "gone") }
+        #expect(throws: BrainmergeError.identityNotFound("nobody")) { try e.manager.setBrain(of: "nobody", to: "work") }
+    }
+
+    @Test func forgettingAMemoryInUseIsRefusedAndTheFolderStays() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        try e.manager.setBrain(of: "perso", to: "work")
+        #expect(throws: BrainmergeError.brainInUse("Work")) { try e.manager.forgetBrain(id: "work") }
+        #expect(throws: BrainmergeError.brainIsDefault) { try e.manager.forgetBrain(id: "shared") }
+        try e.manager.setBrain(of: "perso", to: "shared")
+        try e.manager.forgetBrain(id: "work")
+        #expect(try e.store.load().brains.map(\.id) == ["shared"])
+        #expect(FileManager.default.fileExists(atPath: work.url.appending(path: "BRAIN.md").path))
+        try e.manager.renameBrain(id: "shared", name: "Everyone")
+        #expect(try e.store.load().brains.first?.name == "Everyone")
+        #expect(try e.store.load().brains.first?.path == e.brain.root.path)
+    }
+
+    @Test func anAccountCanBeCreatedWithItsOwnMemory() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        var request = IdentityManager.AddRequest(name: "Work")
+        request.ownBrain = true
+        let identity = try e.manager.add(request)
+        let state = try e.store.load()
+        #expect(identity.brain == "work")
+        #expect(state.brains.map(\.id) == ["shared", "work"])
+        #expect(state.brain(for: identity)?.path == e.home.url.appending(path: "Brain-work").path)
+        #expect(Brain(root: state.brain(for: identity)!.url).isInitialized)
+        // The same name again: the account is refused before any memory is created.
+        var again = IdentityManager.AddRequest(name: "Work"); again.ownBrain = true
+        #expect(throws: BrainmergeError.identityNameTaken("Work")) { try e.manager.add(again) }
+        #expect(try e.store.load().brains.count == 2)
+    }
+
+    @Test func switchingToADistinctIconBuildsTheTintedCopy() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let fm = FileManager.default
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        #expect(fm.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+        let distinct = try e.manager.update(slug: "client", name: nil, tint: nil, logo: nil, iconMode: .tintedClone)
+        #expect(distinct.iconMode == .tintedClone && distinct.builtForClaudeVersion == "2.7032.0")
+        #expect(fm.fileExists(atPath: e.home.paths.tintedClone(name: "Client").path))
+        #expect(!fm.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+        #expect(try e.store.load().identity(slug: "client")?.appURL(in: e.home.paths) == e.home.paths.tintedClone(name: "Client"))
+        let plain = try e.manager.update(slug: "client", name: nil, tint: nil, logo: nil, iconMode: .launcher)
+        #expect(plain.iconMode == .launcher)
+        #expect(fm.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+        #expect(!fm.fileExists(atPath: e.home.paths.tintedClone(name: "Client").path))
+        #expect(try e.store.load().primary?.appURL(in: e.home.paths) == nil)
+    }
+
+    @Test func aPhotoCanBeRemoved() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let photo = try FakeIcon.orangePNG(in: e.home.url)
+        var request = IdentityManager.AddRequest(name: "Client"); request.logo = photo
+        #expect(try e.manager.add(request).logoPath == photo.path)
+        let cleared = try e.manager.update(slug: "client", name: nil, tint: .green, logo: nil, clearLogo: true)
+        #expect(cleared.logoPath == nil && cleared.tint == .green)
+        #expect(try e.store.load().identity(slug: "client")?.logoPath == nil)
+    }
+
+    @Test func memoryNamesAndFoldersAreValidated() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(throws: BrainmergeError.brainNameEmpty) { try e.manager.addBrain(name: "   ", path: nil, language: .en) }
+        #expect(throws: BrainmergeError.brainFolderInUse(e.brain.root.path)) { try e.manager.addBrain(name: "Again", path: e.brain.root, language: .en) }
+        #expect(throws: BrainmergeError.brainNameEmpty) { try e.manager.renameBrain(id: "shared", name: "") }
+        #expect(try e.store.load().brains.count == 1)
+    }
+}
