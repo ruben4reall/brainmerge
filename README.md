@@ -68,7 +68,9 @@ Editing an account changes everything in one place: name, color or photo, note, 
 
 ![Memory](docs/design/captures/05-memoire.png)
 
-Every account writes its notes into its memory, one subfolder per project. A memory is a git repository: each account signs its own saves, so the Memory screen can tell you who remembered what. Open it in Finder, Obsidian or any app; with several memories, a picker at the top switches between them. Settings lists every memory, the accounts that write to it, and lets you add one, rename one, or forget one you no longer use (its folder stays on disk).
+Every account writes its notes into its memory, one subfolder per project. The Memory screen shows it as a live graph, like Obsidian's: every note is a bubble in the color of the account that saved it, links are threads, each project is a larger bubble with its notes around it. A note pulses while Claude Code writes it, and again when the account saves it. Hover a bubble to light its neighbors, click it to read it, double-click it to open it in your notes app. The Timeline tab tells the same story in sentences.
+
+A memory is a git repository: each account signs its own saves, so Brainmerge can tell you who remembered what. The graph only reads the folder, never writes to it. Open it in Finder, Obsidian or any app; with several memories, a picker at the top switches between them. Settings lists every memory, the accounts that write to it, and lets you add one, rename one, or forget one you no longer use (its folder stays on disk).
 
 ### Settings
 
@@ -97,7 +99,7 @@ Each card is one account, or two accounts that share their history (they write t
 
 Brainmerge needs macOS 26 and the Claude app. The first time a new account opens, macOS asks once to allow "Claude Safe Storage" in the keychain: click Always Allow. It may also ask whether the new account may access your Documents folder: click Allow. Both prompts come from the Claude app doing exactly what it does on first launch, under the new account's name. Quit your other Claude windows before logging a new account in: the login link from your browser opens in the Claude window that is already running.
 
-The current builds are signed ad hoc, not notarized: macOS will ask you to confirm the first opening (right-click, Open). Notarized builds come with a later release.
+Releases are signed with a Developer ID and sent to Apple for notarization. Until Apple's check has landed for a release, macOS may stop its first opening: open System Settings, then Privacy & Security, and click Open Anyway (since macOS 15, right-click and Open no longer does it).
 
 ## Why this stays within Anthropic's terms
 

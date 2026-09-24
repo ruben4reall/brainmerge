@@ -3,6 +3,6 @@ import Testing
 
 @Suite struct SmokeTests {
     @Test func versionIsSet() {
-        #expect(BrainmergeUIInfo.version == "0.3.0")
+        #expect(BrainmergeUIInfo.version == "0.4.0")
     }
 }

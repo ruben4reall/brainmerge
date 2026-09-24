@@ -7,9 +7,10 @@
 
 - [ ] Rejouer S2 et S3 (vraies sessions Claude Code des deux comptes) quand les profils CLI sont reconnectés
 - [ ] Réglages GitHub à faire par Ruben : protéger main (fusion par PR, CI verte), téléverser l'aperçu social (docs/brand/banner-1280x640.png), description et sujets du dépôt, activer « Report a vulnerability »
-- [ ] v0.4 : Codex et autres assistants (CODEX_HOME, AGENTS.md, notify) derrière une abstraction « provider » ; sessions Terminal dans la RAM par compte ; carte de la mémoire (graphe des notes, comptes et projets)
+- [ ] Codex et autres assistants (CODEX_HOME, AGENTS.md, notify) derrière une abstraction « provider » ; sessions Terminal dans la RAM par compte
 - [ ] Calibrer la détection de connexion sur une vraie connexion (un compte de test au clavier)
-- [ ] Créer l'identité Developer ID Application et le profil notarytool avec le compte Apple de Ruben (prérequis de la livraison)
+- [ ] Attendre le verdict de la première notarisation (soumission ba80b09e), puis publier la 0.4.0 signée et notarisée avec `~/brainmerge-private/release-signed.sh` et retirer le « clic droit puis Ouvrir » du README et du site
+- [ ] Site vitrine : finir, relire, déployer sur Vercel (scope perso, brainmerge.vercel.app), l'ajouter à ruben-analytics, lier la page d'accueil du dépôt
 - [ ] Envoyer à Anthropic la demande d'autorisation pour la mascotte (lettre dans ~/brainmerge-private/docs/anthropic-brand-request.md) avant la sortie publique ; si refus, remplacer la créature (un seul fichier)
 - [ ] Trouver un nom à la créature avec Ruben
 - [ ] v0.1 « Ton montage, automatisé » : identités, cerveau local, attribution, doctor, interface, tests, build signée et notarisée
@@ -18,6 +19,9 @@
 - [ ] Windows en natif, après la v1
 
 ## Fait
+
+- [x] 2026-09-24 : signature Developer ID via le compte Xcode de Ruben (export developer-id avec signature cloud), release.sh qui signe, notarise, agrafe et produit dist/Brainmerge.dmg
+- [x] 2026-09-24 : écran Mémoire en graphe vivant façon Obsidian (bulles par compte, liens, projets, pulsations, survol, clic, double-clic, frise en second onglet), branche memory-graph
 
 - [x] 2026-09-24 : v0.3 « utile pour de vrai » : plusieurs mémoires (une par compte au choix), état connecté, feuille d'édition et vrai app par compte, mises à jour vivantes des copies teintées, lecture d'usage 13 fois plus légère, désinstallation propre, finitions de l'audit design, README réécrit autour du problème, 0.3.0 installée
 - [x] 2026-09-24 : plan C « finitions v0.2 » : DA violette sobre et pro, écran Usage (tokens locaux), RAM par compte et alerte, identité de marque, DMG propre et déplacement vers Applications, fichiers de contribution, revue finale corrigée, 0.2.0 installée

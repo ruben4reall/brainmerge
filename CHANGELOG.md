@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- The memory as a live graph, like Obsidian's graph view. Every note is a bubble in the color of the account that saved it last, links between notes are threads, and each project is a larger bubble that is also its index (`MEMORY.md`). A note pulses while Claude Code writes it, and again, in the account's color, when that account saves it. Hover a bubble to light it and its neighbors, click it to read it (who saved it, when, its first lines, updated live), double-click it to open it in your notes app. Drag to move around or to pull a bubble, pinch or scroll to zoom. The legend counts each account's notes; click an account to keep its notes lit. The timeline of sentences stays one click away.
+- The graph reads links the way Obsidian does: `[[wikilinks]]` with aliases and headings, notes with dots in their names, Markdown links relative to the note or to the memory, links with spaces or titles; code and embedded files are left out. Names with accents keep their author.
+- Light on the Mac: only notes that changed are read again, the history is read again only after a save, a fifty-thousand-file vault is walked in about a quarter of a second, a hidden window stops reading, and only the drawing redraws while the graph moves. Up to 2,000 notes are drawn, the most recent. Symlinks are never followed, and a memory kept behind a symlink (Dropbox, iCloud) is read where it really is.
+- Keyboard and VoiceOver: with keyboard navigation on, arrow keys go from note to note, Return opens, Escape closes; VoiceOver lists the notes with who saved them. With Reduce Motion, the graph settles out of sight and pulses do not ripple.
+- Opening a note whose name holds "&", "+" or "=" in Obsidian now opens that note.
+- Releases can be signed with a Developer ID and notarized by Apple (`scripts/release.sh` with a team and a notary key); screenshots are only ever taken on a demo home.
+
 ## 0.3.0
 
 - Several memories: one shared by default, and any account can get a memory of its own (from its card's menu, the edit sheet, the add sheet or the guided setup). Every account writes to exactly one memory; switching relinks its projects and moves no note. The Memory screen has a picker, Settings lists the memories (add, rename, forget without deleting), and the command line follows (`brain list | add | forget | rename`, `identity add --brain | --own-brain`, `identity edit --brain`). States written by 0.2 are migrated as they are.

@@ -18,6 +18,19 @@ WORK=.build/release-work
 rm -rf dist "$WORK" && mkdir -p dist "$WORK"
 xcodegen generate >/dev/null
 
+# NOTARIZE_LATER=1: the Developer ID build is submitted to Apple without waiting (useful while Apple's queue is slow).
+# The disk image goes out signed; once Apple accepts it, Gatekeeper finds the ticket online, and
+# `xcrun stapler staple dist/Brainmerge-<version>.dmg` staples it for offline checks.
+submit_later() {   # submit_later <file>: submits and records the submission id in dist/notary-pending.txt
+  local log="$WORK/notary-$(basename "$1").log"
+  xcrun notarytool submit "$1" --key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --no-wait > "$log" 2>&1 \
+    || { cat "$log" >&2; exit 1; }
+  local id; id=$(grep -m1 -E '^ *id:' "$log" | awk '{print $2}')
+  [ -n "$id" ] || { cat "$log" >&2; exit 1; }
+  echo "$(basename "$1") $id" >> dist/notary-pending.txt
+  echo "Submitted for notarization: $(basename "$1") ($id)"
+}
+
 notarize() {   # notarize <file>: submits, waits, fails loudly on anything but Accepted
   local log="$WORK/notary-$(basename "$1").log"
   xcrun notarytool submit "$1" --key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait --timeout 60m > "$log" 2>&1 || true
@@ -56,10 +69,12 @@ PLIST
     codesign -dv "$f" 2>&1 | grep -q "flags=0x10000(runtime)" || { echo "$f is not signed with the hardened runtime" >&2; exit 1; }
   done
   codesign --verify --deep --strict "$APP"
-  ditto -c -k --keepParent "$APP" "$WORK/Brainmerge.zip"
-  notarize "$WORK/Brainmerge.zip"
-  xcrun stapler staple "$APP" >/dev/null
-  spctl -a -t exec "$APP" || { echo "Gatekeeper still rejects the app" >&2; exit 1; }
+  if [ -z "${NOTARIZE_LATER:-}" ]; then
+    ditto -c -k --keepParent "$APP" "$WORK/Brainmerge.zip"
+    notarize "$WORK/Brainmerge.zip"
+    xcrun stapler staple "$APP" >/dev/null
+    spctl -a -t exec "$APP" || { echo "Gatekeeper still rejects the app" >&2; exit 1; }
+  fi
 else
   echo "No BRAINMERGE_TEAM_ID: ad hoc signature (macOS will ask people to confirm the first opening)."
   xcodebuild -project Brainmerge.xcodeproj -scheme Brainmerge -configuration Release -derivedDataPath "$WORK/dd" build > "$WORK/build.log" 2>&1 \
@@ -119,7 +134,9 @@ hdiutil detach "$MOUNT" -quiet || (sleep 2 && hdiutil detach "$MOUNT" -force -qu
 # 3. Conversion to a compressed, read-only image; with Developer ID, the image is notarized and stapled too.
 hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "dist/Brainmerge-$VERSION.dmg" >/dev/null
 rm -f "$RW"
-if [ -n "$TEAM" ]; then
+if [ -n "$TEAM" ] && [ -n "${NOTARIZE_LATER:-}" ]; then
+  submit_later "dist/Brainmerge-$VERSION.dmg"   # the image holds the app: one submission covers both
+elif [ -n "$TEAM" ]; then
   notarize "dist/Brainmerge-$VERSION.dmg"
   xcrun stapler staple "dist/Brainmerge-$VERSION.dmg" >/dev/null
   spctl -a -t open --context context:primary-signature "dist/Brainmerge-$VERSION.dmg" 2>/dev/null || true
