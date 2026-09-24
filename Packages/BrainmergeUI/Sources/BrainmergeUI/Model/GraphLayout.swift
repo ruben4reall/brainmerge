@@ -7,7 +7,7 @@ import Foundation
 ///
 /// Plain value type, deterministic (same graph, same picture), cheap to step: repulsion only looks at notes in
 /// neighboring cells of a grid, so a vault of a few thousand notes still steps well within a frame.
-struct GraphLayout {
+struct GraphLayout: Sendable {
     private(set) var ids: [String] = []
     private var index: [String: Int] = [:]
     private var x: [Double] = [], y: [Double] = [], vx: [Double] = [], vy: [Double] = []
@@ -54,7 +54,11 @@ struct GraphLayout {
         var neighbors = [[Int]](repeating: [], count: nodes.count)
         for (a, b) in newLinks { neighbors[a].append(b); neighbors[b].append(a) }
         let wasEmpty = old.isEmpty
-        var changed = nodes.count != ids.count || newLinks.count != links.count
+        // Compared as sets of named pairs: a link rewired from one note to another counts, even at the same count.
+        func pairs(_ links: [(Int, Int)], _ names: [String]) -> Set<String> {
+            Set(links.map { let a = names[$0.0], b = names[$0.1]; return a < b ? a + "\u{0}" + b : b + "\u{0}" + a })
+        }
+        var changed = nodes.count != ids.count || newLinks.count != links.count || pairs(newLinks, nodes) != pairs(links, ids)
         for (i, id) in nodes.enumerated() where !placed[i] {
             changed = true
             let seed = Self.hash(id)

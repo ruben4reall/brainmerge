@@ -81,6 +81,15 @@ public enum NotesApps {
         return image
     }
 
+    /// Obsidian's link to a folder or a note. Everything that means something in a query is escaped, so a note named
+    /// "Q&A + notes" reaches Obsidian whole.
+    public static func obsidianURL(for location: URL) -> URL? {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&+=#?")
+        guard let encoded = location.path.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        return URL(string: "obsidian://open?path=\(encoded)")
+    }
+
     /// Opens the folder with the target. Obsidian gets its own URL scheme so the folder becomes a vault;
     /// every other app receives the folder as a document; the folder itself opens in the Finder.
     @MainActor
@@ -89,9 +98,7 @@ public enum NotesApps {
         case .folder:
             NSWorkspace.shared.open(folder)
         case .app(let app):
-            if app.bundleIdentifier == "md.obsidian",
-               let encoded = folder.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-               let url = URL(string: "obsidian://open?path=\(encoded)") {
+            if app.bundleIdentifier == "md.obsidian", let url = obsidianURL(for: folder) {
                 NSWorkspace.shared.open(url)
             } else if let location = app.location {
                 NSWorkspace.shared.open([folder], withApplicationAt: location, configuration: NSWorkspace.OpenConfiguration()) { _, _ in }

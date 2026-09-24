@@ -22,4 +22,11 @@ import Testing
         #expect(Set(NotesApps.known.map(\.bundleIdentifier)).count == NotesApps.known.count)
         #expect(NotesApps.known.allSatisfy { $0.website.scheme == "https" })
     }
+
+    @Test func obsidianReceivesTheWholePathWhateverItsCharacters() throws {
+        let url = try #require(NotesApps.obsidianURL(for: URL(fileURLWithPath: "/Brain/memory/web/Q&A + notes=1#2?.md")))
+        #expect(url.absoluteString == "obsidian://open?path=/Brain/memory/web/Q%26A%20%2B%20notes%3D1%232%3F.md")
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        #expect(components.queryItems?.first { $0.name == "path" }?.value == "/Brain/memory/web/Q&A + notes=1#2?.md")
+    }
 }

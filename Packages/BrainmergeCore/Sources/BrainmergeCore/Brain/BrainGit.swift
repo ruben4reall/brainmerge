@@ -36,9 +36,18 @@ public struct BrainGit: Sendable {
         return true
     }
 
+    /// The commit the memory is at, nil before the first save. Cheap: the graph asks it every few seconds and reads
+    /// the history again only when it moved.
+    public func head() -> String? {
+        guard let result = try? shell.run("/usr/bin/git", ["rev-parse", "--verify", "-q", "HEAD"], cwd: brain.root), result.status == 0 else { return nil }
+        let hash = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return hash.isEmpty ? nil : hash
+    }
+
     public func log(limit: Int = 50) throws -> [Entry] {
         guard try shell.run("/usr/bin/git", ["rev-parse", "--verify", "HEAD"], cwd: brain.root).status == 0 else { return [] }
-        let out = try shell.check("/usr/bin/git", ["log", "-n", "\(limit)", "--name-only",
+        // core.quotePath=false: "décision.md" comes out as it is written, not as "d\303\251cision.md" in quotes.
+        let out = try shell.check("/usr/bin/git", ["-c", "core.quotePath=false", "log", "-n", "\(limit)", "--name-only",
                                                    "--pretty=format:%x1e%H%x1f%aI%x1f%an%x1f%ae%x1f%s"], cwd: brain.root)
         let iso = ISO8601DateFormatter()
         return out.split(separator: "\u{1e}").compactMap { record -> Entry? in

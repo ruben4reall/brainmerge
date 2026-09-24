@@ -39,6 +39,24 @@ import Testing
         #expect(layout.position(of: "c") == nil && layout.position(of: "d") == nil)
     }
 
+    @Test func aRewiredLinkWakesTheSimulation() {
+        var layout = settled(["a", "b", "c", "d"], [("a", "b"), ("c", "d")])
+        #expect(layout.isSettled)
+        layout.sync(nodes: ["a", "b", "c", "d"], edges: [("a", "c"), ("b", "d")])
+        #expect(!layout.isSettled)
+    }
+
+    @Test func rectanglesOverlapOnlyWithOthers() {
+        var index = RectIndex()
+        index.insert(CGRect(x: 0, y: 0, width: 20, height: 10), owner: 1)
+        index.insert(CGRect(x: 300, y: 300, width: 20, height: 10), owner: 2)
+        #expect(index.intersects(CGRect(x: 15, y: 5, width: 10, height: 10)))
+        #expect(!index.intersects(CGRect(x: 15, y: 5, width: 10, height: 10), except: 1))
+        #expect(!index.intersects(CGRect(x: 100, y: 100, width: 10, height: 10)))
+        #expect(index.intersects(CGRect(x: 250, y: 290, width: 60, height: 20)))
+        #expect(!index.intersects(CGRect(x: CGFloat.infinity, y: 0, width: 10, height: 10)))
+    }
+
     @Test func theSameGraphAlwaysGivesTheSameLayout() {
         let nodes = (0..<25).map { "n\($0)" }, edges = (0..<24).map { ("n\($0)", "n\(($0 * 7) % 25)") }
         let one = settled(nodes, edges), two = settled(nodes, edges)
