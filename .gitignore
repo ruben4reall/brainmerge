@@ -21,3 +21,6 @@ graphify-out/
 *.xcodeproj
 DerivedData/
 .build/xcode/
+
+# Vercel link of the website (local)
+.vercel/

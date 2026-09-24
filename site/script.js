@@ -33,3 +33,15 @@
   }, { rootMargin: '0px 0px -32% 0px', threshold: 0 });
   lines.forEach(function (el) { lit.observe(el); });
 })();
+
+// Page views for the owner's own counter: no cookie, no identifier, only the page and where the visit came from.
+(function () {
+  if (location.hostname !== 'brainmerge.vercel.app') return;
+  var endpoint = 'https://ruben-analytics.vercel.app/api/hit';
+  var body = JSON.stringify({ site: 'brainmerge', path: location.pathname, ref: document.referrer });
+  try {
+    if (!navigator.sendBeacon(endpoint, body)) throw new Error('beacon');
+  } catch (e) {
+    fetch(endpoint, { method: 'POST', body: body, keepalive: true }).catch(function () {});
+  }
+})();
