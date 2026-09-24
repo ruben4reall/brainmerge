@@ -101,7 +101,7 @@ Each card is one account, or two accounts that share their history (they write t
 
 Brainmerge needs macOS 26 and the Claude app. The first time a new account opens, macOS asks once to allow "Claude Safe Storage" in the keychain: click Always Allow. It may also ask whether the new account may access your Documents folder: click Allow. Both prompts come from the Claude app doing exactly what it does on first launch, under the new account's name. Quit your other Claude windows before logging a new account in: the login link from your browser opens in the Claude window that is already running.
 
-Releases are signed with a Developer ID and sent to Apple for notarization. Until Apple's check has landed for a release, macOS may stop its first opening: open System Settings, then Privacy & Security, and click Open Anyway (since macOS 15, right-click and Open no longer does it).
+Releases are signed with a Developer ID and notarized by Apple: the first time, macOS only asks you to confirm opening an app downloaded from the internet. If you build an unsigned copy yourself, macOS stops its first opening: open System Settings, then Privacy & Security, and click Open Anyway (since macOS 15, right-click and Open no longer does it).
 
 ## Why this stays within Anthropic's terms
 
