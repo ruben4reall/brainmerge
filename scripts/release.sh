@@ -12,7 +12,7 @@
 # Output: dist/Brainmerge-<version>.dmg and dist/Brainmerge.dmg (the same file, the name the website links to).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VERSION=$(grep MARKETING_VERSION project.yml | head -1 | awk '{print $2}' | tr -d '"')
+VERSION=$(grep -m1 MARKETING_VERSION project.yml | awk '{print $2}' | tr -d '"')
 TEAM="${BRAINMERGE_TEAM_ID:-}"
 WORK=.build/release-work
 rm -rf dist "$WORK" && mkdir -p dist "$WORK"
@@ -66,7 +66,9 @@ PLIST
     || { tail -n 30 "$WORK/export.log" >&2; exit 1; }
   APP="$WORK/export/Brainmerge.app"
   for f in "$APP" "$APP/Contents/MacOS/brainmerge-cli" "$APP/Contents/MacOS/launcher"; do
-    codesign -dv "$f" 2>&1 | grep -q "flags=0x10000(runtime)" || { echo "$f is not signed with the hardened runtime" >&2; exit 1; }
+    # Read whole, then matched: with pipefail, "codesign | grep -q" fails when grep stops reading early (SIGPIPE).
+    sig=$(codesign -dv "$f" 2>&1 || true)
+    [[ "$sig" == *"flags=0x10000(runtime)"* ]] || { echo "$f is not signed with the hardened runtime" >&2; exit 1; }
   done
   codesign --verify --deep --strict "$APP"
   if [ -z "${NOTARIZE_LATER:-}" ]; then
