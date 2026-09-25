@@ -6,6 +6,7 @@
 - Sidebar accounts say what a click does: "Open", "Show" when the window already runs, "Opening…" until it appears, "Updating…" while its app is being rebuilt (the row waits instead of opening a half-built app), "Rebuild" when its app is missing. A tooltip says more: which Claude an outdated copy was built for, or, for an account that still has to log in while other Claude windows are open, to quit them first.
 - Several accounts can be opening at once, and each one stops showing "Opening…" as soon as its window runs.
 - An account without a Claude window (Claude Code only) explains itself when opened, instead of ending in "Something went wrong".
+- A launch animation that shows real work: the window appears sooner and the creature walks in place while Brainmerge loads, then the window fades to your accounts. A fast launch shows it for about half a second; "Waking up…" appears only when loading takes longer than a second and a half. With Reduce Motion the creature stands still. It shows once per launch, never when the window is reopened, and never in captures or demos. The process list and the memory's history load off the main thread, so the walk never stutters.
 
 ## 0.4.0
 

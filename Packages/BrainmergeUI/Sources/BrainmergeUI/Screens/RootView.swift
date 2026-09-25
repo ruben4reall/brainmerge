@@ -18,6 +18,7 @@ public struct RootView: View {
 
     @Bindable var model: AppModel
     @State private var onboarding: OnboardingModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var section: Section = Section(rawValue: ProcessInfo.processInfo.environment["BRAINMERGE_SCREEN"] ?? "") ?? .accounts   // add opens accounts with the sheet
 
     public init(model: AppModel) {
@@ -26,35 +27,56 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        Group {
-            if model.needsOnboarding || !onboarding.finished {
-                OnboardingView(model: onboarding)
-            } else {
-                ZStack {
-                    WarmBackground(accents: model.openAccounts.map(\.identity.tint))
-                    HStack(spacing: 0) {
-                        sidebar.padding(12)
-                        detail
-                    }
-                }
+        // The splash while the first load runs, then a crossfade to the screens (a plain, shorter dissolve with Reduce Motion).
+        ZStack {
+            switch model.launchPhase {
+            case .loading: LaunchView().transition(.opacity)
+            case .ready: screens.transition(.opacity)
             }
         }
+        .animation(reduceMotion ? .linear(duration: Theme.Launch.reducedFade) : .easeOut(duration: Theme.Launch.fade), value: model.launchPhase)
         .frame(minWidth: 960, minHeight: 640)
         .font(Theme.Fonts.body)
         .tint(Theme.Colors.accent)
         .preferredColorScheme(.dark)
-        .task { model.offerMoveIfNeeded(); if !model.needsOnboarding { model.startWatching() } }
+        .task {
+            // The first load runs behind the splash once per process; a window opened later finds it done and no splash.
+            // The onboarding models built meanwhile decide on their own right before the switch (OnboardingModel.init).
+            await model.launch()
+            guard !Task.isCancelled else { return }
+            model.offerMoveIfNeeded()
+            if !model.needsOnboarding { model.startWatching() }
+        }
         // Back in front: Claude may have updated itself in the meantime.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            if !model.needsOnboarding { Task { await model.checkClaudeUpdate() } }
+            if model.launchPhase == .ready, !model.needsOnboarding { Task { await model.checkClaudeUpdate() } }
         }
-        .onChange(of: model.needsOnboarding) { _, needs in if needs { model.stopWatching() } else { model.startWatching() } }
+        // The first load changes it behind the splash: the launch above starts watching then, not this.
+        .onChange(of: model.needsOnboarding) { _, needs in
+            guard model.launchPhase == .ready else { return }
+            if needs { model.stopWatching() } else { model.startWatching() }
+        }
         .onDisappear { model.stopWatching() }
         .alert(model.message?.title ?? "", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } }), presenting: model.message) { m in
             if m.action != nil { Button(m.actionLabel ?? "OK") { perform(m) } }
             Button(m.action == .moveToApplications ? "Not now" : "OK", role: .cancel) { if m.action == .moveToApplications { Installer.remember(declined: Installer.bundlePath) } }
         } message: { m in
             Text(m.detail)
+        }
+    }
+
+    /// The guided setup, or the main window once everything is in place.
+    @ViewBuilder var screens: some View {
+        if model.needsOnboarding || !onboarding.finished {
+            OnboardingView(model: onboarding)
+        } else {
+            ZStack {
+                WarmBackground(accents: model.openAccounts.map(\.identity.tint))
+                HStack(spacing: 0) {
+                    sidebar.padding(12)
+                    detail
+                }
+            }
         }
     }
 

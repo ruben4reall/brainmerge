@@ -65,6 +65,23 @@ public enum Theme {
         public static let glowOpacity = 0.0      // no glow behind the creature
     }
 
+    /// The launch: the creature walks on the splash while the first load runs, then the window crossfades to its screen.
+    public enum Launch {
+        /// One pixel of the creature, in points: a whole number keeps its edges crisp.
+        public static let unit: CGFloat = 7
+        /// One frame of the four-frame walk (a 0.48 s step cycle, stepped like pixel art).
+        public static let frameDuration: TimeInterval = 0.12
+        /// The shortest the splash stays, counted from its first frame; the load's own time counts toward it.
+        public static let minimumVisible: Duration = .milliseconds(480)
+        /// The crossfade to the first screen, and its plain dissolve with Reduce Motion.
+        public static let fade: TimeInterval = 0.25
+        public static let reducedFade: TimeInterval = 0.15
+        /// "Waking up…" appears only when the load takes longer than this.
+        public static let slowCaptionAfter: TimeInterval = 1.5
+        /// The creature sits this much above the window's center.
+        public static let lift: CGFloat = 20
+    }
+
     /// Account tints, soft and legible on the dark background. The core's red tint is rendered as pink.
     public static func hex(for tint: Tint) -> String {
         switch tint {

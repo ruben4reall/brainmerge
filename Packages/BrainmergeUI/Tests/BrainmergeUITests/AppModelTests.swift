@@ -449,7 +449,114 @@ import BrainmergeTestSupport
         #expect(m.accountsBusy == ["client"])
         #expect(m.busy.isEmpty)          // two sets: the update's marker is never cleared by a nested change
     }
+
+    // MARK: The launch splash
+
+    @Test func capturesAndDemosSkipTheSplash() {
+        for key in ["BRAINMERGE_CAPTURE", "BRAINMERGE_SCREEN", "BRAINMERGE_ONBOARDING_STEP"] {
+            #expect(AppModel.skipsSplash(environment: [key: "1"]), "\(key)")
+        }
+        #expect(!AppModel.skipsSplash(environment: [:]))
+        #expect(!AppModel.skipsSplash(environment: ["BRAINMERGE_HOME": "/tmp/demo"]))
+        #expect(!AppModel.skipsSplash(environment: ["BRAINMERGE_MEMORY_PRESSURE": "warning"]))
+    }
+
+    @Test func theSplashHoldsOnlyWhatRemainsOfTheMinimum() {
+        let minimum = Duration.milliseconds(480)
+        #expect(AppModel.splashHold(loaded: .milliseconds(70), minimum: minimum) == .milliseconds(410))
+        #expect(AppModel.splashHold(loaded: .milliseconds(480), minimum: minimum) == .zero)
+        #expect(AppModel.splashHold(loaded: .seconds(2), minimum: minimum) == .zero)
+        #expect(AppModel.splashHold(loaded: .zero, minimum: .zero) == .zero)
+    }
+
+    @Test func theFirstLoadRunsBehindTheSplashThenTheWindowIsReady() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let m = model(e)
+        #expect(m.launchPhase == .loading)
+        #expect(m.accounts.isEmpty)
+        var seenBeforeReady: (LaunchPhase, [String])?
+        await m.launch(minimum: .zero) { seenBeforeReady = (m.launchPhase, m.accounts.map(\.id)) }
+        #expect(m.launchPhase == .ready)
+        #expect(m.accounts.map(\.identity.slug) == ["ruben", "client"])
+        // The work before the first screen sees the loaded accounts, while the splash is still up.
+        #expect(seenBeforeReady?.0 == .loading)
+        #expect(seenBeforeReady?.1 == ["ruben", "client"])
+        // Loaded like any reload: the memory's history too.
+        let reference = model(e)
+        reference.reload()
+        #expect(m.brain?.root == reference.brain?.root)
+        #expect(m.lastMemorySave == reference.lastMemorySave && m.memoryCounts == reference.memoryCounts)
+    }
+
+    @Test func theSplashStaysAtLeastTheMinimum() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        let clock = ContinuousClock()
+        let start = clock.now
+        await m.launch(minimum: .milliseconds(300))
+        #expect(start.duration(to: clock.now) >= .milliseconds(300))
+        #expect(m.launchPhase == .ready)
+    }
+
+    @Test func theFirstLoadListsProcessesOffTheMainThread() async throws {
+        // The splash keeps walking while `ps` runs: only the main thread draws it.
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let threads = MainThreadLog()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { threads.record(); return "" }))
+        await m.launch(minimum: .zero)
+        #expect(threads.onMain == [false])
+    }
+
+    @Test func theLaunchRunsOnceEvenWhenTwoWindowsAsk() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let ps = PSCounter()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps.bump(); return "" }))
+        let first = Tally(), second = Tally(), late = Tally()
+        async let a: Void = m.launch(minimum: .milliseconds(50)) { first.count += 1 }
+        async let b: Void = m.launch(minimum: .milliseconds(50)) { second.count += 1 }
+        _ = await (a, b)
+        // One load for both windows, and each window's work before the first screen ran once.
+        #expect(ps.value == 1)
+        #expect(first.count == 1 && second.count == 1)
+        // Once ready, asking again changes nothing.
+        await m.launch(minimum: .zero) { late.count += 1 }
+        #expect(late.count == 0)
+        #expect(ps.value == 1)
+        #expect(m.launchPhase == .ready)
+    }
+
+    @Test func watchingStartsOnceWhoeverAsks() async throws {
+        // The launch and the onboarding switch can both ask right after the splash: one Claude check, not two.
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let ps = PSCounter()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps.bump(); return "" }))
+        m.startWatching()
+        m.startWatching()
+        #expect(m.isWatching)
+        m.stopWatching()   // no clock ticks from here: only the Claude checks the starts queued are left to run
+        #expect(!m.isWatching)
+        var waited = 0
+        while ps.value == 0, waited < 500 { try await Task.sleep(for: .milliseconds(20)); waited += 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(ps.value == 1)
+    }
 }
+
+/// Whether each `ps` ran on the main thread.
+final class MainThreadLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls: [Bool] = []
+    func record() { let main = Thread.isMainThread; lock.lock(); calls.append(main); lock.unlock() }
+    var onMain: [Bool] { lock.lock(); defer { lock.unlock() }; return calls }
+}
+
+@MainActor final class Tally { var count = 0 }
 
 /// A `ps` output a test can change between two reloads.
 final class PSOutput: @unchecked Sendable {

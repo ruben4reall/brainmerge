@@ -22,6 +22,9 @@ public struct Account: Identifiable, Equatable, Sendable {
     public var isOutdated: Bool { if case .outdated = claudeVersion { return true }; return false }
 }
 
+/// Whether the window still shows the launch splash (the first load is running) or its screens.
+public enum LaunchPhase: Equatable, Sendable { case loading, ready }
+
 public struct UserMessage: Identifiable, Equatable, Sendable {
     /// What a message's button does: typed, so it never depends on a label.
     public enum Action: Equatable, Sendable { case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications }
@@ -92,6 +95,16 @@ public final class AppModel {
     public let manager: IdentityManager
     public let claudeAppURL: URL
     private let watchers = Watchers()
+    /// The clocks run: several windows, the launch and the onboarding switch can all ask, the clocks start once.
+    public private(set) var isWatching = false
+
+    /// `.loading` from the process start until the first load is done: the window shows the splash meanwhile.
+    public private(set) var launchPhase: LaunchPhase = .loading
+    private var launchTask: Task<Void, Never>?
+    private var beforeReady: [@MainActor () -> Void] = []
+    /// Read off the main thread by the first load, then used once by `reload()` and `refreshMemory()`.
+    private var prefetchedSnapshot: ProcessMonitor.Snapshot?
+    private var prefetchedLog: (root: URL, entries: [BrainGit.Entry])?
 
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
@@ -110,8 +123,69 @@ public final class AppModel {
             let level: MemoryPressure.Level = forced == "critical" ? .critical : forced == "warning" ? .warning : .normal
             model.memoryPressure = { level }
         }
-        model.reload()
+        // Captures and demos photograph the final screen: they load at once, as before. Otherwise the load runs behind the splash.
+        if skipsSplash(environment: ProcessInfo.processInfo.environment) {
+            model.reload()
+            model.launchPhase = .ready
+        }
         return model
+    }
+
+    // MARK: Launch
+
+    /// Captures, README pictures and demos never show the splash (BRAINMERGE_CAPTURE, BRAINMERGE_SCREEN, BRAINMERGE_ONBOARDING_STEP).
+    static func skipsSplash(environment: [String: String]) -> Bool {
+        ["BRAINMERGE_CAPTURE", "BRAINMERGE_SCREEN", "BRAINMERGE_ONBOARDING_STEP"].contains { environment[$0] != nil }
+    }
+
+    /// What the splash still waits once the load is done: a fast launch shows one step of the walk, a slow one waits no more.
+    static func splashHold(loaded: Duration, minimum: Duration) -> Duration { max(.zero, minimum - loaded) }
+
+    /// Runs `work` once the first load is done, right before the first screen appears (in the same main-actor turn as
+    /// the switch to `.ready`, so nothing decided from an empty model ever shows). Nothing once ready: whatever is built
+    /// after that sees loaded data already.
+    public func runBeforeReady(_ work: @escaping @MainActor () -> Void) {
+        if launchPhase == .loading { beforeReady.append(work) }
+    }
+
+    /// The first load, behind the splash, once per process however many windows ask: lets the splash draw its first frame,
+    /// loads (`ps` and the memory's history off the main thread, so the walk keeps drawing), holds the splash for what
+    /// remains of `minimum`, runs the work waiting for the first screen, then switches to `.ready`. Once ready, it does nothing.
+    /// The load is an unstructured task: a window closed during the splash does not cancel it.
+    public func launch(minimum: Duration = Theme.Launch.minimumVisible, beforeReady work: @escaping @MainActor () -> Void = {}) async {
+        guard launchPhase == .loading else { return }
+        runBeforeReady(work)
+        let task = launchTask ?? Task { await loadBehindSplash(minimum: minimum) }
+        launchTask = task
+        await task.value
+    }
+
+    private func loadBehindSplash(minimum: Duration) async {
+        let clock = ContinuousClock()
+        let start = clock.now
+        try? await Task.sleep(for: .milliseconds(16))   // the splash's first frame is on screen before any work; counts toward the minimum
+        await loadFirstTime()
+        let hold = Self.splashHold(loaded: start.duration(to: clock.now), minimum: minimum)
+        if hold > .zero { try? await Task.sleep(for: hold) }
+        let waiting = beforeReady
+        beforeReady = []
+        for work in waiting { work() }
+        launchPhase = .ready
+    }
+
+    /// `reload()` with its two subprocesses (`ps`, and `git log` of the default memory) run off the main thread first.
+    private func loadFirstTime() async {
+        let monitor = manager.monitor, store = self.store
+        let (snapshot, log) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?) in
+            let snapshot = (try? monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+            let brain = (try? store.load())?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
+            return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) })
+        }.value
+        prefetchedSnapshot = snapshot
+        prefetchedLog = log
+        reload()
+        prefetchedSnapshot = nil
+        prefetchedLog = nil
     }
 
     /// The command line embedded in the app (task 8), looked up by its exact name.
@@ -140,7 +214,7 @@ public final class AppModel {
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
         else if selectedBrainID == nil, let first = state.defaultBrain { selectedBrainID = first.id }
-        let snapshot = (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+        let snapshot = prefetchedSnapshot ?? (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
         let claudeApp = claude
         var memory: [String: Int64] = [:]
         set(\.accounts, state.identities.map { identity in
@@ -276,7 +350,7 @@ public final class AppModel {
     /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects.
     public func refreshMemory() {
         guard let brain = selectedBrain, let folder = selectedFolder else { memoryEvents = []; memoryCounts = [:]; projectCount = 0; return }
-        let entries = (try? BrainGit(brain: brain).log(limit: 200)) ?? []
+        let entries = prefetchedLog.flatMap { $0.root == brain.root ? $0.entries : nil } ?? (try? BrainGit(brain: brain).log(limit: 200)) ?? []
         memoryEvents = MemoryFeed.events(from: Array(entries.prefix(50)), identities: accounts.map(\.identity))
         memoryCounts = MemoryFeed.counts(entries)
         lastMemorySave = entries.first?.date
@@ -579,14 +653,17 @@ public final class AppModel {
 
     // MARK: Monitoring
 
+    /// Starts the clocks and checks Claude once; asking again while they run changes nothing.
     public func startWatching() {
+        guard !isWatching else { return }
+        isWatching = true
         watchers.start(running: { [weak self] in self?.reload() },
                        memory: { [weak self] in self?.refreshMemory() },
                        projects: { [weak self] in self?.wireNewProjects(); Task { await self?.refreshUsage() } },
                        claude: { [weak self] in Task { await self?.checkClaudeUpdate() } })
         Task { await checkClaudeUpdate() }
     }
-    public func stopWatching() { watchers.stop() }
+    public func stopWatching() { isWatching = false; watchers.stop() }
 
     /// Projects that appeared since the last pass get their memory link, in each account's memory (idempotent, without a message).
     func wireNewProjects() {

@@ -30,6 +30,13 @@ import BrainmergeCore
         #expect(alpha(Theme.Colors.rowHover) < alpha(Theme.Colors.rowPressed))
         #expect(alpha(Theme.Colors.rowPressed) < alpha(Theme.Colors.selection))
         #expect(Theme.Layout.rowRadius == 10)
+        // The launch: a short splash that never holds a fast launch back, a calm stepped walk, a quick crossfade.
+        #expect(Theme.Launch.minimumVisible <= .milliseconds(500))
+        #expect((0.08...0.2).contains(Theme.Launch.frameDuration))
+        #expect(Theme.Launch.fade <= 0.3)
+        #expect(Theme.Launch.reducedFade < Theme.Launch.fade)
+        #expect(Theme.Launch.slowCaptionAfter >= 1)
+        #expect(Theme.Launch.unit == Theme.Launch.unit.rounded())
     }
 
     @Test func pickableTintsShowEachColorOnce() {
