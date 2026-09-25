@@ -37,7 +37,6 @@ public struct RootView: View {
         .animation(reduceMotion ? .linear(duration: Theme.Launch.reducedFade) : .easeOut(duration: Theme.Launch.fade), value: model.launchPhase)
         .frame(minWidth: 960, minHeight: 640)
         .font(Theme.Fonts.body)
-        .tint(Theme.Colors.accent)
         .preferredColorScheme(.dark)
         .task {
             // The first load runs behind the splash once per process; a window opened later finds it done and no splash.

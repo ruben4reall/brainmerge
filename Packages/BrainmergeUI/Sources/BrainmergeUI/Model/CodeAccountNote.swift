@@ -26,8 +26,12 @@ public struct CodeAccountNote: Equatable, Sendable {
         guard let code = account.codeAccount else { return CodeAccountNote(email: nil, suggestedName: nil, swapWith: nil) }
         let others = accounts.filter { $0.id != account.id }
         var suggested: String?
-        // An address is never offered: names end up in app names, Claude's instructions and memory commits.
-        if let display = code.displayName.map(NameRules.clean), !display.isEmpty, !display.contains("@"),
+        // An address is never offered: names end up in app names, Claude's instructions and memory commits. Nor is a
+        // display name another account shares: it is the person's own name then, and tells no account apart.
+        let sharedDisplay = others.contains {
+            $0.codeAccount?.displayName.map(NameRules.clean)?.caseInsensitiveCompare(code.displayName.map(NameRules.clean) ?? "") == .orderedSame
+        }
+        if let display = code.displayName.map(NameRules.clean), !display.isEmpty, !display.contains("@"), !sharedDisplay,
            display.caseInsensitiveCompare(NameRules.clean(typedName)) != .orderedSame {
             var form = AddAccountForm(); form.name = display
             if form.validate(existing: others.map(\.identity)) == nil { suggested = display }

@@ -48,7 +48,7 @@ public struct MemoryView: View {
             }
             HStack(spacing: 12) {
                 Picker("View", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                    .pickerStyle(.segmented).labelsHidden().fixedSize().tint(Theme.Colors.accent)
                 // The graph carries its own legend; the timeline keeps the counts of saves.
                 if mode == .timeline { chips }
             }

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (unreleased)
+## 0.5.0
 
 - Sidebar: every row is clickable across its whole width, not only on its text or icon, and lights up softly under the pointer (a neutral fill; the purple still marks the current screen). Cmd-1 to Cmd-4 switch screens, listed in the View menu, Cmd-comma opens Settings, and VoiceOver says which screen is selected and when the splash hands over.
 - Sidebar accounts say what a click does: "Open", "Show" when the window already runs, "Opening…" until it appears, "Updating…" while its app is being rebuilt (the row waits instead of opening a half-built app), "Rebuild" when its app is missing. The cards' buttons use the same words and wait the same way, and a Claude Code only account says so on its card. "Show" brings back a Claude window you closed while Claude kept running, when no other account runs the same app. A tooltip says more: which Claude an outdated copy was built for, or, for an account that still has to log in while other Claude windows are open, to quit them first.

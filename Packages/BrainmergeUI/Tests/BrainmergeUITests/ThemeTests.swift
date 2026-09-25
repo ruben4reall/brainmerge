@@ -90,4 +90,16 @@ import BrainmergeCore
         }
         #expect(offenders.isEmpty, "\(offenders)")
     }
+
+    /// One purple button per screen: a tint on a whole window or sheet turns every secondary glass button purple too
+    /// (it happened in 0.4.0). Controls that want the accent carry their own tint.
+    @Test func noWindowWideTint() throws {
+        let screens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens")
+        for name in ["RootView.swift", "OnboardingView.swift", "EditAccountSheet.swift", "AddAccountSheet.swift"] {
+            let source = try String(contentsOf: screens.appending(path: name), encoding: .utf8)
+            let lines = source.split(separator: "\n").filter { $0.hasPrefix("        .tint(") }
+            #expect(lines.isEmpty, "\(name) tints a whole view: \(lines)")
+        }
+    }
 }

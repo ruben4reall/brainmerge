@@ -110,4 +110,15 @@ import BrainmergeCore
         let named = account("Work", email: "alex@example.com", displayName: "Alex")
         #expect(note(named, [named])?.suggestedName == "Alex")
     }
+
+    /// Claude Code's display name is the person's own name, often the same on every account (the owner has one name on
+    /// two accounts): offered only when it tells this account apart from the others.
+    @Test func aDisplayNameSharedByAnotherAccountIsNotOffered() {
+        let personal = account("Personal", email: "alex@example.com", displayName: "Alex")
+        let studio = account("Studio", email: "studio@example.com", displayName: "Alex")
+        #expect(note(studio, [personal, studio])?.suggestedName == nil)
+        #expect(note(personal, [personal, studio])?.suggestedName == nil)
+        let solo = account("Studio", email: "studio@example.com", displayName: "Sam")
+        #expect(note(solo, [personal, solo])?.suggestedName == "Sam")
+    }
 }

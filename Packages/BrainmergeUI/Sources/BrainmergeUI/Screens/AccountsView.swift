@@ -114,9 +114,15 @@ public struct AccountsView: View {
                                 .accessibilityLabel(Self.duplicateHelp(sameAs: sameAs))
                         }
                     }
-                    Text(Self.subtitle(of: account) + memorySuffix(account)).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
-                        .truncationMode(account.identity.note == nil ? .middle : .tail)
-                        .help(Self.subtitleHelp(of: account) ?? "")
+                    // The note or email gives way; the memory's name stays whole after it.
+                    HStack(spacing: 0) {
+                        Text(Self.subtitle(of: account)).lineLimit(1)
+                            .truncationMode(account.identity.note == nil ? .middle : .tail)
+                        let suffix = memorySuffix(account)
+                        if !suffix.isEmpty { Text(suffix).lineLimit(1).fixedSize() }
+                    }
+                    .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                    .help(Self.subtitleHelp(of: account) ?? "")
                     HStack(spacing: 5) {
                         Circle().fill(account.isRunning ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 6, height: 6)
                         Text(Self.status(of: account, memory: memory))

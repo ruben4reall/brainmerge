@@ -18,13 +18,19 @@ APP=".build/xcode/Build/Products/Debug/Brainmerge.app"
 EXE="$APP/Contents/MacOS/Brainmerge"
 mkdir -p docs/design/captures
 PID=""
-launch() { BRAINMERGE_CAPTURE=1 "$EXE" > /dev/null 2>&1 & PID=$!; }
+launch() { BRAINMERGE_CAPTURE=1 "$PWD/$EXE" > /dev/null 2>&1 & PID=$!; }
+# Whatever ends the script (a failed step, Ctrl-C, a timeout), the app it launched is stopped: a copy left running
+# takes over "open Brainmerge" from the installed app, since both share one bundle identifier.
+stop_launched() { if [ -z "$ATTACH" ] && [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; fi; }
+trap stop_launched EXIT INT TERM HUP
 # The demo's own process when we launched it, the app by name otherwise (--attach).
 window_id() { swift scripts/window-id.swift "${PID:-Brainmerge}" 2>/dev/null; }
 # System Events addresses the process by its PID when we have one: never another copy of Brainmerge that is open.
 process_ref() { if [ -n "$PID" ]; then echo "first process whose unix id is $PID"; else echo 'process "Brainmerge"'; fi; }
 if [ -z "$ATTACH" ]; then
-  pkill -f "$PWD/$EXE" 2>/dev/null || true
+  # Leftovers from earlier captures, launched by absolute or (older scripts) relative path.
+  pkill -f "^$PWD/$EXE" 2>/dev/null || true
+  pkill -f "^$EXE" 2>/dev/null || true
   # Only ever a demo home: set, not the real home, and holding the demo's fake Claude and its account apps.
   # A capture of someone's real accounts must be impossible, even when the demo script failed upstream.
   REAL_HOME=$(cd ~ && pwd -P)
