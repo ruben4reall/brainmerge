@@ -12,6 +12,8 @@ public struct AccountsView: View {
     @State private var newMemoryFor: Account?
     @State private var showNewMemory = false
     @State private var editing: Account?
+    /// The apps the person made that open the account being edited, found before its sheet opens.
+    @State private var editingApps: [ExistingApp] = []
     @FocusState private var searchFocused: Bool
     /// Two to four cards per row that always fill the width (300 to 400 wide).
     let columns = [GridItem(.adaptive(minimum: 300, maximum: 400), spacing: 12)]
@@ -45,13 +47,16 @@ public struct AccountsView: View {
         }
         .sheet(isPresented: $showAdd) { AddAccountSheet(model: model, isPresented: $showAdd) }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory, attach: newMemoryFor) }
-        .sheet(item: $editing) { account in EditAccountSheet(model: model, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }), account: account) }
+        .sheet(item: $editing) { account in
+            EditAccountSheet(model: model, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }), account: account, otherApps: editingApps)
+        }
         // The search field does not grab the keyboard on its own: nothing should swallow a keystroke at launch.
         // BRAINMERGE_SCREEN=edit opens the edit sheet of the first secondary account (screenshots, demos).
         .onAppear {
             DispatchQueue.main.async { searchFocused = false }
-            if ProcessInfo.processInfo.environment["BRAINMERGE_SCREEN"] == "edit", editing == nil {
-                editing = model.accounts.first { !$0.identity.isPrimary }
+            if ProcessInfo.processInfo.environment["BRAINMERGE_SCREEN"] == "edit", editing == nil,
+               let first = model.accounts.first(where: { !$0.identity.isPrimary }) {
+                startEditing(first)
             }
         }
         .confirmationDialog("Remove \(pendingRemoval?.identity.name ?? "")?", isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }), presenting: pendingRemoval) { account in
@@ -123,6 +128,15 @@ public struct AccountsView: View {
         .contextMenu { actions(account) }
     }
 
+    /// The sheet opens once the apps made by hand for the account are known (a few milliseconds): it opens at its full
+    /// size, and nothing moves under the pointer afterwards.
+    func startEditing(_ account: Account) {
+        Task {
+            editingApps = await model.otherApps(opening: account.id)
+            editing = account
+        }
+    }
+
     /// The visible entry to the card's actions (the context menu offers the same ones).
     func moreMenu(_ account: Account) -> some View {
         Menu { actions(account) } label: {
@@ -150,7 +164,7 @@ public struct AccountsView: View {
     }
 
     @ViewBuilder func actions(_ account: Account) -> some View {
-        Button("Edit…") { editing = account }
+        Button("Edit…") { startEditing(account) }
         Menu("Memory") {
             let current = model.brainName(of: account.identity)
             ForEach(model.brains) { folder in

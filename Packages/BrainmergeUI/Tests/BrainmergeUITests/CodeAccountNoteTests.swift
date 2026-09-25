@@ -22,7 +22,7 @@ import BrainmergeCore
         let mine = try #require(note(ruben, all))
         #expect(mine.line == "Claude Code uses agency@example.com.")
         #expect(mine.swapWith == CodeAccountNote.Other(slug: "agency", name: "Agency"))
-        #expect(mine.swapLine == "“Agency” is the name of your other account.")
+        #expect(mine.swapLine == "This email looks like “Agency”, the name of another account.")
         #expect(mine.swapLabel == "Swap names with Agency")
         // Claude Code's display name is already this account's name: nothing to use.
         #expect(mine.useLabel == nil)
@@ -45,6 +45,27 @@ import BrainmergeCore
         #expect(note(solo, [solo, account("Client")])?.swapWith == nil)
     }
 
+    /// Two accounts on one Claude account: renaming does not fix that (one of them has to log in with another account),
+    /// and a swap would only move the mismatch to the other account. No swap is offered.
+    @Test func noSwapWhenBothAccountsUseTheSameEmail() {
+        let ruben = account("Ruben", primary: true, email: "agency@example.com")
+        let agency = account("Agency", email: "Agency@Example.com")
+        #expect(note(ruben, [ruben, agency])?.swapWith == nil)
+        // Another account on the same email as this one: still nothing to swap.
+        let third = account("Work", email: "agency@example.com")
+        let agencyElsewhere = account("Agency", email: "other@example.com")
+        #expect(note(ruben, [ruben, agencyElsewhere, third])?.swapWith == nil)
+    }
+
+    /// The swap renames both accounts at once, when confirmed: the question says so, and that colors stay.
+    @Test func theSwapIsConfirmedFirst() throws {
+        let ruben = account("Ruben", primary: true, email: "agency@example.com")
+        let agency = account("Agency", email: "ruben@example.com")
+        let offer = try #require(note(ruben, [ruben, agency]))
+        #expect(offer.swapQuestion(thisName: "Ruben") == "Swap the names of Ruben and Agency?")
+        #expect(offer.swapExplanation == "Both accounts are renamed now, not when you save. Colors and photos stay with each account.")
+    }
+
     @Test func theDisplayNameIsOfferedOnlyWhenItDiffersAndIsFree() {
         let work = account("Work", email: "alex@example.com", displayName: "Alex")
         #expect(note(work, [work, account("Client")])?.useLabel == "Use “Alex”")
@@ -62,7 +83,8 @@ import BrainmergeCore
         let fresh = account("Client")
         let unknown = note(fresh, [fresh])
         #expect(unknown?.email == nil)
-        #expect(unknown?.line == "Claude Code has not logged in with this account yet.")
+        // True for an account never logged in and for one logged out alike.
+        #expect(unknown?.line == "Claude Code is not logged in with this account.")
         #expect(unknown?.useLabel == nil && unknown?.swapLabel == nil)
         // Claude Code off: the sheet says nothing about it at all.
         let off = account("Desk", cli: false, email: "desk@example.com")
@@ -74,7 +96,8 @@ import BrainmergeCore
         let ruben = account("Ruben", primary: true, email: "agency@example.com", displayName: "Rubén")
         let agency = account("Agency")
         let texts = [note(ruben, [ruben, agency]), note(agency, [ruben, agency])].compactMap { $0 }
-            .flatMap { [$0.line, $0.useLabel, $0.swapLine, $0.swapLabel].compactMap { $0 } } + [CodeAccountNote.privacy]
+            .flatMap { note in [note.line, note.useLabel, note.swapLine, note.swapLabel, note.swapWith.map { _ in note.swapExplanation }].compactMap { $0 } }
+            + [CodeAccountNote.privacy]
         #expect(texts.count >= 5)
         for text in texts { #expect(!text.contains("\u{2014}") && !text.contains("\u{2013}"), "\(text)") }
     }

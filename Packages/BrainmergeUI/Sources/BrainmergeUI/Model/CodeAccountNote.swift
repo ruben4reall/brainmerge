@@ -14,7 +14,8 @@ public struct CodeAccountNote: Equatable, Sendable {
     public let email: String?
     /// Claude Code's display name, offered as the name when it differs from the name typed and no other account has it.
     public let suggestedName: String?
-    /// The other account whose name is this email's local part, while this account's own name is not: the two names look swapped.
+    /// The other account whose name is this email's local part, while this account's own name is not: the two names look
+    /// swapped. Never when another account uses the same email: renaming does not fix one Claude account used twice.
     public let swapWith: Other?
 
     public static let privacy = "Brainmerge reads the email Claude Code shows for this account, never a password or a login token."
@@ -31,8 +32,9 @@ public struct CodeAccountNote: Equatable, Sendable {
             if form.validate(existing: others.map(\.identity)) == nil { suggested = display }
         }
         let local = normalized(String(code.email.split(separator: "@", maxSplits: 1).first ?? ""))
+        let sharedEmail = others.contains { $0.codeAccount?.email.caseInsensitiveCompare(code.email) == .orderedSame }
         var swap: Other?
-        if !local.isEmpty, normalized(account.identity.name) != local,
+        if !sharedEmail, !local.isEmpty, normalized(account.identity.name) != local,
            let other = others.first(where: { normalized($0.identity.name) == local }) {
             swap = Other(slug: other.id, name: other.identity.name)
         }
@@ -45,9 +47,12 @@ public struct CodeAccountNote: Equatable, Sendable {
     }
 
     public var line: String {
-        email.map { "Claude Code uses \($0)." } ?? "Claude Code has not logged in with this account yet."
+        email.map { "Claude Code uses \($0)." } ?? "Claude Code is not logged in with this account."
     }
     public var useLabel: String? { suggestedName.map { "Use “\($0)”" } }
-    public var swapLine: String? { swapWith.map { "“\($0.name)” is the name of your other account." } }
+    public var swapLine: String? { swapWith.map { "This email looks like “\($0.name)”, the name of another account." } }
     public var swapLabel: String? { swapWith.map { "Swap names with \($0.name)" } }
+    /// The swap is asked first: it renames both accounts at once, inside a sheet whose other changes wait for Save.
+    public func swapQuestion(thisName: String) -> String { "Swap the names of \(thisName) and \(swapWith?.name ?? "")?" }
+    public var swapExplanation: String { "Both accounts are renamed now, not when you save. Colors and photos stay with each account." }
 }
