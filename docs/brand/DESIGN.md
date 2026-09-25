@@ -24,7 +24,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.surfaceLine` | white at 12% | dividers |
 | `Colors.field` | white at 7% | text fields on glass |
 | `Colors.accent` | `#A06BE0` | the one accent |
-| `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices / the fill of prominent buttons |
+| `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices (and the "Only here" mark of an account's MCP servers) / the fill of prominent buttons |
 | `Colors.button` | `accentDeep` | prominent buttons (4.7:1 with `onAccent`) |
 | `Colors.selection` | accent at 18% | the selected sidebar row, the memory box of the diagram |
 | `Colors.rowHover` | text at 6% | a sidebar row under the pointer (neutral, fainter than `selection`) |

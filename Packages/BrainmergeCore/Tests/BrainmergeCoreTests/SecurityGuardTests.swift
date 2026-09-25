@@ -102,8 +102,24 @@ import Testing
     /// Connections read names only (SECURITY.md): a browser profile's folder id and display name, never the Google address
     /// or ids stored next to it; MCP server names, never their values, which can hold secrets.
     @Test func connectionReadersDecodeNamesOnly() throws {
+        // Only these two files touch a browser's profile list or Claude's MCP settings.
+        let elsewhere = try offenders(["Local State", "info_cache", "user_name", "gaia_", "claude_desktop_config", "Claude Extensions",
+                                       "case mcpServers", "\"mcpServers\""], except: ["BrowserProfiles.swift", "MCPInventory.swift"])
+        #expect(elsewhere.isEmpty, "only BrowserProfiles.swift and MCPInventory.swift read connections: \(elsewhere)")
+        let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
         let enums = try Regex(#"enum\s+\w+\s*:[^{]*CodingKey[^{]*\{([^}]*)\}"#)
         let caseLine = try Regex(#"case\s+([^\n;]+)"#)
+        // What each file may name: its files, apps and the one page it opens. No other file (a browser's cookies or
+        // logins, the Claude app's config.json or its extensions' settings, which hold values) can be reached from them.
+        let named: [String: Set<String>] = [
+            "BrowserProfiles.swift": ["Chrome", "Arc", "Brave", "Edge", "com.google.Chrome", "company.thebrowser.Browser", "com.brave.Browser",
+                                      "com.microsoft.edgemac", "Google Chrome.app", "Arc.app", "Brave Browser.app", "Microsoft Edge.app",
+                                      "Google/Chrome/Local State", "Arc/User Data/Local State", "BraveSoftware/Brave-Browser/Local State",
+                                      "Microsoft Edge/Local State", "https://claude.ai/customize/connectors", "/Applications", "Applications",
+                                      "Library/Application Support", "info_cache", "/usr/bin/open", "-na", "--args",
+                                      "--profile-directory=\\(directory)", ".app", "/", "/../", ".", "-", " _-"],
+            "MCPInventory.swift": ["claude_desktop_config.json", "Claude Extensions"],
+        ]
         for (name, keys) in [("BrowserProfiles.swift", Set(["profile", "infoCache = \"info_cache\"", "name"])),
                              ("MCPInventory.swift", Set(["mcpServers", "projects"]))] {
             let file = try #require(try Self.sources().first { $0.0.lastPathComponent == name })
@@ -119,6 +135,9 @@ import Testing
                     .map { String($0).trimmingCharacters(in: .whitespaces) }
             })
             #expect(found == keys, "\(name) decodable keys: \(found)")
+            let strings = Set(code.matches(of: literals).map { String($0.output[1].substring ?? "") })
+            let allowed = try #require(named[name])
+            #expect(strings.isSubset(of: allowed), "\(name) unexpected string literals: \(strings.subtracting(allowed))")
         }
     }
 

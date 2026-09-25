@@ -1,6 +1,12 @@
 import Foundation
 import BrainmergeCore
 
+/// A line of the edit sheet's browser picker: what it says, and the profile it picks (nil: none).
+public struct BrowserOption: Equatable, Hashable, Sendable {
+    public let label: String
+    public let choice: BrowserChoice?
+}
+
 /// Connections, per account: the browser profile that goes with it, and its MCP servers by name. Nothing here reads a
 /// login or a value: profile names and server names only (see BrowserProfiles and MCPInventory).
 extension AppModel {
@@ -26,9 +32,10 @@ extension AppModel {
         if mcpInventories != inventories { mcpInventories = inventories }
     }
 
-    /// Saves which browser profile goes with the account (nil: none), then shows it.
+    /// Saves which browser profile goes with the account (nil: none) on the core queue, then shows it. The sheet calls it
+    /// on Save (see `apply`).
     @discardableResult
-    public func setBrowser(_ slug: String, _ choice: BrowserChoice?) -> Task<Void, Never> {
+    func setBrowser(_ slug: String, _ choice: BrowserChoice?) -> Task<Void, Never> {
         let saved = save(.browser(slug)) { state in
             state.identities = state.identities.map { identity in
                 var identity = identity
@@ -39,37 +46,54 @@ extension AppModel {
         return Task { await saved.value; reload() }
     }
 
-    /// The account's picked profile, when that browser and profile are still there.
-    func browserProfile(_ slug: String) -> (InstalledBrowser, BrowserProfile)? {
-        guard let choice = accounts.first(where: { $0.id == slug })?.identity.browser,
-              let browser = installedBrowsers.first(where: { $0.browser == choice.browser }),
+    /// "None", then every profile of every browser found, then the pick itself when its profile is gone, so the picker
+    /// always shows what is saved. Empty until the browsers are read, or when there is nothing to pick.
+    public func browserOptions(keeping choice: BrowserChoice?) -> [BrowserOption] {
+        guard let browsers = installedBrowsers else { return [] }
+        var options = browsers.flatMap { browser in
+            browser.profiles.map { BrowserOption(label: "\(browser.browser.displayName) · \($0.name)",
+                                                 choice: BrowserChoice(browser: browser.browser, directory: $0.directory)) }
+        }
+        if let choice, !options.contains(where: { $0.choice == choice }) {
+            options.append(BrowserOption(label: "\(choice.browser.displayName) · \(choice.directory) (not found)", choice: choice))
+        }
+        return options.isEmpty ? [] : [BrowserOption(label: "None", choice: nil)] + options
+    }
+
+    /// The picked profile, when that browser and profile are still there.
+    func installedProfile(_ choice: BrowserChoice?) -> (InstalledBrowser, BrowserProfile)? {
+        guard let choice, let browser = installedBrowsers?.first(where: { $0.browser == choice.browser }),
               let profile = browser.profiles.first(where: { $0.directory == choice.directory }) else { return nil }
         return (browser, profile)
     }
 
-    /// "Open Chrome (Work)", or nil when no profile goes with the account.
-    public func openBrowserLabel(_ slug: String) -> String? {
-        browserProfile(slug).map { "Open \($0.0.browser.displayName) (\($0.1.name))" }
+    /// "Open Chrome (Work)", or nil when no profile, or none still there, is picked.
+    public func openBrowserLabel(_ choice: BrowserChoice?) -> String? {
+        installedProfile(choice).map { "Open \($0.0.browser.displayName) (\($0.1.name))" }
     }
 
-    /// Starts the account's browser in its profile.
-    public func openBrowser(_ slug: String) {
-        guard let choice = accounts.first(where: { $0.id == slug })?.identity.browser else { return }
-        guard let (browser, profile) = browserProfile(slug) else {
-            message = UserMessage(title: "This browser profile is gone",
-                                  detail: "\(choice.browser.displayName) no longer has the profile picked for this account. Pick another one.")
-            return
-        }
-        run(BrowserProfiles.command(app: browser.app, directory: profile.directory, url: nil))
+    /// Starts the picked browser in the picked profile.
+    public func openBrowser(_ choice: BrowserChoice) {
+        guard let target = target(choice) else { return }
+        run(BrowserProfiles.command(app: target.0.app, directory: target.1.directory, url: nil))
     }
 
-    /// The account's connectors page on claude.ai, in its profile, or in the default browser when none was picked.
-    public func manageConnectors(_ slug: String) {
-        if let (browser, profile) = browserProfile(slug) {
-            run(BrowserProfiles.command(app: browser.app, directory: profile.directory, url: BrowserProfiles.connectorsURL))
-        } else {
-            run(BrowserProfiles.defaultBrowserCommand(url: BrowserProfiles.connectorsURL))
-        }
+    /// claude.ai's connectors page in the picked profile, or in the default browser when none is picked.
+    public func manageConnectors(_ choice: BrowserChoice?) {
+        guard let choice else { return run(BrowserProfiles.defaultBrowserCommand(url: BrowserProfiles.connectorsURL)) }
+        guard let target = target(choice) else { return }
+        run(BrowserProfiles.command(app: target.0.app, directory: target.1.directory, url: BrowserProfiles.connectorsURL))
+    }
+
+    /// The picked profile, or a sentence when it is gone: never another profile or the default browser in its place, as
+    /// either may be logged into another account, and a browser asked for a missing profile makes a new empty one.
+    /// Nothing before the browsers are read, when a gone profile cannot be told from one not read yet.
+    private func target(_ choice: BrowserChoice) -> (InstalledBrowser, BrowserProfile)? {
+        guard installedBrowsers != nil else { return nil }
+        if let found = installedProfile(choice) { return found }
+        message = UserMessage(title: "This browser profile is gone",
+                              detail: "\(choice.browser.displayName) no longer has the profile picked for this account. Pick another one.")
+        return nil
     }
 
     private func run(_ command: BrowserProfiles.Command?) {

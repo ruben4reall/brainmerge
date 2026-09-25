@@ -45,6 +45,20 @@ import BrainmergeTestSupport
         #expect(MCPInventory.read(profile: nil, desktopData: nil).isEmpty)
     }
 
+    /// A part of the file in a shape Claude Code does not write reads as no server, and never hides the other parts.
+    @Test func anOddShapeHidesNothingElse() {
+        let odd = """
+        {"mcpServers":["\(Self.secret)"],
+         "projects":{"/p/one":null,"/p/two":{"mcpServers":"\(Self.secret)"},"/p/three":{"mcpServers":{"kept":{"env":{"K":"\(Self.secret)"}}}},"/p/four":[1]}}
+        """
+        let names = MCPInventory.claudeCodeServers(Data(odd.utf8))
+        #expect(names.user.isEmpty)
+        #expect(names.local == ["kept"])
+        #expect(MCPInventory.claudeCodeServers(Data(#"{"projects":[],"mcpServers":{"top":{}}}"#.utf8)).user == ["top"])
+        #expect(MCPInventory.desktopServers(Data(#"{"mcpServers":null}"#.utf8)).isEmpty)
+        #expect(!"\(names)".contains("SENTINEL"))
+    }
+
     @Test func marksWhatOnlyThisAccountHas() {
         let mine = MCPInventory(codeUser: ["raylight"], codeLocal: ["playwright"], desktop: ["Roblox"], extensions: [])
         let other = MCPInventory(codeUser: [], codeLocal: ["raylight"], desktop: [], extensions: ["pdf"])

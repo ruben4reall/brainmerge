@@ -132,9 +132,9 @@ public final class AppModel {
     }
     /// Starts Claude Code; a fake in tests, which never run the real one.
     @ObservationIgnored public var limitsRunner: ClaudeCodeLimits.Runner = ClaudeCodeLimits.shell
-    /// Connections: the Chromium browsers installed with their profiles, and each account's MCP servers by name, read
-    /// when the edit sheet opens (see `loadConnections`).
-    public internal(set) var installedBrowsers: [InstalledBrowser] = []
+    /// Connections: the Chromium browsers installed with their profiles (nil until read), and each account's MCP servers
+    /// by name, read when the edit sheet opens (see `loadConnections`).
+    public internal(set) var installedBrowsers: [InstalledBrowser]?
     public internal(set) var mcpInventories: [String: MCPInventory] = [:]
     /// Finds the browsers and their profiles; a fake in tests.
     @ObservationIgnored public var findBrowsers: @Sendable (URL) -> [InstalledBrowser] = { BrowserProfiles.available(home: $0) }
@@ -476,6 +476,8 @@ public final class AppModel {
                 _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo, ownApp: ownApp)
             }) { return failure }
         }
+        // The browser profile touches no app: saved even while the account runs, only once the rest went through.
+        if edit.browser != identity.browser { await setBrowser(slug, edit.browser).value }
         if movesMemory { return await setBrain(of: slug, to: edit.memory) }
         return nil
     }
