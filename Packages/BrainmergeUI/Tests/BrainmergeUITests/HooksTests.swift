@@ -124,6 +124,25 @@ import BrainmergeTestSupport
         #expect(try FileManager.default.attributesOfItem(atPath: settings.path)[.modificationDate] as? Date == stamp)
     }
 
+    /// The SessionStart hook writes the memory's list of projects under the memory's lock. The minute pass takes the same
+    /// lock: while a hook holds it, the pass skips its turn instead of writing over the hook's change, and the next one links.
+    @Test func theMinutePassSkipsWhileAHookHoldsTheMemoryLock() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let folder = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.home.url.path + "/kayak"))
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let link = folder.appending(path: "memory")
+        let m = model(e)
+        let fd = open(e.brain.lockFile.path, O_CREAT | O_RDWR, 0o644)
+        defer { close(fd) }
+        #expect(flock(fd, LOCK_EX | LOCK_NB) == 0)
+        m.wireNewProjects()
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == nil)
+        flock(fd, LOCK_UN)
+        m.wireNewProjects()
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "kayak").path)
+    }
+
     /// Before the guided setup (no account yet), a launch links nothing: the setup asks first.
     @Test func aLaunchBeforeSetupLinksNothing() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }

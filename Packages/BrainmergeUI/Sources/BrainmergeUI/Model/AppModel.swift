@@ -1114,8 +1114,10 @@ public final class AppModel {
             let brain = Brain(root: folder.url)
             let profile = CLIProfile(directory: identity.cliProfile(in: paths))
             guard profile.exists, brain.isInitialized else { continue }
-            _ = try? MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
-                .wire(profile: profile, identitySlug: identity.slug)
+            let wiring = MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
+            // Under the memory's lock, like the SessionStart hook writing the same list of projects: taken at once or this
+            // turn is skipped (the main thread never waits), and the next minute links what is left.
+            _ = try? BrainGit(brain: brain).withLock(timeout: 0) { try wiring.wire(profile: profile, identitySlug: identity.slug) }
         }
     }
 
