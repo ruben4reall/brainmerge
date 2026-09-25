@@ -70,6 +70,41 @@ import BrainmergeTestSupport
         #expect(stop["timeout"] == nil)
     }
 
+    /// What every account gets (attach, repair, launch): the Stop hook as is, and the SessionStart hook with no matcher,
+    /// bounded to 5 seconds, since the session waits for it.
+    @Test func anAccountGetsStopAndABoundedSessionStart() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let file = home.url.appending(path: "settings.json")
+        let cli = "/Users/r/.local/bin/brainmerge"
+        try HookInstaller.installAll(settingsFile: file, cliPath: cli, slug: "client")
+        let hooks = try #require(try root(file)["hooks"] as? [String: Any])
+        let start = try #require((hooks["SessionStart"] as? [[String: Any]])?.first)
+        #expect(start.keys.sorted() == ["hooks"])
+        let wire = try #require((start["hooks"] as? [[String: Any]])?.first)
+        #expect(wire["command"] as? String == HookInstaller.wireCommand(cliPath: cli, slug: "client"))
+        #expect(wire["timeout"] as? Int == 5)
+        let stop = try #require(((hooks["Stop"] as? [[String: Any]])?.first?["hooks"] as? [[String: Any]])?.first)
+        #expect(stop["command"] as? String == HookInstaller.syncCommand(cliPath: cli, slug: "client"))
+        #expect(stop["timeout"] == nil)
+    }
+
+    /// Two copies of Brainmerge's hook would run twice each turn: out of date, and a repair keeps one.
+    @Test func aDuplicatedHookIsOutdated() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let file = home.url.appending(path: "settings.json")
+        let cli = "/Users/r/.local/bin/brainmerge"
+        try HookInstaller.installAll(settingsFile: file, cliPath: cli, slug: "client")
+        var r = try root(file)
+        var hooks = try #require(r["hooks"] as? [String: Any])
+        hooks["Stop"] = [["hooks": [["type": "command", "command": cmd]]], ["hooks": [["type": "command", "command": cmd]]]]
+        r["hooks"] = hooks
+        try JSONSerialization.data(withJSONObject: r).write(to: file)
+        #expect(HookInstaller.health(settingsFile: file, cliPath: cli, slug: "client") == .outdated)
+        try HookInstaller.installAll(settingsFile: file, cliPath: cli, slug: "client")
+        #expect(HookInstaller.commands(try root(file), event: .stop) == [cmd])
+        #expect(HookInstaller.health(settingsFile: file, cliPath: cli, slug: "client") == .current)
+    }
+
     /// A hook written by an older Brainmerge (the bare path, no guard) is replaced where it stands; a second copy of it
     /// goes, since it would run twice; the person's own hooks around it stay as they are.
     @Test func anOldFormatEntryIsUpgradedInPlace() throws {
