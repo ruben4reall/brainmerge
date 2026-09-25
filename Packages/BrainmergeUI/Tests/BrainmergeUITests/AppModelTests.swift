@@ -1122,8 +1122,6 @@ import BrainmergeTestSupport
     }
 }
 
-
-
 /// Whether each `ps` ran on the main thread.
 final class MainThreadLog: @unchecked Sendable {
     private let lock = NSLock()

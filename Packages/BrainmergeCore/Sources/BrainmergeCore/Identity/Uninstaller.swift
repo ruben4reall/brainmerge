@@ -27,7 +27,6 @@ public struct Uninstaller: Sendable {
 
     public func plan() throws -> Plan {
         let state = try store.load()
-        let fm = FileManager.default
         var removed: [String] = []
         let profiles = state.identities.filter { CLIProfile(directory: $0.cliProfile(in: paths)).exists }.count
         if profiles > 0 { removed.append("The memory hook and the Brainmerge block in \(profiles) Claude Code profile\(profiles > 1 ? "s" : "")") }

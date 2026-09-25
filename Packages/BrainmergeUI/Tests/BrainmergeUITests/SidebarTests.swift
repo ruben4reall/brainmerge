@@ -118,7 +118,7 @@ import BrainmergeCore
     }
 
     /// The shortcuts live in the View menu, where people and VoiceOver find them; Cmd-comma opens Settings.
-    @Test func theViewMenuListsEveryScreenWithItsShortcut() {
+    @MainActor @Test func theViewMenuListsEveryScreenWithItsShortcut() {
         #expect(BrainmergeCommands.screens.map(\.title) == ["Accounts", "Memory", "Usage", "Settings"])
         #expect(BrainmergeCommands.screens.map(\.digit) == ["1", "2", "3", "4"])
         #expect(BrainmergeCommands.settingsKey == ",")
@@ -126,14 +126,14 @@ import BrainmergeCore
 
     /// With the window closed (Brainmerge kept in the menu bar), Settings and the screens open it on that screen;
     /// they stay off while the window shows the splash or the guided setup.
-    @Test func theAppMenuOpensTheWindowWhenItIsClosed() {
+    @MainActor @Test func theAppMenuOpensTheWindowWhenItIsClosed() {
         #expect(BrainmergeCommands.route(focused: true, setupDone: true) == .switchScreen)
         #expect(BrainmergeCommands.route(focused: false, setupDone: true) == .openWindow)
         #expect(BrainmergeCommands.route(focused: false, setupDone: false) == .off)
     }
 
     /// A screen asked for from the menu bar shows once the window's screens are there, never over the splash or the guide.
-    @Test func aRequestedScreenWaitsForTheScreens() {
+    @MainActor @Test func aRequestedScreenWaitsForTheScreens() {
         #expect(RootView.screenToShow(requested: .settings, phase: .ready, showsGuide: false) == .settings)
         #expect(RootView.screenToShow(requested: .settings, phase: .loading, showsGuide: false) == nil)
         #expect(RootView.screenToShow(requested: .settings, phase: .ready, showsGuide: true) == nil)
@@ -141,7 +141,7 @@ import BrainmergeCore
     }
 
     /// VoiceOver hears when the splash hands over to the accounts.
-    @Test func theSplashSaysWhenItHandsOver() {
+    @MainActor @Test func theSplashSaysWhenItHandsOver() {
         #expect(LaunchView.readyAnnouncement == "Brainmerge is ready")
     }
 
@@ -152,7 +152,7 @@ import BrainmergeCore
     }
 
     /// The owner asked for a visible "Open": the word reads at rest, and an opening or updating row stays legible.
-    @Test func theActionWordIsReadableAtRest() {
+    @MainActor @Test func theActionWordIsReadableAtRest() {
         #expect(SidebarRowHint.resting == Theme.Colors.textMuted)
         #expect(SidebarRowHint.pointed == Theme.Colors.text)
         #expect(SidebarRowStyle.disabledOpacity >= 0.75)

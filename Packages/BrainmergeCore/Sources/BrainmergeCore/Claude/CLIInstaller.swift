@@ -16,7 +16,8 @@ public enum CLIInstaller {
         _NSGetExecutablePath(nil, &size)
         var buffer = [CChar](repeating: 0, count: Int(size) + 1)
         guard _NSGetExecutablePath(&buffer, &size) == 0 else { return nil }
-        return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath()
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath()
     }
 
     /// Volume mounted read-only (disk image, sealed system volume). `URLResourceValues.volumeIsReadOnly`

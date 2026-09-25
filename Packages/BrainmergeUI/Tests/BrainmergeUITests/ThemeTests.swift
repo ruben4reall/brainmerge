@@ -49,7 +49,7 @@ import BrainmergeCore
         let (r, g, b) = c.rgb255
         #expect(r == 217 && g == 119 && b == 87)
     }
-    @Test func orbInitials() {
+    @MainActor @Test func orbInitials() {
         #expect(OrbView.initial(for: "ClientStudio") == "C")
         #expect(OrbView.initial(for: "  élodie ") == "É")
         #expect(OrbView.initial(for: "") == "?")
