@@ -9,7 +9,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 3. **One accent.** The purple of the creature, and only it, for actions: switches, segmented controls, the selected item in the sidebar, progress dots. A sidebar row under the pointer gets a neutral cream fill, fainter than the selection, so the purple keeps meaning "selected". Primary buttons are filled with its deep shade (`Colors.button`), so their white label reads at 4.7:1. Secondary actions are glass buttons.
 4. **Glass surfaces, native controls.** Cards, sidebar and chips use the system glass (`glassEffect`) with a thin rim; primary actions are the system's prominent glass button tinted with the accent, secondary actions plain glass. Corner radius 12 for cards, 14 for the sidebar, 10 for its rows, capsules for chips. A sidebar row is clickable across its whole width.
 5. **Flat account colors.** Each account has a muted tint (or a photo) on a flat circle with its initial. No gloss, no glow.
-6. **Motion with a purpose.** The aura appears only around an account that is opening. Reduce Motion freezes it. The creature is a pixel sprite and moves like one: at rest it is exactly its grid, and its eyes, arms, legs and breath change in whole cells or whole pixels. In the sidebar it only blinks and glances, walks while an account opens, waves when it is open, hops with a few sparkles when the memory saves a note (then glows for 4 s), and startles at an error; its timeline wakes only when its picture changes, and asleep it holds still after a minute. With Reduce Motion it never moves: its cues fade in and out in 0.15 s. A sidebar row's fill changes color in 0.12 s under the pointer, instantly with Reduce Motion. The creature is a small companion in the sidebar; it takes the stage once, at launch, and only while the app really loads: it walks in place on the window's background (four frames of 0.12 s, a flat shadow under its feet, no aura), for at least 0.48 s counting the load itself, then the window crossfades to its screen in 0.25 s. "Waking up…" appears under it only when the load takes more than 1.5 s. With Reduce Motion it stands still and the crossfade is a 0.15 s dissolve. Captures and demos never show the splash, and reopening the window never shows it again.
+6. **Motion with a purpose.** The creature is a pixel sprite and moves like one: at rest it is exactly its grid, and its eyes, arms, legs and breath change in whole cells or whole pixels. In the sidebar it only blinks and glances, walks while an account opens, waves when it is open, hops with a few sparkles when the memory saves a note, and startles at an error. At launch its pixels gather into one, then it leaps into the sidebar while the window appears; the app never waits longer than 0.48 s for it. How it works shows three account windows and one folder on this Mac: a note saved by one reaches the others. An opening account gets a stroke in its own color. Keyboard paths and the sidebar's hover and press stay instant or take 0.12 s. With Reduce Motion nothing moves: colors and opacity change in 0.15 s, and every scene shows its still. Captures show the same stills. The menu bar icon never moves.
 
 ## Tokens
 
@@ -46,11 +46,13 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Motion.pop` / `settle` / `hop` | springs 0.35, 0.6 / 0.4, 0.88 / 0.28, 0.55 | a dot or swatch that pops / layout that settles / a hop |
 | `Motion.reduced` | 0.15 s linear | every change with Reduce Motion: opacity and color only |
 | `Motion.isCapture` / `slow` | `BRAINMERGE_CAPTURE` / `BRAINMERGE_SLOW_MOTION` (debug builds) | captures show each scene's still / every token and scene slowed down to feel-check it |
-| `Launch.unit` / `lift` | 7 / 20 | one pixel of the walking creature on the launch splash, in points / how far above the center it stands |
-| `Launch.frameDuration` | 0.12 s | one frame of the four-frame walk |
-| `Launch.minimumVisible` | 0.48 s | the shortest the splash stays, the load's own time included |
-| `Launch.fade` / `reducedFade` | 0.25 s / 0.15 s | the crossfade to the first screen / its dissolve with Reduce Motion |
-| `Launch.slowCaptionAfter` | 1.5 s | when "Waking up…" appears on a slow launch |
+| `Launch.unit` / `lift` | 7 / 20 | one pixel of the creature on the launch splash, in points / how far its body's middle sits above the window's middle |
+| `Launch.frameDuration` | 0.12 s | one frame of the four-frame walk while a slow launch loads |
+| `Launch.minimumVisible` | 0.48 s | the earliest hand-off, the load's own time included: the app never waits longer for the splash |
+| `Launch.fade` / `reducedFade` | 0.30 s / 0.15 s | the screens fading in under the leap (from 0.04 s after the hand-off) / the dissolve that replaces the whole launch with Reduce Motion |
+| `Launch.slowCaptionAfter` | 2.0 s | when "Waking up…" appears on a slow launch |
+| `Launch.leap` / `leapApex` / `anticipation` | 0.50 s / 12 pt / 0.08 s | the leap into the sidebar (and out of the guided setup): takeoff to touchdown / its apex above the higher end / the crouch before it |
+| `Launch.gatherSpread` / `heroTime` | 2.4 / 1.46 s | how far from the body's center the exploded pixels start / the still for the README header, the site and store images |
 | `Layout.padding` / `cardRadius` | 20 / 12 | screen padding, card corners |
 | `Layout.rowRadius` | 10 | sidebar rows: their selection, hover and press fills |
 | `Layout.readingWidth` / `formWidth` | 880 / 720 | the widest a Memory or Usage card gets / the settings form |

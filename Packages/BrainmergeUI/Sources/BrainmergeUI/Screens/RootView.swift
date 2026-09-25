@@ -9,23 +9,29 @@ public struct RootView: View {
 
     @Bindable var model: AppModel
     @State private var onboarding: OnboardingModel
+    /// The splash and the hand-offs: one clock for the overlay, the screens under it and the creature it lands on.
+    @State private var launch: LaunchClock
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var section: Section = Section(rawValue: ProcessInfo.processInfo.environment["BRAINMERGE_SCREEN"] ?? "") ?? .accounts   // add opens accounts with the sheet
 
     public init(model: AppModel) {
         self.model = model
         _onboarding = State(initialValue: OnboardingModel(app: model))
+        // Only the first window of a process shows the splash: captures, demos and a window opened later find the load done.
+        _launch = State(initialValue: LaunchClock(finished: model.launchPhase == .ready))
     }
 
     public var body: some View {
-        // The splash while the first load runs, then a crossfade to the screens (a plain, shorter dissolve with Reduce Motion).
+        // The splash is an overlay while the first load runs; once ready, the screens are built underneath and fade in on
+        // the splash's own clock while its creature leaps into the sidebar (LaunchScene.swift). Reduce Motion: a dissolve.
         ZStack {
-            switch model.launchPhase {
-            case .loading: LaunchView().transition(.opacity)
-            case .ready: screens.transition(.opacity)
-            }
+            if launch.showsBackdrop { WarmBackground(accents: []) }
+            if model.launchPhase == .ready { screens }
+            if !launch.finished { LaunchView(clock: launch) }
         }
-        .animation(reduceMotion ? .linear(duration: Theme.Launch.reducedFade) : .easeOut(duration: Theme.Launch.fade), value: model.launchPhase)
+        .coordinateSpace(.named(LaunchClock.space))
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { launch.windowSize = $0 }
+        .environment(launch)
         .frame(minWidth: 960, minHeight: 640)
         .font(Theme.Fonts.body)
         .preferredColorScheme(.dark)
@@ -54,7 +60,10 @@ public struct RootView: View {
         .onChange(of: model.requestedScreen) { showRequestedScreen() }
         // The splash's only element goes away: VoiceOver hears that the accounts are there.
         .onChange(of: model.launchPhase) { _, phase in
-            if phase == .ready { AccessibilityNotification.Announcement(LaunchView.readyAnnouncement).post() }
+            if phase == .ready {
+                launch.ready(at: Date())
+                AccessibilityNotification.Announcement(LaunchView.readyAnnouncement).post()
+            }
             showRequestedScreen()
         }
         // The menu bar switches screens (Cmd-1 to Cmd-4, Cmd-comma), once the screens are there.
@@ -81,17 +90,22 @@ public struct RootView: View {
         model.requestedScreen = nil
     }
 
-    /// The guided setup, or the main window once everything is in place.
-    @ViewBuilder var screens: some View {
-        if showsGuide {
-            OnboardingView(model: onboarding)
-        } else {
-            ZStack {
-                WarmBackground(accents: model.openAccounts.map(\.identity.tint))
-                HStack(spacing: 0) {
-                    sidebar.padding(12)
-                    detail
+    /// The guided setup, or the main window once everything is in place. Both while the guide ends: it fades out over the
+    /// main window as the All set creature leaps into the sidebar, then goes.
+    var screens: some View {
+        ZStack {
+            if !showsGuide {
+                ZStack {
+                    WarmBackground(accents: model.openAccounts.map(\.identity.tint))
+                    HStack(spacing: 0) {
+                        sidebar.padding(12)
+                        detail
+                    }
                 }
+                .launchReveal(launch, role: .main)
+            }
+            if showsGuide || launch.leavingGuide {
+                OnboardingView(model: onboarding).launchReveal(launch, role: .guide)
             }
         }
     }
@@ -165,7 +179,9 @@ public struct RootView: View {
         TimelineView(GlowSchedule(ends: model.glowEnds)) { context in
             let state = model.creatureState(at: context.date), line = model.creatureLine(at: context.date)
             HStack(spacing: 8) {
-                CreatureView(state: state, size: 32, moments: model.creatureMoments(at: context.date), walking: !model.opening.isEmpty)
+                CreatureView(state: state, size: 32, moments: model.creatureMoments(at: context.date), walking: !model.opening.isEmpty,
+                             clockStart: launch.landed)
+                    .launchTarget(launch, asleep: state == .asleep)
                 Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                     .contentTransition(.opacity)
                     .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.out(Theme.Motion.quick), value: line)

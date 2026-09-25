@@ -108,21 +108,30 @@ public enum Theme {
         }
     }
 
-    /// The launch: the creature walks on the splash while the first load runs, then the window crossfades to its screen.
+    /// The launch: the creature's pixels gather into one on the splash, then it leaps into its place while the window's
+    /// screens fade in underneath (LaunchScene.swift). The app never waits longer than `minimumVisible` for it.
     public enum Launch {
-        /// One pixel of the creature, in points: a whole number keeps its edges crisp.
+        /// One pixel of the creature on the splash, in points: a whole number keeps its edges crisp.
         public static let unit: CGFloat = 7
-        /// One frame of the four-frame walk (a 0.48 s step cycle, stepped like pixel art).
+        /// One frame of the four-frame walk of a slow launch (a 0.48 s step cycle, stepped like pixel art).
         public static let frameDuration: TimeInterval = 0.12
-        /// The shortest the splash stays, counted from its first frame; the load's own time counts toward it.
+        /// The earliest hand-off, counted from the splash's first frame; the load's own time counts toward it.
         public static let minimumVisible: Duration = .milliseconds(480)
-        /// The crossfade to the first screen, and its plain dissolve with Reduce Motion.
-        public static let fade: TimeInterval = 0.25
+        /// The screens fading in under the leap, and the plain dissolve that replaces it all with Reduce Motion.
+        public static let fade: TimeInterval = 0.30
         public static let reducedFade: TimeInterval = 0.15
         /// "Waking up…" appears only when the load takes longer than this.
-        public static let slowCaptionAfter: TimeInterval = 1.5
-        /// The creature sits this much above the window's center.
+        public static let slowCaptionAfter: TimeInterval = 2.0
+        /// The creature's middle sits this much above the window's middle.
         public static let lift: CGFloat = 20
+        /// The leap home: takeoff to touchdown, its apex above the higher end (points), the crouch before it.
+        public static let leap: TimeInterval = 0.50
+        public static let leapApex: CGFloat = 12
+        public static let anticipation: TimeInterval = 0.08
+        /// The exploded ghost: each pixel starts this many times farther from the body's center.
+        public static let gatherSpread = 2.4
+        /// The still for the README header, the site and store images: whole, at rest, wordmark in.
+        public static let heroTime: TimeInterval = 1.46
     }
 
     /// Account tints, soft and legible on the dark background. The core's red tint is rendered as pink.

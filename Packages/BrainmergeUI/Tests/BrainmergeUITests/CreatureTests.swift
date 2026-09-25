@@ -107,6 +107,15 @@ import Testing
         #expect(Creature.eyeRects(for: pose).allSatisfy { abs($0.maxY - 2) < 1e-9 && abs($0.minY - 0.65) < 1e-9 })
     }
 
+    @Test func noEyesAtHeightZero() {
+        // The launch's gather: a cloud of pixels has no eyes yet; the pose says so with an eye height of 0.
+        var pose = Creature.Pose()
+        pose.eyeHeight = 0
+        #expect(Creature.eyeRects(for: pose).isEmpty)
+        #expect(Creature.geometry(for: pose, feet: CGPoint(x: 20, y: 22), unit: 2, displayScale: 2).eyes.isEmpty)
+        #expect(Creature.cells(for: pose) == Creature.cells(for: .rest))
+    }
+
     @Test func gatheringPixelsTravelFromHome() {
         // The launch's gather: one state per body pixel, in `bodyPixels()` order.
         var pose = Creature.Pose()
@@ -169,7 +178,6 @@ import Testing
         #expect(Creature.walkFrame(-1) == Creature.walkFrame(3))
         #expect(Creature.walkFrame(1) != Creature.walkFrame(0))
         #expect(Creature.walkFrame(3) != Creature.walkFrame(1))
-        #expect(Creature.walkRows == Creature.rows + 2)
     }
 
     @Test func walkContactFramesAreRest() {

@@ -53,8 +53,6 @@ public enum Creature {
 
     /// The frames of one step: contact, first legs lifted, contact, the other legs lifted.
     public static let walkCycle = 4
-    /// The launch splash's walk: the grid, one row of headroom above (the body bobs up) and one row of shadow below.
-    public static let walkRows = rows + 2
 
     /// Frame `index` of the walk, any integer (it loops). Contact frames (even) are the rest pose, every foot on the ground;
     /// on the passing frames the body is up one row, half the legs stay planted and stretch to the ground, the other half
@@ -135,7 +133,7 @@ public extension Creature {
         /// Airborne: the bottom row is gone on every leg.
         public var legsTucked = false
         public var armLeft: ArmPose = .rest, armRight: ArmPose = .rest
-        /// Stepped: 1, 0.5, 0.2, 0.15; 1.35 in the startle (grows upward).
+        /// Stepped: 1, 0.5, 0.2, 0.15; 1.35 in the startle (grows upward); 0 draws no eyes (the launch's gather).
         public var eyeHeight: CGFloat = 1
         /// The grid row of the eye's bottom edge; the asleep dash is 0.35 high with its bottom at 2.35.
         public var eyeBottom: CGFloat = 2
@@ -191,9 +189,10 @@ public extension Creature {
     /// The cells a pose fills, in grid units, before the body transform.
     static func cells(for pose: Pose) -> [CGRect] { parts(for: pose).map(\.rect) }
 
-    /// The eyes, in grid units, before the body transform.
+    /// The eyes, in grid units, before the body transform. None at a height of 0 (the launch's gathering cloud).
     static func eyeRects(for pose: Pose) -> [CGRect] {
-        eyes(for: .awake).map { eye in
+        guard pose.eyeHeight > 0 else { return [] }
+        return eyes(for: .awake).map { eye in
             let bottom = pose.eyeBottom - CGFloat(pose.raise)
             return CGRect(x: CGFloat(eye.x + pose.look), y: bottom - pose.eyeHeight, width: 1, height: pose.eyeHeight)
         }

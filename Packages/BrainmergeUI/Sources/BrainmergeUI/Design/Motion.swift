@@ -89,6 +89,22 @@ public enum Ease {
         }
         /// 0 to 1, starting at rest.
         public func value(_ t: Double) -> Double { 1 + displacement(t, from: -1) }
+
+        /// The moment the ringing stays within `band` of the target for good: the envelope of the displacement crosses the
+        /// band there, so a pose can snap to exactly rest once, never flickering back.
+        public func settleTime(from x0: Double, velocity v0: Double = 0, within band: Double) -> Double {
+            let w = 2 * Double.pi / response, z = damping
+            if z < 1 {
+                let wd = w * (1 - z * z).squareRoot()
+                let amplitude = (x0 * x0 + pow((v0 + z * w * x0) / wd, 2)).squareRoot()
+                return amplitude > band ? log(amplitude / band) / (z * w) : 0
+            }
+            // Critical damping and beyond: the bound (|x0| + |v0 + w x0| t) e^(-wt) rises at most once, then falls.
+            let a = abs(x0), b = abs(v0 + w * x0)
+            var t = 0.0
+            while t < 10, (a + b * t) * exp(-w * t) > band || (b > 0 && t < 1 / w - a / b) { t += 0.0005 }
+            return t
+        }
     }
 
     /// A spring's step response from 0 to 1, `t` seconds after it started (0 before).

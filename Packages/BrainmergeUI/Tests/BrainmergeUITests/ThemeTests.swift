@@ -29,13 +29,29 @@ import BrainmergeCore
         #expect(alpha(Theme.Colors.rowHover) < alpha(Theme.Colors.rowPressed))
         #expect(alpha(Theme.Colors.rowPressed) < alpha(Theme.Colors.selection))
         #expect(Theme.Layout.rowRadius == 10)
-        // The launch: a short splash that never holds a fast launch back, a calm stepped walk, a quick crossfade.
+        // The launch: a short splash that never holds a fast launch back, a calm stepped walk, a quick fade of the screens.
         #expect(Theme.Launch.minimumVisible <= .milliseconds(500))
         #expect((0.08...0.2).contains(Theme.Launch.frameDuration))
         #expect(Theme.Launch.fade <= 0.3)
         #expect(Theme.Launch.reducedFade < Theme.Launch.fade)
         #expect(Theme.Launch.slowCaptionAfter >= 1)
         #expect(Theme.Launch.unit == Theme.Launch.unit.rounded())
+    }
+
+    /// The launch's beat: assemble, then leap home. The app never waits longer than today's 0.48 s for it.
+    @Test func launchTokensPinTheBeat() {
+        #expect(Theme.Launch.unit == 7 && Theme.Launch.frameDuration == 0.12 && Theme.Launch.lift == 20)
+        #expect(Theme.Launch.minimumVisible == .milliseconds(480))
+        #expect(Theme.Launch.fade == 0.30 && Theme.Launch.reducedFade == 0.15)
+        #expect(Theme.Launch.slowCaptionAfter == 2.0)
+        #expect(Theme.Launch.leap == 0.50 && Theme.Launch.leapApex == 12 && Theme.Launch.anticipation == 0.08)
+        #expect(Theme.Launch.gatherSpread == 2.4 && Theme.Launch.heroTime == 1.46)
+        // The scene reads its numbers from the tokens.
+        #expect(AssembleScene.heroTime == Theme.Launch.heroTime && AssembleScene.unit == Theme.Launch.unit)
+        #expect(AssembleScene.minimumVisible == 0.48 && LaunchDirector.walkFrame == Theme.Launch.frameDuration)
+        #expect(Leap.flight == Theme.Launch.leap && Leap.apex == Theme.Launch.leapApex && Leap.anticipation == Theme.Launch.anticipation)
+        // The hero still comes after the beat's last blink and before the walk.
+        #expect(Theme.Launch.heroTime < AssembleScene.idleStart && Theme.Launch.anticipation < Theme.Launch.leap)
     }
 
     /// Motion: interface changes stay quick, a page a little longer, Reduce Motion's fade shorter than any of them.

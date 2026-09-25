@@ -3,6 +3,10 @@ import BrainmergeCore
 
 public struct OnboardingView: View {
     @Bindable var model: OnboardingModel
+    /// The launch lands on the welcome creature; "Open Brainmerge" leaps the All set creature into the sidebar.
+    @Environment(LaunchClock.self) private var launch: LaunchClock?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var allSetFrame: CGRect?
     public init(model: OnboardingModel) { self.model = model }
 
     public var body: some View {
@@ -40,7 +44,8 @@ public struct OnboardingView: View {
 
     var welcome: some View {
         VStack(spacing: 20) {
-            CreatureView(state: .awake, size: 64, profile: .stage)
+            CreatureView(state: .awake, size: 64, profile: .stage, clockStart: launch?.landed)
+                .launchTarget(launch, asleep: false)
             if let missing = model.missingBrainPath {
                 Text("Your memory folder is missing.").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center)
                 Text("It was at \(missing). Choose where it lives now, or create it again. Your accounts will be attached to it.")
@@ -196,6 +201,8 @@ public struct OnboardingView: View {
         VStack(spacing: 14) {
             // A hop with sparkles, 350 ms after the step appears: the setup is done.
             CreatureView(state: .awake, size: 48, profile: .stage, events: [CreatureStamp(.memorySaved, at: 0.35)])
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(LaunchClock.space)) } action: { allSetFrame = $0 }
+                .opacity(launch?.hidesSource == true ? 0 : 1)
             Text("All set").font(Theme.Fonts.onboardingTitle)
             GlassCard {
                 VStack(alignment: .leading, spacing: 8) {
@@ -220,7 +227,10 @@ public struct OnboardingView: View {
                 tip("Give a work or client account its own memory: what it learns stays there.")
             }
             .frame(maxWidth: 520)
-            Button("Open Brainmerge") { model.complete() }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
+            Button("Open Brainmerge") {
+                launch?.leave(from: allSetFrame, reduceMotion: reduceMotion, at: Date())
+                model.complete()
+            }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
             // A quiet link under the last button, never a prompt of its own.
             Link(MenuBarMenu.starTitle, destination: BrainmergeLinks.repository).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
         }

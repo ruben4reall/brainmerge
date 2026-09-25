@@ -86,6 +86,24 @@ import Testing
         #expect(abs(spring.displacement(2, from: 0.4, velocity: -1.1)) < 1e-4)
     }
 
+    @Test func aSpringKnowsWhenItHasSettled() {
+        // After `settleTime` the displacement never leaves the band again: a pose can snap to exactly rest there, once.
+        for (spring, x0, v0) in [(Ease.Spring(response: 0.30, damping: 0.50), -0.2, 0.0), (Ease.Spring(response: 0.34, damping: 0.50), -0.14, 0),
+                                 (Ease.Spring(response: 0.30, damping: 0.55), 0, -1.1)] {
+            let settle = spring.settleTime(from: x0, velocity: v0, within: 0.004)
+            #expect(settle > 0 && settle < 1)
+            for i in 0...2000 {
+                let t = settle + Double(i) / 1000
+                #expect(abs(spring.displacement(t, from: x0, velocity: v0)) <= 0.004 + 1e-12, "t \(t)")
+            }
+            // Tight: a little earlier the envelope is still wider than the band.
+            let before = stride(from: max(0, settle - 0.12), to: settle, by: 0.0005).map { abs(spring.displacement($0, from: x0, velocity: v0)) }
+            #expect(before.contains { $0 > 0.004 * 0.6 })
+        }
+        // (0.30, 0.50) from -0.2: under 0.004 for good after about 0.39 s.
+        #expect(abs(Ease.Spring(response: 0.30, damping: 0.50).settleTime(from: -0.2, within: 0.004) - 0.387) < 0.01)
+    }
+
     @Test func anImpulsePeaksAtOneAndSettles() {
         for (response, damping) in [(0.30, 0.50), (0.34, 0.45), (0.34, 0.62)] {
             var peak = 0.0
