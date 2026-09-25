@@ -98,6 +98,32 @@ import BrainmergeTestSupport
         #expect(linkDestination(e) == cli.resolvingSymlinksInPath().path)
     }
 
+    /// A Stop hook as Brainmerge 0.5 wrote it: unguarded, so a trashed app shows a hook error on every turn.
+    func oldHooks(_ e: ManagerEnv) -> String {
+        #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"},{"type":"command","command":"\"\#(e.cliPath)\" sync --identity perso"}]}]}}"#
+    }
+
+    /// An update over an older Brainmerge: the next launch brings every account's hooks up to date where they stand, with
+    /// no click, and keeps the person's own. Hooks that are already current are not written again.
+    @Test func aLaunchUpgradesHooksAnOlderBrainmergeWrote() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let settings = e.primaryProfile.settingsFile
+        try Data(oldHooks(e).utf8).write(to: settings)
+        #expect(HookInstaller.health(settingsFile: settings, cliPath: e.cliPath, slug: "perso") == .outdated)
+
+        await model(e).launch(minimum: .zero)
+        #expect(HookInstaller.health(settingsFile: settings, cliPath: e.cliPath, slug: "perso") == .current)
+        #expect(try HookInstaller.isInstalled(settingsFile: settings, event: .sessionStart))
+        #expect(try String(contentsOf: settings, encoding: .utf8).contains("say done"))
+
+        let written = try Data(contentsOf: settings)
+        let stamp = try FileManager.default.attributesOfItem(atPath: settings.path)[.modificationDate] as? Date
+        await model(e).launch(minimum: .zero)
+        #expect(try Data(contentsOf: settings) == written)
+        #expect(try FileManager.default.attributesOfItem(atPath: settings.path)[.modificationDate] as? Date == stamp)
+    }
+
     /// Before the guided setup (no account yet), a launch links nothing: the setup asks first.
     @Test func aLaunchBeforeSetupLinksNothing() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
@@ -113,6 +139,8 @@ import BrainmergeTestSupport
     @Test func capturesAndDemosLeaveHooksAlone() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")
+        let settings = e.primaryProfile.settingsFile
+        try Data(oldHooks(e).utf8).write(to: settings)
         for environment in [["BRAINMERGE_CAPTURE": "1"], ["BRAINMERGE_HOME": e.home.url.path]] {
             let m = model(e)
             m.environment = environment
@@ -120,6 +148,7 @@ import BrainmergeTestSupport
             m.commandLine = { cli }
             await m.launch(minimum: .zero)
             #expect(linkDestination(e) == nil, "\(environment)")
+            #expect(try String(contentsOf: settings, encoding: .utf8) == oldHooks(e), "\(environment)")
             await m.refreshHooks()
             #expect(m.hooks == nil, "\(environment)")
         }

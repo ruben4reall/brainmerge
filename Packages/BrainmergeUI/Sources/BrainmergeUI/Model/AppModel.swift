@@ -274,13 +274,20 @@ public final class AppModel {
     /// `reload()` with its two subprocesses (`ps`, and `git log` of the default memory) run off the main thread first.
     /// Once the guided setup has made an account, the link every hook calls is mended too: made when missing, pointed at
     /// this copy when the Brainmerge it pointed at was moved or trashed (never from a disk image, see
-    /// `CLIInstaller.linkAtLaunch`). Before that, the setup asks first. A demo home's link is left alone.
+    /// `CLIInstaller.linkAtLaunch`). Before that, the setup asks first. Hooks an older Brainmerge wrote are brought up to
+    /// date the same way, with no click: an update never keeps a hook that fails once the app is trashed. A demo home's
+    /// link and hooks are left alone.
     private func loadFirstTime() async {
-        let monitor = manager.monitor, store = self.store, paths = self.paths
-        let cli = AppLifecycle.isCaptureOrDemo(environment: environment) ? nil : commandLine()
+        let monitor = manager.monitor, store = self.store, paths = self.paths, manager = self.manager
+        let demo = AppLifecycle.isCaptureOrDemo(environment: environment)
+        let cli = demo ? nil : commandLine()
         let (snapshot, log) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?) in
             let state = try? store.load()
-            if let cli, state?.identities.isEmpty == false { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
+            if !demo, state?.identities.isEmpty == false {
+                if let cli { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
+                // Written only when one is not current: a launch never rewrites the settings of accounts already up to date.
+                if let health = try? manager.hooksHealth(), health.contains(where: { $0.1 != .current }) { try? manager.repairHooks() }
+            }
             let snapshot = (try? monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
             let brain = state?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
             return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) })
