@@ -45,8 +45,9 @@ if let app = config.openApp {
     if let refusal = OpenTarget.refusal(openApp: app, pinned: info?[OpenTarget.pinKey] as? String) {
         refuse("this app only opens Claude; refusing \(app): \(refusal.reason)")
     }
-    unsetenv("CLAUDE_CONFIG_DIR")
-    exec("/usr/bin/open", ["open", "-a", app])
+    let command = OpenTarget.command(opening: app)
+    for name in command.unset { unsetenv(name) }
+    exec(command.path, command.arguments)
 }
 
 // This launcher starts Claude and nothing else: the executable must be a Claude binary inside an app bundle,

@@ -146,7 +146,9 @@ import BrainmergeTestSupport
         let file = e.home.url.appending(path: ".claude.json")
         try Data(#"{"projects":{"\#(e.atelier)":{}},"oauthAccount":{"emailAddress":"\#(email)","displayName":"Ruben"}}"#.utf8).write(to: file)
         #expect(try run(e, ["adopt-primary", "--name", "Perso"]).status == 0)
-        #expect(try run(e, ["identity", "add", "--name", "Client"]).status == 0)
+        // Only its Claude Code folder matters here: no app is built, so nothing is registered with Launch Services.
+        #expect(try run(e, ["identity", "add", "--name", "Client", "--no-desktop"]).status == 0)
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
         let client = CLIProfile(directory: e.home.paths.cliProfile(slug: "client", isPrimary: false))
         try Data(#"{"oauthAccount":{"emailAddress":"client.sentinel@example.com"}}"#.utf8).write(to: client.accountFile)
         for arguments in [["doctor"], ["doctor", "--json"], ["identity", "list"], ["identity", "list", "--json"], ["brain", "status"]] {

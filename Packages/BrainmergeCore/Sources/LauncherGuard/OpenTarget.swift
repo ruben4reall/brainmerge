@@ -64,4 +64,17 @@ public enum OpenTarget {
         guard SecRequirementCreateWithString(requirement as CFString, [], &required) == errSecSuccess, let required else { return false }
         return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSDoNotValidateResources), required) == errSecSuccess
     }
+
+    /// What the opener runs once every check passed: a program, its whole argument list, and the variables removed first.
+    public struct Command: Equatable, Sendable {
+        public let path: String
+        public let arguments: [String]
+        public let unset: [String]
+    }
+
+    /// `open -a <Claude>`: macOS opens Claude, or brings it forward, on its own folders. None of the opener's own
+    /// arguments is passed on, and no Claude Code folder is left in the environment.
+    public static func command(opening app: String) -> Command {
+        Command(path: "/usr/bin/open", arguments: ["open", "-a", app], unset: ["CLAUDE_CONFIG_DIR"])
+    }
 }
