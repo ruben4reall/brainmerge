@@ -125,6 +125,30 @@ import Testing
         for call in flags { #expect(call.contains("O_RDONLY") && call.contains("O_NOFOLLOW") && call.contains("O_NONBLOCK"), "open(\(call))") }
     }
 
+    /// The repository is public: no real person's email address in it, not even in a test. Examples use example.com.
+    @Test func noRealEmailAddressInTheRepository() throws {
+        let skipped: Set<String> = [".git", ".build", ".swiftpm", "graphify-out", "DerivedData", "dist", "node_modules"]
+        let text: Set<String> = ["swift", "md", "sh", "html", "css", "js", "json", "yml", "yaml", "txt", "plist", "entitlements", "pbxproj"]
+        let address = try Regex(#"[A-Za-z0-9._%+-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})"#)
+        let allowed: Set<String> = ["example.com", "example.org", "example.net", "brainmerge.local"]
+        var found: [String] = []
+        var scanned = 0
+        let walk = try #require(FileManager.default.enumerator(at: Self.repo, includingPropertiesForKeys: [.isDirectoryKey]))
+        for case let url as URL in walk {
+            if skipped.contains(url.lastPathComponent) { walk.skipDescendants(); continue }
+            guard text.contains(url.pathExtension.lowercased()), let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            scanned += 1
+            for match in content.matches(of: address) {
+                let domain = String(match.output[1].substring ?? "").lowercased()
+                // Retina image names ("icon_16x16@2x.png") are not addresses.
+                if allowed.contains(domain) || domain.range(of: #"^\d+x\."#, options: .regularExpression) != nil { continue }
+                found.append("\(url.path.replacingOccurrences(of: Self.repo.path + "/", with: "")): \(match.output[0].substring ?? "")")
+            }
+        }
+        #expect(scanned > 100, "the scan must see the tests and the docs too")
+        #expect(found.isEmpty, "\(found)")
+    }
+
     @Test func noTelemetryOrAnalytics() throws {
         let hits = try offenders(["Analytics", "Telemetry", "Sentry", "Crashlytics", "Firebase", "Mixpanel"])
         #expect(hits.isEmpty, "\(hits)")
