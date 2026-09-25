@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 public enum BrainmergeWindow {
@@ -8,6 +9,7 @@ public enum BrainmergeWindow {
 /// The app's scenes: one main window (no File > New Window, so never two windows on one model) and the menu bar icon.
 public struct BrainmergeScenes: Scene {
     let model: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     public init(model: AppModel) { self.model = model }
 
@@ -24,9 +26,12 @@ public struct BrainmergeScenes: Scene {
             .restorationBehavior(.disabled)
             .commands { BrainmergeCommands(model: model) }
         MenuBarExtra(isInserted: Binding(get: { shown }, set: { inserted in
-            // The person dragged the icon out of the menu bar: saved as off. Only from a visible icon, since SwiftUI can
-            // echo false after the app hid it (splash, guide, capture), which must not turn the setting off for good.
-            if !inserted, model.showsMenuBarIcon { model.setMenuBarIcon(false) }
+            // The person dragged the icon out of the menu bar: saved as off, and the window opens again if it was closed
+            // (see AppModel.menuBarIconRemoved).
+            if !inserted, model.menuBarIconRemoved() {
+                openWindow(id: BrainmergeWindow.main)
+                NSApp.activate()
+            }
         })) {
             BrainmergeMenuBar(model: model)
         } label: {

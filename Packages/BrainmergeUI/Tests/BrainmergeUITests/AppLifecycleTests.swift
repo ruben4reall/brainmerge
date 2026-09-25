@@ -30,6 +30,13 @@ import Testing
         #expect(AppLifecycle.quitsWhenLastWindowCloses(iconShown: false) == true)
     }
 
+    /// The icon dragged out of the menu bar with the window closed would leave Brainmerge with nothing to click but
+    /// the Dock: the window opens again. With the window open, nothing more happens.
+    @Test func removingTheIconWithNoWindowReopensIt() {
+        #expect(AppLifecycle.reopensWindow(afterIconRemovedWith: false) == true)
+        #expect(AppLifecycle.reopensWindow(afterIconRemovedWith: true) == false)
+    }
+
     /// A quit in the middle of a copy rebuild would leave a half-built app: it waits for the work to end.
     @Test func quitWaitsForWork() {
         #expect(AppLifecycle.terminateReply(workInProgress: true) == .terminateLater)

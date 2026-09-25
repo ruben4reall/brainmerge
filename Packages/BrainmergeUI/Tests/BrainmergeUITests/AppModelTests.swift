@@ -921,6 +921,73 @@ import BrainmergeTestSupport
         #expect(m.needsOnboarding && !m.isWatching)
     }
 
+    /// With the window closed and the icon shown, the minute clock keeps new projects and emails current but reads no
+    /// transcripts: the usage is only on screen. It reads them again once the window is back.
+    @Test func theMinuteClockReadsNoUsageWithTheWindowClosed() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        m.windowDisappeared()
+        #expect(m.watchedClocks.contains(.projects))
+        await m.onProjectsTick()?.value
+        #expect(m.usageUpdatedAt == nil)
+        m.windowAppeared()
+        await m.onProjectsTick()?.value
+        #expect(m.usageUpdatedAt != nil)
+    }
+
+    /// Dragging the icon out of the menu bar turns the switch off. With the window closed, Brainmerge would be left
+    /// running with no window and no icon: the window opens again. SwiftUI echoing a removal after the app hid the icon
+    /// itself (the guide, a capture) changes nothing.
+    @Test func draggingTheIconOutWithNoWindowReopensIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        #expect(m.menuBarIconRemoved() == false)
+        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
+        await m.setMenuBarIcon(true).value
+        m.windowDisappeared()
+        #expect(m.menuBarIconRemoved() == true)
+        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
+        await m.setMenuBarIcon(true).value
+        #expect(try e.store.load().menuBarIcon == true)
+        m.setupGuideShown = true
+        #expect(m.menuBarIconRemoved() == false)
+        #expect(m.menuBarIcon)
+    }
+
+    /// A setting changed while core work runs is saved after it on the core queue: the work saving the state it read
+    /// before (a rebuild records its Claude version) never undoes it, and a reload meanwhile does not flip it back.
+    @Test func settingsChangedDuringCoreWorkAreKept() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        let store = e.store
+        let slow = Task {
+            _ = await m.outcome("Rebuilding Work…") {
+                let state = try store.load()
+                Thread.sleep(forTimeInterval: 0.3)
+                try store.save(state)
+            }
+        }
+        while m.working == nil { await Task.yield() }
+        m.setAutoRebuild(false)
+        m.setNotesApp("md.obsidian")
+        m.setLanguage(.fr)
+        m.reload()
+        #expect(!m.autoRebuild && m.notesApp == "md.obsidian" && m.language == .fr)
+        await slow.value
+        _ = await m.outcome("Checking…") {}   // after every save already queued
+        let state = try e.store.load()
+        #expect(!state.autoRebuild && state.notesApp == "md.obsidian" && state.brainLanguage == .fr)
+        m.reload()
+        #expect(!m.autoRebuild && m.notesApp == "md.obsidian" && m.language == .fr)
+    }
+
     /// Before any window appeared (tests, the first load), nothing starts the clocks on its own.
     @Test func noClockStartsBeforeTheWindowIsTracked() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }

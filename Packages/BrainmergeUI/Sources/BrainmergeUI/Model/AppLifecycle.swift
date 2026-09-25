@@ -19,6 +19,10 @@ public enum AppLifecycle {
     /// click but the Dock, so it quits.
     public static func quitsWhenLastWindowCloses(iconShown: Bool) -> Bool { !iconShown }
 
+    /// The icon dragged out of the menu bar with the window closed would leave Brainmerge running with nothing to click
+    /// but the Dock: the window opens again.
+    public static func reopensWindow(afterIconRemovedWith windowOpen: Bool) -> Bool { !windowOpen }
+
     /// Work on an account's app (a copy rebuilt, renamed, removed) is never cut in half by a quit.
     public static func terminateReply(workInProgress: Bool) -> NSApplication.TerminateReply {
         workInProgress ? .terminateLater : .terminateNow

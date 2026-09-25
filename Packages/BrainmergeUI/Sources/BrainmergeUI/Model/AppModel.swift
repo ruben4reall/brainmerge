@@ -59,13 +59,15 @@ public final class AppModel {
     public private(set) var notesApp: String?
     /// The menu bar icon setting (see `showsMenuBarIcon` for whether it shows now).
     public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
-    /// Saves of the switch still waiting on the core queue: a reload meanwhile keeps the switch, not the old file.
-    private var menuBarIconSaves = 0
+    /// The settings saved from the app, each written to state.json on the core queue (see `save`).
+    private enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault }
+    /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
+    private var pendingSaves: [Setting: Int] = [:]
+    private func isSaving(_ setting: Setting) -> Bool { (pendingSaves[setting] ?? 0) > 0 }
     /// The Obsidian vault the Memory screen's graph shows, by its folder; nil shows the selected memory.
     public private(set) var graphVault: String? { didSet { if graphVault != oldValue { graphVaultGone = false } } }
     /// The chosen vault's folder was gone when last looked at: when it was chosen, or when the screen last opened.
     private var graphVaultGone = false
-    private var graphVaultSaves = 0
     /// The vaults in Obsidian's own list, read when the graph shows: those in a place macOS guards unlooked at, the
     /// others only while their folder exists.
     public private(set) var obsidianVaults: [URL] = []
@@ -296,11 +298,11 @@ public final class AppModel {
         }
         set(\.claude, try? ClaudeApp.detect(at: claudeAppURL))
         guard let state = try? store.load() else { set(\.accounts, []); set(\.brain, nil); return changed }
-        set(\.language, state.brainLanguage)
-        set(\.autoRebuild, state.autoRebuild)
-        set(\.notesApp, state.notesApp)
-        if menuBarIconSaves == 0 { set(\.menuBarIcon, state.menuBarIcon) }
-        if graphVaultSaves == 0 { set(\.graphVault, state.graphVault) }
+        if !isSaving(.language) { set(\.language, state.brainLanguage) }
+        if !isSaving(.autoRebuild) { set(\.autoRebuild, state.autoRebuild) }
+        if !isSaving(.notesApp) { set(\.notesApp, state.notesApp) }
+        if !isSaving(.menuBarIcon) { set(\.menuBarIcon, state.menuBarIcon) }
+        if !isSaving(.graphVault) { set(\.graphVault, state.graphVault) }
         set(\.brains, state.brains)
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
@@ -899,11 +901,15 @@ public final class AppModel {
         }
     }
 
-    /// The minute clock: new projects get their memory link, the emails and the usage are read again.
-    public func onProjectsTick() {
+    /// The minute clock: new projects get their memory link, the emails are read again, and the usage too while the
+    /// window is open. With the window closed, no transcript is read in the background: the usage is only on screen.
+    /// Returns the usage read it started, if any.
+    @discardableResult
+    public func onProjectsTick() -> Task<Void, Never>? {
         wireNewProjects()
         refreshCodeAccounts()
-        Task { await refreshUsage() }
+        guard windowOpen else { return nil }
+        return Task { await refreshUsage() }
     }
 
     /// Back in front: a login may have changed in Claude Code, and Claude may have updated itself meanwhile.
@@ -1017,11 +1023,10 @@ public final class AppModel {
         }
     }
 
-    public func setNotesApp(_ setting: String?) {
-        guard var state = try? store.load() else { return }
-        state.notesApp = setting
-        try? store.save(state)
-        reload()
+    @discardableResult
+    public func setNotesApp(_ setting: String?) -> Task<Void, Never> {
+        if notesApp != setting { notesApp = setting }
+        return save(.notesApp) { $0.notesApp = setting }
     }
 
     // MARK: The graph's source
@@ -1079,42 +1084,51 @@ public final class AppModel {
         return setGraphVault(url.standardizedFileURL.path)
     }
 
-    /// Like the menu bar switch: the choice moves at once, the file is saved on the core queue after the work already there.
+    /// Like every setting: the choice moves at once, the file is saved on the core queue after the work already there.
     @discardableResult
     func setGraphVault(_ path: String?) -> Task<Void, Never> {
         if graphVault != path { graphVault = path }
         // Only called with a folder just seen, or with none.
         if graphVaultGone { graphVaultGone = false }
-        graphVaultSaves += 1
-        let store = self.store, queue = coreQueue
-        return Task {
-            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                queue.async {
-                    if var state = try? store.load(), state.graphVault != path { state.graphVault = path; try? store.save(state) }
-                    done.resume()
-                }
-            }
-            graphVaultSaves -= 1
-        }
+        return save(.graphVault) { $0.graphVault = path }
     }
 
-    /// Shows or hides the menu bar icon. The switch moves at once; the file is saved on the core queue, after any work
-    /// already there, which saves the same file (a rebuild records its Claude version). The task ends once it is saved.
+    /// Shows or hides the menu bar icon. The switch moves at once and is saved like every setting (see `save`).
     @discardableResult
     public func setMenuBarIcon(_ on: Bool) -> Task<Void, Never> {
         if menuBarIcon != on { menuBarIcon = on }
-        menuBarIconSaves += 1
         updateWatching()
+        return save(.menuBarIcon) { $0.menuBarIcon = on }
+    }
+
+    /// Saves one setting on the core queue, after any work already there, which saves the same file (a rebuild records
+    /// its Claude version): a save from the main thread meanwhile would be undone by the state that work read before.
+    /// The value on screen has already moved; the task ends once it is saved.
+    private func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
+        pendingSaves[setting, default: 0] += 1
         let store = self.store, queue = coreQueue
         return Task {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 queue.async {
-                    if var state = try? store.load() { state.menuBarIcon = on; try? store.save(state) }
+                    if var state = try? store.load() {
+                        let before = state
+                        change(&state)
+                        if state != before { try? store.save(state) }
+                    }
                     done.resume()
                 }
             }
-            menuBarIconSaves -= 1
+            pendingSaves[setting, default: 1] -= 1
         }
+    }
+
+    /// The icon was dragged out of the menu bar: the switch turns off. True when the window must open again, as nothing
+    /// else would be left to click. SwiftUI can echo a removal after the app hid the icon itself (the splash, the guide,
+    /// a capture): that must not turn the setting off for good, and changes nothing.
+    public func menuBarIconRemoved() -> Bool {
+        guard showsMenuBarIcon else { return false }
+        setMenuBarIcon(false)
+        return AppLifecycle.reopensWindow(afterIconRemovedWith: windowOpen)
     }
 
     /// Waits for the core work in progress to end, at most `limit`. True when none is left.
@@ -1128,19 +1142,17 @@ public final class AppModel {
         return true
     }
 
-    public func setAutoRebuild(_ on: Bool) {
-        guard var state = try? store.load() else { return }
-        state.autoRebuild = on
-        try? store.save(state)
-        reload()
+    @discardableResult
+    public func setAutoRebuild(_ on: Bool) -> Task<Void, Never> {
+        if autoRebuild != on { autoRebuild = on }
+        return save(.autoRebuild) { $0.autoRebuild = on }
     }
 
     /// The language for the brain's next notes (BRAIN.md of a new folder); existing notes do not change.
-    public func setLanguage(_ language: BrainLanguage) {
-        guard var state = try? store.load() else { return }
-        state.brainLanguage = language
-        try? store.save(state)
-        reload()
+    @discardableResult
+    public func setLanguage(_ language: BrainLanguage) -> Task<Void, Never> {
+        if self.language != language { self.language = language }
+        return save(.language) { $0.brainLanguage = language }
     }
 
     // MARK: Sentences

@@ -21,30 +21,44 @@ public final class Watchers {
     }
 
     /// Nothing during the guided setup. The window shows everything, so every clock runs. With the window closed and
-    /// the icon shown, the menu's words (instances), new projects and emails (projects) and the copies after a Claude
-    /// update (claude) stay current; the memory's history only matters on screen.
+    /// the icon shown, the menu's words (instances), new projects and emails (projects; the usage waits for the window) and
+    /// the copies after a Claude update (claude) stay current; the memory's history only matters on screen.
     public nonisolated static func plan(windowOpen: Bool, iconShown: Bool, needsOnboarding: Bool) -> Set<Clock> {
         if needsOnboarding { return [] }
         if windowOpen { return Set(Clock.allCases) }
         return iconShown ? [.instances, .projects, .claude] : []
     }
 
-    private var timers: [Timer] = []
+    /// Starts one repeating clock and returns what stops it: a timer in the app, a fake in tests.
+    public typealias Schedule = @MainActor (Clock, @escaping @MainActor () -> Void) -> @MainActor () -> Void
+    private let schedule: Schedule
+    /// What stops each running clock.
+    private var stops: [Clock: @MainActor () -> Void] = [:]
+    /// What each clock does, from the latest start: a clock kept running calls it on its next tick.
+    private var actions: [Clock: @MainActor () -> Void] = [:]
 
-    public init() {}
+    public init(schedule: @escaping Schedule = Watchers.timer) { self.schedule = schedule }
 
+    /// Runs exactly `clocks`. A clock already running keeps its timer, so the window opening or closing never starts
+    /// the minute and five-minute clocks over (each would wait a whole period again, and could never tick).
     public func start(_ clocks: Set<Clock>, running: @escaping @MainActor () -> Void, memory: @escaping @MainActor () -> Void,
                       projects: @escaping @MainActor () -> Void, claude: @escaping @MainActor () -> Void) {
-        stop()
-        let actions: [Clock: @MainActor () -> Void] = [.instances: running, .memory: memory, .projects: projects, .claude: claude]
-        timers = Clock.allCases.filter(clocks.contains).compactMap { clock in
-            guard let action = actions[clock] else { return nil }
-            let timer = Timer.scheduledTimer(withTimeInterval: clock.interval, repeats: true) { _ in Task { @MainActor in action() } }
-            // Lets macOS batch the wake-ups: they now also run with the window closed.
-            timer.tolerance = min(1, clock.interval / 6)
-            return timer
+        actions = [.instances: running, .memory: memory, .projects: projects, .claude: claude]
+        for clock in Clock.allCases where !clocks.contains(clock) { stops.removeValue(forKey: clock)?() }
+        for clock in Clock.allCases where clocks.contains(clock) && stops[clock] == nil {
+            stops[clock] = schedule(clock) { [weak self] in self?.actions[clock]?() }
         }
     }
 
-    public func stop() { timers.forEach { $0.invalidate() }; timers = [] }
+    public func stop() {
+        for clock in Clock.allCases { stops.removeValue(forKey: clock)?() }
+    }
+
+    /// A repeating timer on the main run loop.
+    public static func timer(_ clock: Clock, _ tick: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        let timer = Timer.scheduledTimer(withTimeInterval: clock.interval, repeats: true) { _ in Task { @MainActor in tick() } }
+        // Lets macOS batch the wake-ups: they now also run with the window closed.
+        timer.tolerance = min(1, clock.interval / 6)
+        return { timer.invalidate() }
+    }
 }

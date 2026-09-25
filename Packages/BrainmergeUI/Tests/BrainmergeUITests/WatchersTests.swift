@@ -32,6 +32,48 @@ import BrainmergeTestSupport
         #expect(Watchers.Clock.allCases.map(\.interval) == [3, 10, 60, 300])
     }
 
+    /// The window opening or closing changes the set of clocks: the clocks that keep running keep their phase (the
+    /// minute and five-minute clocks are not started over), only the ones that stop or start are touched.
+    @MainActor @Test func changingTheClocksKeepsTheOnesThatStillRun() {
+        let log = ClockLog()
+        let watchers = Watchers(schedule: { clock, tick in
+            log.events.append("start \(clock)")
+            log.ticks[clock] = tick
+            return { log.events.append("stop \(clock)") }
+        })
+        func start(_ clocks: Set<Watchers.Clock>) {
+            watchers.start(clocks, running: {}, memory: {}, projects: {}, claude: {})
+        }
+        start([.instances, .projects, .claude])
+        #expect(log.events == ["start instances", "start projects", "start claude"])
+        log.events = []
+        start(Set(Watchers.Clock.allCases))   // the window opens
+        #expect(log.events == ["start memory"])
+        log.events = []
+        start([.instances, .projects, .claude])   // the window closes
+        #expect(log.events == ["stop memory"])
+        log.events = []
+        start([.instances, .projects, .claude])
+        #expect(log.events.isEmpty)
+        watchers.stop()
+        #expect(Set(log.events) == ["stop instances", "stop projects", "stop claude"] && log.events.count == 3)
+        log.events = []
+        watchers.stop()
+        #expect(log.events.isEmpty)
+    }
+
+    /// A clock that keeps running calls what the latest start asked for.
+    @MainActor @Test func aKeptClockCallsTheLatestAction() throws {
+        let log = ClockLog()
+        let watchers = Watchers(schedule: { clock, tick in log.ticks[clock] = tick; return {} })
+        let first = Tally(), second = Tally()
+        watchers.start([.projects], running: {}, memory: {}, projects: { first.count += 1 }, claude: {})
+        watchers.start([.projects, .memory], running: {}, memory: {}, projects: { second.count += 1 }, claude: {})
+        let tick = try #require(log.ticks[.projects])
+        tick()
+        #expect(first.count == 0 && second.count == 1)
+    }
+
     @MainActor @Test func oneProcessListPerRefreshTick() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
@@ -52,4 +94,10 @@ final class PSCounter: @unchecked Sendable {
     private var count = 0
     func bump() { lock.lock(); count += 1; lock.unlock() }
     var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+/// What a fake schedule was asked to do, and each clock's tick.
+@MainActor final class ClockLog {
+    var events: [String] = []
+    var ticks: [Watchers.Clock: @MainActor () -> Void] = [:]
 }
