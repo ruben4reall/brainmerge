@@ -25,6 +25,15 @@ public struct Account: Identifiable, Equatable, Sendable {
     public var isOutdated: Bool { if case .outdated = claudeVersion { return true }; return false }
 }
 
+/// What "Check limits" found for an account: kept in memory only, never written anywhere, gone when Brainmerge quits.
+public enum LimitsState: Equatable, Sendable {
+    case checking
+    /// The lines Claude Code printed for /usage, and when it was asked.
+    case checked([LimitLine], at: Date)
+    /// Why there is nothing to show, in one sentence.
+    case refused(String)
+}
+
 /// Whether the window still shows the launch splash (the first load is running) or its screens.
 public enum LaunchPhase: Equatable, Sendable { case loading, ready }
 
@@ -115,6 +124,14 @@ public final class AppModel {
     public private(set) var usage: [AccountUsage] = []
     public private(set) var usageUpdatedAt: Date?
     public private(set) var usageRefreshing = false
+    /// What each account's last "Check limits" found, by slug. Asked only on a click (see `checkLimits`).
+    public private(set) var limits: [String: LimitsState] = [:]
+    /// Finds the Claude Code to run and checks Anthropic's signature on it; a fake in tests.
+    @ObservationIgnored public var limitsBinary: @Sendable (URL) -> ClaudeCodeBinary.Resolution = { home in
+        ClaudeCodeBinary.resolve(candidates: ClaudeCodeBinary.candidates(home: home))
+    }
+    /// Starts Claude Code; a fake in tests, which never run the real one.
+    @ObservationIgnored public var limitsRunner: ClaudeCodeLimits.Runner = ClaudeCodeLimits.shell
     /// The Mac's memory pressure, injectable in tests.
     public var memoryPressure: @Sendable () -> MemoryPressure.Level = { MemoryPressure.current() ?? .normal }
     /// The Mac's RAM figures, injectable in tests.
@@ -587,6 +604,38 @@ public final class AppModel {
         }.value
         if usage != computed { usage = computed }
         usageUpdatedAt = now
+    }
+
+    // MARK: Limits, on click
+
+    /// Every account with Claude Code on offers "Check limits", Claude Code only accounts included.
+    public func canCheckLimits(_ slug: String) -> Bool {
+        accounts.first { $0.id == slug }?.identity.surfaces.cli == true
+    }
+
+    static let demoLimitsSentence = "Brainmerge does not check limits in a demo."
+
+    /// "Check limits": asks that account's own Claude Code what /usage shows, off the main thread, and keeps the answer in
+    /// memory. Only the button calls this, never a clock. A capture or a demo never asks: it would run the owner's real
+    /// Claude Code on the owner's real login.
+    public func checkLimits(_ slug: String) async {
+        guard let identity = accounts.first(where: { $0.id == slug })?.identity, identity.surfaces.cli,
+              limits[slug] != .checking else { return }
+        guard !AppLifecycle.isCaptureOrDemo(environment: environment) else {
+            limits[slug] = .refused(Self.demoLimitsSentence)
+            return
+        }
+        limits[slug] = .checking
+        let home = paths.home, configDir = ClaudeCodeLimits.configDir(of: identity, paths: paths)
+        let binary = limitsBinary, run = limitsRunner
+        let outcome = await Task.detached(priority: .userInitiated) {
+            ClaudeCodeLimits.check(home: home, configDir: configDir, binary: binary(home), run: run)
+        }.value
+        if case .limits(let lines) = outcome {
+            limits[slug] = .checked(lines, at: Date())
+        } else {
+            limits[slug] = .refused(outcome.sentence ?? "")
+        }
     }
 
     // MARK: Disk

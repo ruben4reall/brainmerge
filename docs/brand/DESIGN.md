@@ -31,7 +31,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.rowPressed` | text at 10% | a sidebar row while it is pressed |
 | `Colors.accentSoft` | accent at 35% | the older bars of the usage chart |
 | `Colors.onAccent` | `#FBF7FF` | text on the accent |
-| `Colors.meter` | text at 42% | the RAM bars of the Usage screen that are not an account's (the Mac, terminal sessions, other apps); an account's bar takes its tint, every bar sits on a `field` track |
+| `Colors.meter` | text at 42% | the RAM bars of the Usage screen that are not an account's (the Mac, terminal sessions, other apps); an account's bar takes its tint (its share of RAM, and each limit "Check limits" shows), every bar sits on a `field` track |
 | `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states |
 | `Colors.vaultBackground` | `#262626` | an Obsidian vault's graph, flat like Obsidian's canvas (Minimal theme, dark) |
 | `Colors.vaultNode` / `vaultLine` / `vaultText` | `#999999` / `#3F3F3F` / `#D1D1D1` | a vault's nodes without a color group, its lines (one pixel, opaque), its labels |
@@ -50,7 +50,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Layout.padding` / `cardRadius` | 20 / 12 | screen padding, card corners |
 | `Layout.rowRadius` | 10 | sidebar rows: their selection, hover and press fills |
 | `Layout.readingWidth` / `formWidth` | 880 / 720 | the widest a Memory or Usage card gets / the settings form |
-| `Layout.meterRadius` | 3 | the thin RAM bars of the Usage screen |
+| `Layout.meterRadius` | 3 | the thin RAM and limit bars of the Usage screen |
 
 The menu bar icon (`Design/MenuBarIcon.swift`) is the creature drawn from the same grid as a template image: macOS paints it in the menu bar's own color, so it carries no token. Cells are 1.5 pt on a Retina display (1 pt at 1x, to stay on whole pixels) in a 24 by 18 pt canvas, so the creature is 16.5 pt tall; its eyes are cut out, open while an account is open or opening, a thin line one row lower otherwise. No badge, no count, no animation. The accounts in its menu carry a 10 pt dot in their tint (`Theme.color(for:)`).
 

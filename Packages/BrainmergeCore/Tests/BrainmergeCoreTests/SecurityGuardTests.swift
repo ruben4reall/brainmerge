@@ -228,6 +228,29 @@ import Testing
         #expect(!list.contains("JSONSerialization") && !list.contains("[String: Any]"), "obsidian.json is decoded for paths only")
     }
 
+    /// "Check limits" reads the text Claude Code prints and nothing else (SECURITY.md): the files that find Claude Code and
+    /// ask it open no file, decode no JSON, look at no login or keychain, take nothing from Brainmerge's own environment,
+    /// start nothing but through Shell, and ask exactly `--version` and `-p "/usage"`.
+    @Test func limitsAreClaudeCodesPrintedText() throws {
+        let names: Set<String> = ["ClaudeCodeLimits.swift", "ClaudeCodeBinary.swift"]
+        let files = try Self.sources().filter { names.contains($0.0.lastPathComponent) }
+        #expect(Set(files.map(\.0.lastPathComponent)) == names, "the guard must see both files")
+        for (url, text) in files {
+            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            for forbidden in ["Data(contentsOf", "String(contentsOf", "FileHandle", "InputStream", "fopen", "mmap", "contentsOfDirectory",
+                              "JSONSerialization", "JSONDecoder", "Decodable", "PropertyListSerialization", "Plist.read", ".claude.json",
+                              "oauthAccount", "credential", "eychain", "SecItem", "ProcessInfo", "getenv", "environ[", "--output-format",
+                              "json", "Process(", "posix_spawn", "execv", "NSWorkspace", "UserDefaults", "write(", "createFile", "removeItem"] {
+                #expect(!code.contains(forbidden), "\(url.lastPathComponent) must only read what Claude Code prints: \(forbidden)")
+            }
+        }
+        let limits = try #require(files.first { $0.0.lastPathComponent == "ClaudeCodeLimits.swift" }).1
+        let literals = Set(limits.matches(of: try Regex(#""((?:[^"\\]|\\.)*)""#)).map { String($0.output[1].substring ?? "") })
+        #expect(Set(literals.filter { $0.hasPrefix("-") }) == ["--version", "-p"], "arguments: \(literals.filter { $0.hasPrefix("-") })")
+        #expect(Set(literals.filter { $0.range(of: #"^/[a-z-]+$"#, options: .regularExpression) != nil }) == ["/usage"])
+    }
+
     @Test func noTelemetryOrAnalytics() throws {
         let hits = try offenders(["Analytics", "Telemetry", "Sentry", "Crashlytics", "Firebase", "Mixpanel"])
         #expect(hits.isEmpty, "\(hits)")

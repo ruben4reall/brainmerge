@@ -11,6 +11,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case brainNotFound(String)
     case lockTimeout
     case shellFailed(command: String, status: Int32, stderr: String)
+    case timedOut(command: String)
     case iconFailed(String)
     case profileMissing(String)
     case identityNameTaken(String)
@@ -39,6 +40,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .brainNotFound(let p): return "Brain folder missing at \(p)."
         case .lockTimeout: return "Another Brainmerge process holds the brain lock."
         case .shellFailed(let c, let s, let e): return "Command failed (\(s)): \(c)\n\(e)"
+        case .timedOut(let c): return "Command took too long and was stopped: \(c)"
         case .iconFailed(let p): return "Cannot build an icon from \(p)."
         case .profileMissing(let p): return "Claude Code profile missing at \(p)."
         case .identityNameTaken(let n): return "An identity named \(n) already exists. Choose another name."
