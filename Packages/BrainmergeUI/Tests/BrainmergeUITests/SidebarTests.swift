@@ -117,6 +117,18 @@ import BrainmergeCore
         #expect(SidebarAccountAction.none.accessibilityLabel(for: account(desktop: false)) == "Work")
     }
 
+    /// The shortcuts live in the View menu, where people and VoiceOver find them; Cmd-comma opens Settings.
+    @Test func theViewMenuListsEveryScreenWithItsShortcut() {
+        #expect(BrainmergeCommands.screens.map(\.title) == ["Accounts", "Memory", "Usage", "Settings"])
+        #expect(BrainmergeCommands.screens.map(\.digit) == ["1", "2", "3", "4"])
+        #expect(BrainmergeCommands.settingsKey == ",")
+    }
+
+    /// VoiceOver hears when the splash hands over to the accounts.
+    @Test func theSplashSaysWhenItHandsOver() {
+        #expect(LaunchView.readyAnnouncement == "Brainmerge is ready")
+    }
+
     @Test func sectionsHaveDigitShortcuts() {
         let digits = RootView.Section.allCases.map(\.digit)
         #expect(digits == ["1", "2", "3", "4"])

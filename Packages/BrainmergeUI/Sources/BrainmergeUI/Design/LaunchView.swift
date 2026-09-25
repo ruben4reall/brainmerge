@@ -4,6 +4,9 @@ import SwiftUI
 /// with its flat shadow. "Waking up…" appears only when the load is slow. With Reduce Motion the creature stands still.
 /// VoiceOver reads one element: "Brainmerge is starting".
 public struct LaunchView: View {
+    /// Said to VoiceOver when the splash hands over: its only element goes away and the accounts appear.
+    static let readyAnnouncement = "Brainmerge is ready"
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var start = Date()
     @State private var slow = false

@@ -8,5 +8,6 @@ struct BrainmergeApp: App {
         WindowGroup { RootView(model: model) }
             .windowStyle(.hiddenTitleBar)
             .windowResizability(.contentMinSize)
+            .commands { BrainmergeCommands() }
     }
 }

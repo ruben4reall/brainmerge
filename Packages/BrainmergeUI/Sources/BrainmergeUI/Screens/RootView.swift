@@ -58,6 +58,12 @@ public struct RootView: View {
             if needs { model.stopWatching() } else { model.startWatching() }
         }
         .onDisappear { model.stopWatching() }
+        // The splash's only element goes away: VoiceOver hears that the accounts are there.
+        .onChange(of: model.launchPhase) { _, phase in
+            if phase == .ready { AccessibilityNotification.Announcement(LaunchView.readyAnnouncement).post() }
+        }
+        // The menu bar switches screens (Cmd-1 to Cmd-4, Cmd-comma), once the screens are there.
+        .focusedSceneValue(\.brainmergeSection, model.launchPhase == .ready && !model.needsOnboarding && onboarding.finished ? $section : nil)
         .alert(model.message?.title ?? "", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } }), presenting: model.message) { m in
             if m.action != nil { Button(m.actionLabel ?? "OK") { perform(m) } }
             Button(m.action == .moveToApplications ? "Not now" : "OK", role: .cancel) { if m.action == .moveToApplications { Installer.remember(declined: Installer.bundlePath) } }
@@ -106,7 +112,7 @@ public struct RootView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    /// A screen: the whole row switches to it, Cmd-1 to Cmd-4 too.
+    /// A screen: the whole row switches to it; the View menu too, with Cmd-1 to Cmd-4 (BrainmergeCommands).
     func navRow(_ s: Section) -> some View {
         let selected = section == s
         return Button { section = s } label: {
@@ -115,7 +121,7 @@ public struct RootView: View {
                 .padding(.horizontal, 10).padding(.vertical, 7)
         }
         .buttonStyle(SidebarRowStyle(selected: selected))
-        .keyboardShortcut(KeyEquivalent(s.digit), modifiers: .command)
+        .help("\(s.title) (Command-\(s.digit))")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
