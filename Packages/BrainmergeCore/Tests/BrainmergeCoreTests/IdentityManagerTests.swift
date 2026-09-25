@@ -635,4 +635,25 @@ import BrainmergeTestSupport
         try e.manager.swapNames("ruben", with: "ruben")   // with itself: nothing to do
         #expect(try e.store.load().identities.map(\.name) == ["Ruben"])
     }
+
+    @Test func aChangeWaitsForTheStateLockAndKeepsTheOtherWrite() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let paths = e.home.paths
+        let started = DispatchSemaphore(value: 0), done = DispatchSemaphore(value: 0)
+        // Another process (the command line) holds the lock through its own load, change and save.
+        Thread.detachNewThread {
+            try? StateStore(paths: paths).update { state in
+                started.signal()
+                usleep(300_000)
+                state.notesApp = "md.obsidian"
+            }
+            done.signal()
+        }
+        started.wait()
+        try e.manager.renameBrain(id: "shared", name: "Everyone")
+        done.wait()
+        let state = try e.store.load()
+        #expect(state.notesApp == "md.obsidian")
+        #expect(state.brains.first?.name == "Everyone")
+    }
 }

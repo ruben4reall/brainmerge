@@ -54,11 +54,14 @@ public struct LauncherBuilder: Sendable {
 
     func makeBundle(for identity: Identity, config: LauncherConfig, plist extra: [String: Any], icon: URL?, register: Bool) throws -> URL {
         let fm = FileManager.default
-        let app = paths.launcherApp(name: identity.bundleDisplayName)
+        let final = paths.launcherApp(name: identity.bundleDisplayName)
+        // Built beside the old app and swapped in once complete: a failure leaves the account its app.
+        let app = BundleSwap.staging(for: final)
         let contents = app.appending(path: "Contents", directoryHint: .isDirectory)
         let macos = contents.appending(path: "MacOS", directoryHint: .isDirectory)
         let resources = contents.appending(path: "Resources", directoryHint: .isDirectory)
         if fm.fileExists(atPath: app.path) { try fm.removeItem(at: app) }
+        do {
         try fm.createDirectory(at: macos, withIntermediateDirectories: true)
         try fm.createDirectory(at: resources, withIntermediateDirectories: true)
         try fm.copyItem(at: launcherBinary, to: macos.appending(path: "launcher"))
@@ -82,7 +85,12 @@ public struct LauncherBuilder: Sendable {
         }
         try Plist.write(plist, to: contents.appending(path: "Info.plist"))
         try shell.check("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
-        if register { _ = try? shell.run(Self.lsregister, ["-f", app.path]) }
-        return app
+        try BundleSwap.install(app, at: final)
+        } catch {
+            try? fm.removeItem(at: app)
+            throw error
+        }
+        if register { _ = try? shell.run(Self.lsregister, ["-f", final.path]) }
+        return final
     }
 }

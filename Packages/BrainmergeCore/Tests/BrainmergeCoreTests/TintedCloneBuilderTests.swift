@@ -74,4 +74,24 @@ import BrainmergeTestSupport
             .build(for: Identity(slug: "client", name: "Client", iconMode: .tintedClone), claude: claude, icon: icon, register: false)
         #expect(FileManager.default.fileExists(atPath: app.path))
     }
+
+    @Test func aFailedCopyLeavesTheOldAppAndNoBuildingFolder() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        let icon = home.url.appending(path: "i.icns")
+        try IconGenerator.tintedICNS(from: claude.icon, tint: .green, output: icon)
+        let identity = Identity(slug: "client", name: "Client", iconMode: .tintedClone)
+        let app = try TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .build(for: identity, claude: claude, icon: icon, register: false)
+        let failingCopy = Shell { executable, arguments, cwd, environment in
+            if executable == "/bin/cp" { return ShellResult(status: 1, stdout: "", stderr: "No space left on device") }
+            return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+        }
+        #expect(throws: (any Error).self) {
+            try TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher, shell: failingCopy)
+                .build(for: identity, claude: claude, icon: icon, register: false)
+        }
+        #expect(FileManager.default.fileExists(atPath: app.appending(path: "Contents/MacOS/Claude-bin").path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: home.paths.launchersDir.path) == ["Client (Claude).app"])
+    }
 }

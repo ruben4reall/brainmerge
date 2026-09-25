@@ -2,6 +2,9 @@ import Foundation
 
 public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case stateTooNew(Int)
+    case stateDamaged
+    case gitUnavailable
+    case claudeNotSigned(String)
     case claudeAppNotFound(String)
     case invalidPlist(String)
     case invalidJSON(String)
@@ -31,6 +34,9 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .stateTooNew(let v): return "state.json was written by a newer Brainmerge (schema \(v)). Update Brainmerge."
+        case .stateDamaged: return "state.json is damaged. A copy from before the last change is kept as state.previous.json."
+        case .gitUnavailable: return "History needs git. Install Apple's Command Line Tools: xcode-select --install"
+        case .claudeNotSigned: return "This copy of Claude is not signed by Anthropic. Brainmerge only opens the official app."
         case .claudeAppNotFound(let p): return "Claude.app not found at \(p). Install Claude Desktop first."
         case .invalidPlist(let p): return "Cannot read property list \(p)."
         case .invalidJSON(let p): return "Cannot read JSON file \(p)."

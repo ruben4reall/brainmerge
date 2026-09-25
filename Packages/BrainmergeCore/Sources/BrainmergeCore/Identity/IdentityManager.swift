@@ -42,6 +42,8 @@ public final class IdentityManager: @unchecked Sendable {
 
     @discardableResult
     public func adoptPrimary(name: String) throws -> Identity {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         if let existing = state.primary { return existing }
         guard FileManager.default.fileExists(atPath: paths.primaryCLIProfile.path) else {
@@ -57,6 +59,8 @@ public final class IdentityManager: @unchecked Sendable {
 
     @discardableResult
     public func add(_ request: AddRequest) throws -> Identity {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         _ = try configuredBrain(state)
         let name = NameRules.clean(request.name)
@@ -99,6 +103,8 @@ public final class IdentityManager: @unchecked Sendable {
     @discardableResult
     public func update(slug: String, name: String?, tint: Tint?, logo: URL?, note: String? = nil, iconMode: IconMode? = nil,
                        clearLogo: Bool = false, ownApp: Bool? = nil) throws -> Identity {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         let name = name.map(NameRules.clean)
@@ -125,6 +131,8 @@ public final class IdentityManager: @unchecked Sendable {
     /// Swapping an account with itself does nothing.
     public func swapNames(_ slug: String, with otherSlug: String) throws {
         guard slug != otherSlug else { return }
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         guard let one = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         guard let other = state.identity(slug: otherSlug) else { throw BrainmergeError.identityNotFound(otherSlug) }
@@ -226,6 +234,8 @@ public final class IdentityManager: @unchecked Sendable {
     }
 
     public func remove(slug: String, deleteData: Bool) throws {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         guard let identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         let fm = FileManager.default
@@ -248,6 +258,8 @@ public final class IdentityManager: @unchecked Sendable {
     /// Rebuilds a secondary's app for the installed Claude (the account must be closed), or the primary's own app when it
     /// has one (Claude may stay open: the primary's app only opens it).
     public func rebuild(slug: String) throws {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         if identity.isPrimary {
@@ -292,6 +304,8 @@ public final class IdentityManager: @unchecked Sendable {
     /// Creates a memory: a Brain folder (`~/Brain-<id>` unless a path is given) and its entry in the state.
     @discardableResult
     public func addBrain(name: String, path: URL?, language: BrainLanguage) throws -> MemoryFolder {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         let folder = try addBrain(name: name, path: path, language: language, in: &state)
         try store.save(state)
@@ -315,6 +329,8 @@ public final class IdentityManager: @unchecked Sendable {
 
     /// Forgets a memory: its entry goes, its folder stays. Never the default one, never one an account still uses.
     public func forgetBrain(id: String) throws {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         guard let folder = state.brain(id: id) else { throw BrainmergeError.brainUnknown(id) }
         if state.defaultBrain?.id == id { throw BrainmergeError.brainIsDefault }
@@ -325,6 +341,8 @@ public final class IdentityManager: @unchecked Sendable {
 
     /// Renames a memory: its display name only, never its folder.
     public func renameBrain(id: String, name: String) throws {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         guard let index = state.brains.firstIndex(where: { $0.id == id }) else { throw BrainmergeError.brainUnknown(id) }
         let clean = NameRules.clean(name)
@@ -338,6 +356,8 @@ public final class IdentityManager: @unchecked Sendable {
 
     /// Attaches an account to another memory: the managed block and the memory links move, the notes do not.
     public func setBrain(of slug: String, to id: String) throws {
+        let held = try store.lock()
+        defer { held.release() }
         var state = try store.load()
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         guard state.brain(id: id) != nil else { throw BrainmergeError.brainUnknown(id) }

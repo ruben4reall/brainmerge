@@ -8,13 +8,18 @@ public struct ShellResult: Sendable, Equatable {
 }
 
 public struct Shell: Sendable {
-    public init() {}
+    public typealias Runner = @Sendable (_ executable: String, _ arguments: [String], _ cwd: URL?, _ environment: [String: String]?) throws -> ShellResult
+    /// Stands in for `run` in tests (a fake that records calls or fails on purpose). Nil runs the real program.
+    let runner: Runner?
+    public init() { runner = nil }
+    public init(runner: @escaping Runner) { self.runner = runner }
 
     /// Runs a program and captures its output. stderr goes through a temporary file:
     /// no risk of a deadlock when both streams are large.
     @discardableResult
     public func run(_ executable: String, _ arguments: [String], cwd: URL? = nil,
                     environment: [String: String]? = nil) throws -> ShellResult {
+        if let runner { return try runner(executable, arguments, cwd, environment) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments

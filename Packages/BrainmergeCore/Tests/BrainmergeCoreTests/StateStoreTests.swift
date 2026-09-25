@@ -76,4 +76,63 @@ import BrainmergeTestSupport
             .write(to: home.paths.stateFile)
         #expect(throws: BrainmergeError.stateTooNew(99)) { try store.load() }
     }
+
+    @Test func saveKeepsThePreviousCopy() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        try store.save(AppState(machineID: "first"))
+        #expect(!FileManager.default.fileExists(atPath: store.previousFile.path))
+        try store.save(AppState(machineID: "second"))
+        let previous = try JSONDecoder().decode([String: AnyCodableValue].self, from: Data(contentsOf: store.previousFile))
+        #expect(previous["machineID"] == .string("first"))
+        #expect(try store.load().machineID == "second")
+    }
+
+    @Test func aDamagedFileIsNeverAFreshState() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        try FileManager.default.createDirectory(at: home.paths.appSupport, withIntermediateDirectories: true)
+        try Data("{ not json".utf8).write(to: home.paths.stateFile)
+        #expect(throws: BrainmergeError.stateDamaged) { try store.load() }
+    }
+
+    @Test func restoringThePreviousCopyBringsItBack() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        try store.save(AppState(machineID: "good"))
+        try store.save(AppState(machineID: "later"))
+        try Data("{ broken".utf8).write(to: home.paths.stateFile)
+        #expect(store.hasPrevious)
+        try store.restorePrevious()
+        #expect(try store.load().machineID == "good")
+    }
+
+    @Test func concurrentUpdatesBothLand() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        try StateStore(paths: home.paths).save(AppState(machineID: "m"))
+        let paths = home.paths
+        await withTaskGroup(of: Void.self) { group in
+            for slug in ["one", "two", "three", "four"] {
+                group.addTask {
+                    // A separate store each time: a separate descriptor on the lock, like the app and the command line.
+                    try? StateStore(paths: paths).update { state in
+                        let seen = state.identities.count
+                        usleep(50_000)
+                        state.identities.append(Identity(slug: slug, name: slug.capitalized))
+                        _ = seen
+                    }
+                }
+            }
+        }
+        #expect(Set(try StateStore(paths: paths).load().identities.map(\.slug)) == ["one", "two", "three", "four"])
+    }
+}
+
+/// Reads one JSON field without the app's own decoder.
+enum AnyCodableValue: Decodable, Equatable {
+    case string(String), other
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let s = try? c.decode(String.self) { self = .string(s) } else { self = .other }
+    }
 }
