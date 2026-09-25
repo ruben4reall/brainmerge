@@ -58,6 +58,11 @@ public struct SettingsView: View {
                                 Button("Get Claude") { if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) } }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
                             }
                         }
+                        section("Menu bar") {
+                            Toggle(MenuBarMenu.settingTitle, isOn: Binding(get: { model.menuBarIcon }, set: { model.setMenuBarIcon($0) })).toggleStyle(.switch).tint(Theme.Colors.accent)
+                            Text(MenuBarMenu.settingFootnote)
+                                .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                        }
                         section("Distinct icons") {
                             Toggle("Rebuild tinted copies after each Claude update", isOn: Binding(get: { model.autoRebuild }, set: { model.setAutoRebuild($0) })).toggleStyle(.switch).tint(Theme.Colors.accent)
                             Text("Only accounts that chose a distinct Dock icon are affected. Accounts that are open are rebuilt the next time they are closed.")
@@ -98,7 +103,8 @@ public struct SettingsView: View {
                         section("About", last: true) {
                             Text("Brainmerge \(BrainmergeUIInfo.version) · Works with Claude. Not made by Anthropic.").foregroundStyle(Theme.Colors.textMuted)
                             HStack(spacing: 14) {
-                                Link("GitHub", destination: URL(string: "https://github.com/ruben4reall/brainmerge")!)
+                                // Opens the page in the browser, nothing more: no count fetched, never asked for on its own.
+                                Link(MenuBarMenu.starTitle, destination: BrainmergeLinks.repository)
                                 Text("MIT license").foregroundStyle(Theme.Colors.textFaint)
                             }
                             .font(Theme.Fonts.secondary)

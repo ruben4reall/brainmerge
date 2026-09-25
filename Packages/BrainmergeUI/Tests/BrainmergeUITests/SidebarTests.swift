@@ -124,6 +124,22 @@ import BrainmergeCore
         #expect(BrainmergeCommands.settingsKey == ",")
     }
 
+    /// With the window closed (Brainmerge kept in the menu bar), Settings and the screens open it on that screen;
+    /// they stay off while the window shows the splash or the guided setup.
+    @Test func theAppMenuOpensTheWindowWhenItIsClosed() {
+        #expect(BrainmergeCommands.route(focused: true, setupDone: true) == .switchScreen)
+        #expect(BrainmergeCommands.route(focused: false, setupDone: true) == .openWindow)
+        #expect(BrainmergeCommands.route(focused: false, setupDone: false) == .off)
+    }
+
+    /// A screen asked for from the menu bar shows once the window's screens are there, never over the splash or the guide.
+    @Test func aRequestedScreenWaitsForTheScreens() {
+        #expect(RootView.screenToShow(requested: .settings, phase: .ready, showsGuide: false) == .settings)
+        #expect(RootView.screenToShow(requested: .settings, phase: .loading, showsGuide: false) == nil)
+        #expect(RootView.screenToShow(requested: .settings, phase: .ready, showsGuide: true) == nil)
+        #expect(RootView.screenToShow(requested: nil, phase: .ready, showsGuide: false) == nil)
+    }
+
     /// VoiceOver hears when the splash hands over to the accounts.
     @Test func theSplashSaysWhenItHandsOver() {
         #expect(LaunchView.readyAnnouncement == "Brainmerge is ready")

@@ -5,16 +5,7 @@ import BrainmergeCore
 public enum BrainmergeUIInfo { public static let version = BrainmergeInfo.version }
 
 public struct RootView: View {
-    public enum Section: String, CaseIterable, Identifiable {
-        case accounts, memory, usage, settings
-        public var id: String { rawValue }
-        var title: String { rawValue.capitalized }
-        /// Cmd-1 to Cmd-4, in the sidebar's order.
-        var digit: Character { Character(String((Self.allCases.firstIndex(of: self) ?? 0) + 1)) }
-        var symbol: String {
-            switch self { case .accounts: "person.2"; case .memory: "brain"; case .usage: "chart.bar"; case .settings: "slider.horizontal.3" }
-        }
-    }
+    public typealias Section = AppSection
 
     @Bindable var model: AppModel
     @State private var onboarding: OnboardingModel
@@ -44,22 +35,27 @@ public struct RootView: View {
             await model.launch()
             guard !Task.isCancelled else { return }
             model.offerMoveIfNeeded()
-            if !model.needsOnboarding { model.startWatching() }
+            model.updateWatching()
         }
         // Back in front: Claude may have updated itself in the meantime.
         // And a login may have changed in Claude Code: the emails on the accounts are read again.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.windowBecameActive()
         }
-        // The first load changes it behind the splash: the launch above starts watching then, not this.
-        .onChange(of: model.needsOnboarding) { _, needs in
-            guard model.launchPhase == .ready else { return }
-            if needs { model.stopWatching() } else { model.startWatching() }
+        // The clocks follow the window: all of them while it is open, those the menu bar icon needs once it is closed.
+        // The setup finishing is seen by the model's reload, with or without a window.
+        .onAppear { model.windowAppeared() }
+        .onDisappear { model.windowDisappeared() }
+        // Until the guide is closed, the setup is not done: no menu bar icon, and closing the window quits.
+        .onChange(of: showsGuide, initial: true) { _, guide in
+            model.setupGuideShown = guide
+            showRequestedScreen()
         }
-        .onDisappear { model.stopWatching() }
+        .onChange(of: model.requestedScreen) { showRequestedScreen() }
         // The splash's only element goes away: VoiceOver hears that the accounts are there.
         .onChange(of: model.launchPhase) { _, phase in
             if phase == .ready { AccessibilityNotification.Announcement(LaunchView.readyAnnouncement).post() }
+            showRequestedScreen()
         }
         // The menu bar switches screens (Cmd-1 to Cmd-4, Cmd-comma), once the screens are there.
         .focusedSceneValue(\.brainmergeSection, model.launchPhase == .ready && !model.needsOnboarding && onboarding.finished ? $section : nil)
@@ -71,9 +67,23 @@ public struct RootView: View {
         }
     }
 
+    var showsGuide: Bool { model.needsOnboarding || !onboarding.finished }
+
+    /// A screen the menu bar asked for, once the screens are there; never over the splash or the guide.
+    static func screenToShow(requested: Section?, phase: LaunchPhase, showsGuide: Bool) -> Section? {
+        guard let requested, phase == .ready, !showsGuide else { return nil }
+        return requested
+    }
+
+    func showRequestedScreen() {
+        guard let screen = Self.screenToShow(requested: model.requestedScreen, phase: model.launchPhase, showsGuide: showsGuide) else { return }
+        section = screen
+        model.requestedScreen = nil
+    }
+
     /// The guided setup, or the main window once everything is in place.
     @ViewBuilder var screens: some View {
-        if model.needsOnboarding || !onboarding.finished {
+        if showsGuide {
             OnboardingView(model: onboarding)
         } else {
             ZStack {

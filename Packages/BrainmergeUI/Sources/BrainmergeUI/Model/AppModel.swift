@@ -43,9 +43,9 @@ public struct UserMessage: Identifiable, Equatable, Sendable {
 
 @MainActor @Observable
 public final class AppModel {
-    public private(set) var accounts: [Account] = []
+    public private(set) var accounts: [Account] = [] { didSet { refreshSetupState() } }
     /// The default memory (the first of the list), initialized.
-    public private(set) var brain: Brain?
+    public private(set) var brain: Brain? { didSet { refreshSetupState() } }
     /// Every memory the app knows, the default one first.
     public private(set) var brains: [MemoryFolder] = []
     /// The memory the Memory screen shows; nil or unknown means the default one.
@@ -57,6 +57,27 @@ public final class AppModel {
     public private(set) var autoRebuild = true
     /// What opens the memory folder (see NotesApps.target).
     public private(set) var notesApp: String?
+    /// The menu bar icon setting (see `showsMenuBarIcon` for whether it shows now).
+    public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
+    /// Saves of the switch still waiting on the core queue: a reload meanwhile keeps the switch, not the old file.
+    private var menuBarIconSaves = 0
+    /// The process's environment, injectable in tests: captures and demos never show the icon.
+    @ObservationIgnored public var environment = ProcessInfo.processInfo.environment { didSet { refreshSetupState() } }
+    /// The guided setup is on screen (set by the window): until it is closed, the setup is not done.
+    public var setupGuideShown = false {
+        didSet {
+            refreshSetupState()
+            if setupGuideShown != oldValue { updateWatching() }
+        }
+    }
+    /// The main window is open. Tracked once a window appeared: before that (the first load, tests) nothing follows it.
+    public private(set) var windowOpen = false
+    private var tracksWindow = false
+    /// An uninstall is running: no clock may start again, whatever the window does.
+    private var watchingSuspended = false
+    /// A screen asked for from outside the window (the menu bar, the app menu with no window): the window shows it
+    /// once its screens are there.
+    public var requestedScreen: AppSection?
     public var message: UserMessage?
     /// Accounts launched and not seen running yet: cleared as soon as `reload()` sees their process,
     /// or after a few seconds if it never shows up.
@@ -131,11 +152,12 @@ public final class AppModel {
     /// Where apps the person made are looked for: ~/Applications, and /Applications for the real home only.
     public var appFolders: [URL]
     private let watchers = Watchers()
-    /// The clocks run: several windows, the launch and the onboarding switch can all ask, the clocks start once.
-    public private(set) var isWatching = false
+    /// The clocks running now: the launch, the window and the menu bar icon can all ask, each clock runs once.
+    public private(set) var watchedClocks: Set<Watchers.Clock> = []
+    public var isWatching: Bool { !watchedClocks.isEmpty }
 
     /// `.loading` from the process start until the first load is done: the window shows the splash meanwhile.
-    public private(set) var launchPhase: LaunchPhase = .loading
+    public private(set) var launchPhase: LaunchPhase = .loading { didSet { refreshSetupState() } }
     private var launchTask: Task<Void, Never>?
     private var beforeReady: [@MainActor () -> Void] = []
     /// Read off the main thread by the first load, then used once by `reload()` and `refreshMemory()`.
@@ -171,7 +193,7 @@ public final class AppModel {
     // MARK: Launch
 
     /// Captures, README pictures and demos never show the splash (BRAINMERGE_CAPTURE, BRAINMERGE_SCREEN, BRAINMERGE_ONBOARDING_STEP).
-    static func skipsSplash(environment: [String: String]) -> Bool {
+    nonisolated static func skipsSplash(environment: [String: String]) -> Bool {
         ["BRAINMERGE_CAPTURE", "BRAINMERGE_SCREEN", "BRAINMERGE_ONBOARDING_STEP"].contains { environment[$0] != nil }
     }
 
@@ -234,11 +256,33 @@ public final class AppModel {
     public var needsOnboarding: Bool { brain == nil || accounts.first(where: { $0.identity.isPrimary }) == nil }
     public var openAccounts: [Account] { accounts.filter(\.isRunning) }
 
+    /// The window's screens are there: past the splash, a memory and a first account, the guided setup closed.
+    public private(set) var setupDone = false
+    /// The menu bar icon shows: the setting, once the splash and the guided setup are over, never in a capture or a demo.
+    /// Both are stored and written only when they change: the scenes and the app menu read them, and would otherwise be
+    /// drawn again whenever an account opens or closes.
+    public private(set) var showsMenuBarIcon = false
+
+    private func refreshSetupState() {
+        let done = launchPhase == .ready && !needsOnboarding && !setupGuideShown
+        let shown = AppLifecycle.showsMenuBarIcon(setting: menuBarIcon, phase: launchPhase, setupDone: done, environment: environment)
+        if done != setupDone { setupDone = done }
+        if shown != showsMenuBarIcon { showsMenuBarIcon = shown }
+    }
+
+    /// The accounts of the menu bar's menu, with the sidebar's words.
+    public var menuEntries: [MenuBarEntry] {
+        MenuBarMenu.entries(accounts: accounts, opening: opening, busy: accountsBusy, appExists: { appURL(of: $0) != nil })
+    }
+
     /// Reloads the state and the running instances: a single `ps` for every account. Only writes a property if
     /// its value changes, so as not to redraw the whole interface on every clock tick. Returns true if something changed.
     @discardableResult
     public func reload() -> Bool {
         var changed = false
+        // With the window closed, only a reload notices that the setup or the icon changed: the clocks follow.
+        let before = (needsOnboarding, showsMenuBarIcon)
+        defer { if (needsOnboarding, showsMenuBarIcon) != before { updateWatching() } }
         func set<T: Equatable>(_ keyPath: ReferenceWritableKeyPath<AppModel, T>, _ value: T) {
             if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value; changed = true }
         }
@@ -247,6 +291,7 @@ public final class AppModel {
         set(\.language, state.brainLanguage)
         set(\.autoRebuild, state.autoRebuild)
         set(\.notesApp, state.notesApp)
+        if menuBarIconSaves == 0 { set(\.menuBarIcon, state.menuBarIcon) }
         set(\.brains, state.brains)
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
@@ -865,18 +910,27 @@ public final class AppModel {
     }
 
     /// Removes everything Brainmerge set up; memories and logins stay. Nil, with a message, when an account is still open.
+    /// The clocks stay stopped until it is over (the window may close meanwhile), and for good once it is done: the app
+    /// then goes to the Trash and quits.
     public func uninstall() async -> Uninstaller.Report? {
         if let open = openAccounts.first(where: { !$0.identity.isPrimary }), let sentence = runningSentence(open.id) { message = sentence; return nil }
         let uninstaller = Uninstaller(paths: paths, store: store, manager: manager)
+        watchingSuspended = true
         stopWatching()
         let report: Uninstaller.Report? = await perform("Removing Brainmerge…") { try uninstaller.run() }
-        if report == nil { startWatching() }
+        if report == nil { watchingSuspended = false; updateWatching() }
         return report
     }
 
-    /// At launch from a disk image or Downloads: offer to install into Applications.
+    /// Whether this copy should offer to move itself, injectable in tests.
+    @ObservationIgnored var offersMove: @MainActor () -> Bool = { Installer.shouldOfferMove() && !Installer.wasDeclined() }
+    private var moveOffered = false
+
+    /// At launch from a disk image or Downloads: offer to install into Applications, once per process (the window
+    /// now closes and opens again while Brainmerge keeps running).
     public func offerMoveIfNeeded() {
-        guard Installer.shouldOfferMove(), !Installer.wasDeclined() else { return }
+        guard !moveOffered, offersMove() else { return }
+        moveOffered = true
         message = UserMessage(title: "Move Brainmerge to Applications?",
                               detail: "Brainmerge works best from your Applications folder: the command line and the Dock icons point there. It will copy itself there and open again.",
                               action: .moveToApplications, actionLabel: "Move and open")
@@ -884,17 +938,33 @@ public final class AppModel {
 
     // MARK: Monitoring
 
-    /// Starts the clocks and checks Claude once; asking again while they run changes nothing.
-    public func startWatching() {
-        guard !isWatching else { return }
-        isWatching = true
-        watchers.start(running: { [weak self] in self?.reload() },
+    /// Starts every clock and checks Claude once; asking again while they run changes nothing.
+    public func startWatching() { watch(Set(Watchers.Clock.allCases)) }
+    public func stopWatching() { watch([]) }
+
+    /// The clocks the window and the menu bar icon need now (see Watchers.plan). Only once a window was tracked and the
+    /// first load is done; never during an uninstall.
+    public func updateWatching() {
+        guard tracksWindow, !watchingSuspended, launchPhase == .ready else { return }
+        watch(Watchers.plan(windowOpen: windowOpen, iconShown: showsMenuBarIcon, needsOnboarding: needsOnboarding))
+    }
+
+    /// A Bool rather than a count of appearances, which could drift: there is one main window.
+    public func windowAppeared() { tracksWindow = true; windowOpen = true; updateWatching() }
+    public func windowDisappeared() { windowOpen = false; updateWatching() }
+
+    /// Restarts the clocks only when the set changes, and checks Claude once when they start from none.
+    private func watch(_ clocks: Set<Watchers.Clock>) {
+        guard clocks != watchedClocks else { return }
+        let starting = watchedClocks.isEmpty
+        watchedClocks = clocks
+        guard !clocks.isEmpty else { watchers.stop(); return }
+        watchers.start(clocks, running: { [weak self] in self?.reload() },
                        memory: { [weak self] in self?.refreshMemory() },
                        projects: { [weak self] in self?.onProjectsTick() },
                        claude: { [weak self] in Task { await self?.checkClaudeUpdate() } })
-        Task { await checkClaudeUpdate() }
+        if starting { Task { await checkClaudeUpdate() } }
     }
-    public func stopWatching() { isWatching = false; watchers.stop() }
 
     /// Projects that appeared since the last pass get their memory link, in each account's memory (idempotent, without a message).
     func wireNewProjects() {
@@ -941,6 +1011,36 @@ public final class AppModel {
         state.notesApp = setting
         try? store.save(state)
         reload()
+    }
+
+    /// Shows or hides the menu bar icon. The switch moves at once; the file is saved on the core queue, after any work
+    /// already there, which saves the same file (a rebuild records its Claude version). The task ends once it is saved.
+    @discardableResult
+    public func setMenuBarIcon(_ on: Bool) -> Task<Void, Never> {
+        if menuBarIcon != on { menuBarIcon = on }
+        menuBarIconSaves += 1
+        updateWatching()
+        let store = self.store, queue = coreQueue
+        return Task {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                queue.async {
+                    if var state = try? store.load() { state.menuBarIcon = on; try? store.save(state) }
+                    done.resume()
+                }
+            }
+            menuBarIconSaves -= 1
+        }
+    }
+
+    /// Waits for the core work in progress to end, at most `limit`. True when none is left.
+    public func waitForWork(limit: Duration) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now + limit
+        while working != nil {
+            guard clock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return true
     }
 
     public func setAutoRebuild(_ on: Bool) {

@@ -12,6 +12,8 @@
 - [ ] Codex et autres assistants (CODEX_HOME, AGENTS.md, notify) derrière une abstraction « provider » ; rattacher les sessions Claude Code du Terminal à leur compte (aujourd'hui une seule ligne pour tous : le compte n'est que dans l'environnement, jamais lu ; piste : un lanceur `brainmerge claude <compte>` qui marque son argv)
 - [ ] Refaire la capture 21-usage.png avec la section RAM et disque (elle montre la vraie RAM du Mac qui capture ; les tailles disque d'un home de démo sont minuscules)
 - [ ] Vérifier à la main dans l'app installée l'écran Usage : RAM du Mac proche de Moniteur d'activité, RAM par compte, ligne Terminal, tailles disque et « Measure again »
+- [ ] Vérifier à la main dans l'app installée la barre de menus : fermer la fenêtre avec l'icône (Brainmerge reste), clic sur le Dock et « Open Brainmerge » qui rouvrent l'unique fenêtre (même réduite), fenêtre fermée sans l'icône qui quitte, pastilles de couleur et titre « Accounts » rendus dans le menu, « Show » depuis le menu quand Brainmerge n'est pas au premier plan, l'interrupteur qui montre et cache l'icône aussitôt, l'icône glissée hors de la barre qui coupe le réglage, Cmd-Q pendant une reconstruction qui attend
+- [ ] Décider si le README montre le menu de la barre : aucune capture ne l'affiche (l'icône est cachée dans les captures et démos)
 - [ ] Calibrer la détection de connexion sur une vraie connexion (un compte de test au clavier)
 - [ ] Envoyer à Anthropic la demande d'autorisation pour la mascotte (lettre dans ~/brainmerge-private/docs/anthropic-brand-request.md) avant la sortie publique ; si refus, remplacer la créature (un seul fichier)
 - [ ] Trouver un nom à la créature avec Ruben
@@ -22,6 +24,7 @@
 
 ## Fait
 
+- [x] 2026-09-25 : icône dans la barre de menus (0.6.0, non publiée) : la créature en image modèle, menu natif avec chaque compte et le mot de la barre latérale, RAM du Mac, Open Brainmerge, Settings…, Star on GitHub, Quit ; réglage « Show in the menu bar » (activé par défaut, caché pendant l'accueil, les captures et les démos) ; une seule fenêtre, fenêtre fermée qui garde Brainmerge avec l'icône et quitte sans, horloges réduites fenêtre fermée, Cmd-Q qui attend la fin d'une reconstruction ; « Star on GitHub » aussi dans Settings et à la fin de l'accueil
 - [x] 2026-09-25 : RAM et disque par compte (0.6.0, non publiée) : RAM du Mac comptée comme Moniteur d'activité, RAM de chaque compte par l'empreinte de ses processus (cartes, sous-titre et alerte au même chiffre), sessions Claude Code du Terminal sur une ligne honnête, taille disque de chaque compte depuis les métadonnées (liens jamais suivis, historique partagé compté une fois, copie teintée par ses blocs propres), gardes de sécurité ajoutées
 - [x] 2026-09-25 : v0.5.0 publiée, notarisée et installée : barre latérale cliquable sur toute la ligne avec survol et Open/Show visibles, animation de démarrage du personnage qui marche, e-mail Claude Code de chaque compte (3 champs d'affichage lus, jamais stockés) avec échange des noms inversés, compte principal modifiable sans quitter Claude et app à sa couleur, apps faites main reconnues et signalées ; un seul bouton violet par écran (teinte globale de la 0.4.0 retirée) ; captures toujours arrêtées à la fin du script
 

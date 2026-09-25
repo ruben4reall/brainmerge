@@ -47,6 +47,8 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Layout.readingWidth` / `formWidth` | 880 / 720 | the widest a Memory or Usage card gets / the settings form |
 | `Layout.meterRadius` | 3 | the thin RAM bars of the Usage screen |
 
+The menu bar icon (`Design/MenuBarIcon.swift`) is the creature drawn from the same grid as a template image: macOS paints it in the menu bar's own color, so it carries no token. Cells are 1.5 pt on a Retina display (1 pt at 1x, to stay on whole pixels) in a 24 by 18 pt canvas, so the creature is 16.5 pt tall; its eyes are cut out, open while an account is open or opening, a thin line one row lower otherwise. No badge, no count, no animation. The accounts in its menu carry a 10 pt dot in their tint (`Theme.color(for:)`).
+
 Account tints (`Theme.hex(for:)`): orange `#D97757`, blue `#6FA3D8`, green `#7FA37A`, purple `#A87BC9`, pink `#D97A8E`, yellow `#E0A526`, gray `#7D8A99`. Red maps to pink and is not offered in pickers.
 
 Aura colors, in order: `#A06BE0`, `#C58FD9`, `#7FB5E8`, `#8FC7A6`, `#E9A45C`, `#B487EA`.

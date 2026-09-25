@@ -18,6 +18,20 @@ import BrainmergeTestSupport
         #expect(!UpdatePolicy.shouldRebuild(identity: primary, installedVersion: "2.8000.0", running: false, autoRebuild: true))
     }
 
+    /// With the window open, every clock runs. With only the icon, the ones that keep the menu's words true and the copies
+    /// current; the memory's history only matters on screen. Nothing during the guided setup, nothing with neither.
+    @Test func planByWindowAndIcon() {
+        let all = Set(Watchers.Clock.allCases)
+        for icon in [true, false] {
+            #expect(Watchers.plan(windowOpen: true, iconShown: icon, needsOnboarding: false) == all)
+            #expect(Watchers.plan(windowOpen: true, iconShown: icon, needsOnboarding: true).isEmpty)
+            #expect(Watchers.plan(windowOpen: false, iconShown: icon, needsOnboarding: true).isEmpty)
+        }
+        #expect(Watchers.plan(windowOpen: false, iconShown: true, needsOnboarding: false) == [.instances, .projects, .claude])
+        #expect(Watchers.plan(windowOpen: false, iconShown: false, needsOnboarding: false).isEmpty)
+        #expect(Watchers.Clock.allCases.map(\.interval) == [3, 10, 60, 300])
+    }
+
     @MainActor @Test func oneProcessListPerRefreshTick() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")

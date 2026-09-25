@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 import BrainmergeCore
 import BrainmergeTestSupport
@@ -727,7 +728,192 @@ import BrainmergeTestSupport
         try await Task.sleep(for: .milliseconds(100))
         #expect(ps.value == 1)
     }
+
+    // MARK: The menu bar
+
+    /// A model past the splash, with no capture or demo variable: the icon's own rules decide.
+    func readyModel(_ e: ManagerEnv, monitor: ProcessMonitor? = nil) async -> AppModel {
+        let m = model(e, monitor: monitor)
+        m.environment = [:]
+        await m.launch(minimum: .zero)
+        return m
+    }
+
+    @Test func menuBarSettingPersists() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        #expect(m.menuBarIcon && m.showsMenuBarIcon)
+        await m.setMenuBarIcon(false).value
+        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
+        #expect(try e.store.load().menuBarIcon == false)
+        let fresh = model(e)
+        fresh.reload()
+        #expect(!fresh.menuBarIcon)
+        // The guided setup on screen, a capture, or no memory yet: no icon, whatever the setting.
+        await m.setMenuBarIcon(true).value
+        #expect(m.showsMenuBarIcon)
+        m.setupGuideShown = true
+        #expect(!m.showsMenuBarIcon)
+        m.setupGuideShown = false
+        m.environment = ["BRAINMERGE_CAPTURE": "1"]
+        #expect(!m.showsMenuBarIcon)
+        let bare = try ManagerEnv.make(withBrain: false); defer { bare.home.remove() }
+        let b = await readyModel(bare)
+        #expect(b.menuBarIcon && !b.showsMenuBarIcon)
+    }
+
+    /// The switch is saved after any work already on the core queue (a rebuild saves the state too), and a reload in
+    /// between does not flip it back.
+    @Test func theSwitchHoldsWhileItsSaveWaitsForTheCoreQueue() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        let slow = Task { _ = await m.outcome("Rebuilding Work…") { Thread.sleep(forTimeInterval: 0.3) } }
+        while m.working == nil { await Task.yield() }
+        let save = m.setMenuBarIcon(false)
+        m.reload()
+        #expect(!m.menuBarIcon)
+        #expect(try e.store.load().menuBarIcon == true)
+        await save.value
+        await slow.value
+        m.reload()
+        #expect(!m.menuBarIcon)
+        #expect(try e.store.load().menuBarIcon == false)
+    }
+
+    /// The scenes read whether the icon shows: an account opening or closing must not draw them again (that would
+    /// rebuild the window's root view on every clock tick), only a change of the answer.
+    @Test func theIconAnswerChangesOnlyWithItself() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let exe = e.claude.url.appending(path: "Contents/MacOS/Claude").path
+        let ps = PSOutput()
+        let m = await readyModel(e, monitor: ProcessMonitor(psOutput: { ps.text }))
+        let touched = Tally()
+        func watch() {
+            withObservationTracking { _ = m.showsMenuBarIcon; _ = m.setupDone } onChange: { MainActor.assumeIsolated { touched.count += 1 } }
+        }
+        watch()
+        ps.text = "  800 1 90000 \(exe)\n"
+        m.reload()
+        #expect(m.openAccounts.count == 1)
+        #expect(touched.count == 0)
+        m.setupGuideShown = true
+        #expect(touched.count == 1)
+        #expect(!m.showsMenuBarIcon && !m.setupDone)
+    }
+
+    /// With the icon, closing the window keeps the clocks the menu needs; without it, nothing runs.
+    @Test func closingTheWindowKeepsTheClocksWithTheIcon() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        #expect(m.watchedClocks == Set(Watchers.Clock.allCases))
+        m.windowDisappeared()
+        #expect(m.watchedClocks == [.instances, .projects, .claude])
+        await m.setMenuBarIcon(false).value
+        #expect(!m.isWatching)
+        m.windowAppeared()
+        #expect(m.watchedClocks == Set(Watchers.Clock.allCases))
+        m.windowDisappeared()
+        #expect(!m.isWatching)
+        // The guide on screen stops the background clocks too, and a state that needs the setup again stops them all.
+        await m.setMenuBarIcon(true).value
+        #expect(m.isWatching)
+        m.setupGuideShown = true
+        #expect(!m.isWatching)
+        m.setupGuideShown = false
+        #expect(m.isWatching)
+        var state = try e.store.load()
+        state.identities = []
+        try e.store.save(state)
+        m.reload()
+        #expect(m.needsOnboarding && !m.isWatching)
+    }
+
+    /// Before any window appeared (tests, the first load), nothing starts the clocks on its own.
+    @Test func noClockStartsBeforeTheWindowIsTracked() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        m.updateWatching()
+        await m.setMenuBarIcon(false).value
+        await m.setMenuBarIcon(true).value
+        m.reload()
+        #expect(!m.isWatching)
+        // During the splash, the window appearing starts nothing either: the launch asks once it is done.
+        let splash = model(e)
+        splash.environment = [:]
+        splash.windowAppeared()
+        #expect(!splash.isWatching)
+    }
+
+    /// An uninstall keeps every clock stopped, whatever the window does meanwhile: a Claude check would rebuild a copy.
+    @Test func anUninstallKeepsTheClocksStopped() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        #expect(m.isWatching)
+        let uninstall = Task { await m.uninstall() }
+        while m.working == nil { await Task.yield() }
+        // The window closes and opens again while the removal runs: nothing starts.
+        m.windowDisappeared()
+        m.windowAppeared()
+        #expect(!m.isWatching)
+        #expect(await uninstall.value != nil)
+        m.windowAppeared()
+        #expect(!m.isWatching)
+    }
+
+    /// Quit waits for the work on an account's app, for a bounded time.
+    @Test func quitWaitsForWorkInProgress() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        #expect(await m.waitForWork(limit: .seconds(1)))
+        let work = Task { _ = await m.outcome("Rebuilding Work…") { Thread.sleep(forTimeInterval: 0.3) } }
+        while m.working == nil { await Task.yield() }
+        #expect(await m.waitForWork(limit: .milliseconds(20)) == false)
+        #expect(await m.waitForWork(limit: .seconds(5)))
+        #expect(m.working == nil)
+        await work.value
+    }
+
+    /// The menu's accounts use every account whose app is being worked on: the automatic update marks only `rebuilding`.
+    @Test func menuEntriesUseEveryBusyAccount() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let m = model(e)
+        m.reload()
+        #expect(m.menuEntries.map(\.title) == ["Open Ruben", "Open Work"])
+        m.rebuilding.insert("work")
+        #expect(m.menuEntries.map(\.title) == ["Open Ruben", "Updating Work…"])
+        #expect(m.menuEntries.map(\.isEnabled) == [true, false])
+    }
+
+    /// Closing and reopening the window is routine with the icon: the move to Applications is offered once per process.
+    @Test func theMoveIsOfferedOncePerProcess() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.offersMove = { true }
+        m.offerMoveIfNeeded()
+        #expect(m.message?.action == .moveToApplications)
+        m.message = nil
+        m.offerMoveIfNeeded()
+        #expect(m.message == nil)
+        let declined = model(e)
+        declined.offersMove = { false }
+        declined.offerMoveIfNeeded()
+        #expect(declined.message == nil)
+    }
 }
+
+
 
 /// Whether each `ps` ran on the main thread.
 final class MainThreadLog: @unchecked Sendable {

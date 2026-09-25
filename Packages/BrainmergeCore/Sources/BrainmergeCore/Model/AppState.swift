@@ -25,17 +25,19 @@ public struct AppState: Codable, Equatable, Sendable {
     public var brainLanguage: BrainLanguage
     /// The app that opens the memory folder: a bundle identifier, "path:<app>" for any other app, nil for the folder itself.
     public var notesApp: String?
+    /// Brainmerge's icon in the menu bar. On unless the person turned it off.
+    public var menuBarIcon: Bool
 
     public init(schemaVersion: Int = AppState.currentSchema, machineID: String = UUID().uuidString,
                 brainPath: String? = nil, identities: [Identity] = [], autoRebuild: Bool = true,
-                brainLanguage: BrainLanguage = .en, notesApp: String? = nil, brains: [MemoryFolder] = []) {
-        self.schemaVersion = schemaVersion; self.machineID = machineID
+                brainLanguage: BrainLanguage = .en, notesApp: String? = nil, brains: [MemoryFolder] = [], menuBarIcon: Bool = true) {
+        self.schemaVersion = schemaVersion; self.machineID = machineID; self.menuBarIcon = menuBarIcon
         self.identities = identities; self.autoRebuild = autoRebuild; self.brainLanguage = brainLanguage; self.notesApp = notesApp
         self.brains = brains
         if brains.isEmpty, let brainPath { self.brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: brainPath)] }
     }
 
-    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp }
+    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon }
 
     /// Schema 1 (a single `brainPath`) becomes a list with one memory called Shared.
     public init(from decoder: Decoder) throws {
@@ -46,6 +48,8 @@ public struct AppState: Codable, Equatable, Sendable {
         autoRebuild = try c.decode(Bool.self, forKey: .autoRebuild)
         brainLanguage = try c.decode(BrainLanguage.self, forKey: .brainLanguage)
         notesApp = try c.decodeIfPresent(String.self, forKey: .notesApp)
+        // Added without a schema bump: a file written before it keeps the icon on.
+        menuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarIcon) ?? true
         let list = try c.decodeIfPresent([MemoryFolder].self, forKey: .brains) ?? []
         if list.isEmpty, let path = try c.decodeIfPresent(String.self, forKey: .brainPath) {
             brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: path)]
@@ -65,6 +69,7 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encode(autoRebuild, forKey: .autoRebuild)
         try c.encode(brainLanguage, forKey: .brainLanguage)
         try c.encodeIfPresent(notesApp, forKey: .notesApp)
+        try c.encode(menuBarIcon, forKey: .menuBarIcon)
     }
 
     /// The default memory's folder. Setting it moves the default memory to that folder, or creates it.

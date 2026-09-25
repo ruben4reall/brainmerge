@@ -28,4 +28,19 @@ import BrainmergeTestSupport
         empty.brainPath = "/z/Brain"
         #expect(empty.brains == [MemoryFolder(id: "shared", name: "Shared", path: "/z/Brain")])
     }
+
+    /// The menu bar icon is on unless the person turned it off: a file written before the setting existed keeps it on,
+    /// and off survives a save, so the command line never turns it back on.
+    @Test func menuBarIconDefaultsOnAndRoundTrips() throws {
+        #expect(AppState().menuBarIcon)
+        let older = #"{"schemaVersion": 2, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#
+        let decoded = try JSONDecoder().decode(AppState.self, from: Data(older.utf8))
+        #expect(decoded.menuBarIcon)
+        var state = AppState(machineID: "m")
+        state.menuBarIcon = false
+        let data = try JSONEncoder().encode(state)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"menuBarIcon\":false"))
+        #expect(try JSONDecoder().decode(AppState.self, from: data).menuBarIcon == false)
+        #expect(String(decoding: try JSONEncoder().encode(AppState(machineID: "m")), as: UTF8.self).contains("\"menuBarIcon\":true"))
+    }
 }

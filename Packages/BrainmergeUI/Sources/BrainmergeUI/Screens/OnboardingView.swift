@@ -220,6 +220,8 @@ public struct OnboardingView: View {
             }
             .frame(maxWidth: 520)
             Button("Open Brainmerge") { model.complete() }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
+            // A quiet link under the last button, never a prompt of its own.
+            Link(MenuBarMenu.starTitle, destination: BrainmergeLinks.repository).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
         }
     }
 

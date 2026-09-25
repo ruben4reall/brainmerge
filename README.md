@@ -39,6 +39,7 @@ Brainmerge is built so that there is nothing in it Anthropic's terms could objec
 - **Alive.** When Claude updates itself, the accounts that keep a copy of it (the ones with their own Dock icon) are rebuilt for the new version, on their own or with one click. Claude's version is checked every few minutes and whenever the window comes to the front.
 - **Usage per account.** What each account spent, read from Claude Code's own transcripts on your Mac: today, seven days, thirty days, by project and by model. Informative only: Brainmerge never switches accounts for you, and it never reads your limits (only Claude knows them). Reading eight gigabytes of transcripts takes under twenty seconds and a few dozen megabytes; the next read takes under a second.
 - **RAM and disk per account.** At the top of the Usage screen: your Mac's RAM counted like Activity Monitor, how much of it each account's Claude uses (with everything it runs), Claude Code sessions in a terminal as one row, the other apps, and the disk space each account's folders and app take. A quiet warning shows when your Mac runs low on RAM.
+- **In the menu bar.** The creature sits in the menu bar: open or show any account from there, see your Mac's RAM, open Brainmerge or its settings. With it, closing the window keeps Brainmerge running there; turn it off in Settings and closing the window quits.
 - **Nothing leaves your Mac.** No server, no account of ours, no network call. Everything is local files and git.
 - **Leaves cleanly.** Remove Brainmerge from Settings: its hooks, account apps, link and settings go, every project keeps a copy of its notes, your memories and logins stay.
 
@@ -79,7 +80,7 @@ A memory is a git repository: each account signs its own saves, so Brainmerge ca
 
 ![Settings](docs/design/captures/06-reglages.png)
 
-Where Claude is, whether tinted copies are rebuilt after a Claude update, your memories, the notes app, the language of new notes, the optional command line, and the two exits: check for updates (opens the releases page, no connection from the app) and remove Brainmerge.
+Where Claude is, whether Brainmerge shows in the menu bar, whether tinted copies are rebuilt after a Claude update, your memories, the notes app, the language of new notes, the optional command line, a "Star on GitHub" link, and the two exits: check for updates (opens the releases page, no connection from the app) and remove Brainmerge.
 
 ### Usage
 
