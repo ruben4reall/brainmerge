@@ -246,6 +246,13 @@ import Testing
             }
         }
         let limits = try #require(files.first { $0.0.lastPathComponent == "ClaudeCodeLimits.swift" }).1
+        // Only `runIsolated` starts Claude Code with nothing of Brainmerge's own environment: `run` and `check` merge it in.
+        let limitsCode = limits.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        #expect(limitsCode.contains("runIsolated("), "Claude Code must be started by Shell.runIsolated")
+        for merging in [".run(", ".check("] {
+            #expect(!limitsCode.contains(merging), "ClaudeCodeLimits.swift must not start Claude Code with \(merging)")
+        }
         let literals = Set(limits.matches(of: try Regex(#""((?:[^"\\]|\\.)*)""#)).map { String($0.output[1].substring ?? "") })
         #expect(Set(literals.filter { $0.hasPrefix("-") }) == ["--version", "-p"], "arguments: \(literals.filter { $0.hasPrefix("-") })")
         #expect(Set(literals.filter { $0.range(of: #"^/[a-z-]+$"#, options: .regularExpression) != nil }) == ["/usage"])

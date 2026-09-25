@@ -14,14 +14,22 @@ import BrainmergeTestSupport
     static let lines = [LimitLine(label: "Current session", percent: 17, resets: "3pm (Test/Zone)"),
                         LimitLine(label: "Current week (all models)", percent: 42, resets: "Oct 2, 9am (Test/Zone)")]
 
+    /// Holds every Claude Code start back until opened, then lets all of them through, however many there are.
+    final class Gate: @unchecked Sendable {
+        private let condition = NSCondition()
+        private var isOpen = false
+        func wait() { condition.lock(); while !isOpen { condition.wait() }; condition.unlock() }
+        func open() { condition.lock(); isOpen = true; condition.broadcast(); condition.unlock() }
+    }
+
     /// Stands in for Claude Code: records every start, answers `--version` and `/usage`, and can hold an answer back.
     final class FakeClaudeCode: @unchecked Sendable {
         private let lock = NSLock()
         private var recorded: [ClaudeCodeLimits.Invocation] = []
         private var lookups = 0
         let version: String
-        let gate: DispatchSemaphore?
-        init(version: String = "2.1.280 (Claude Code)\n", gate: DispatchSemaphore? = nil) { self.version = version; self.gate = gate }
+        let gate: Gate?
+        init(version: String = "2.1.280 (Claude Code)\n", gate: Gate? = nil) { self.version = version; self.gate = gate }
         var runs: [ClaudeCodeLimits.Invocation] { lock.lock(); defer { lock.unlock() }; return recorded }
         var binaryLookups: Int { lock.lock(); defer { lock.unlock() }; return lookups }
 
@@ -154,18 +162,24 @@ import BrainmergeTestSupport
         #expect(unsigned.runs.isEmpty)
     }
 
-    @Test func aSecondClickWhileCheckingAsksOnce() async throws {
+    /// Bounded: a second click that asks again fails with four starts instead of waiting forever on the held answer.
+    /// Five minutes, not one: the whole suite shares the main actor, so a step can wait its turn for a minute.
+    @Test(.timeLimit(.minutes(5))) func aSecondClickWhileCheckingAsksOnce() async throws {
         let (e, m, _) = try setUp(); defer { e.home.remove() }
-        let gate = DispatchSemaphore(value: 0)
+        let gate = Gate()
         let fake = FakeClaudeCode(gate: gate)
         fake.install(in: m)
         let first = Task { await m.checkLimits("client") }
         for _ in 0..<1000 where m.limits["client"] != .checking { await Task.yield() }
         #expect(m.limits["client"] == .checking)
-        await m.checkLimits("client")
-        gate.signal(); gate.signal()
+        var secondReturned = false
+        let second = Task { await m.checkLimits("client"); secondReturned = true }
+        // The second click is decided while the first still waits: it returns, or (the bug) starts Claude Code again.
+        for _ in 0..<500 where !secondReturned && fake.runs.count < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        gate.open()
         await first.value
-        #expect(fake.runs.count == 2)
+        await second.value
+        #expect(fake.runs.count == 2, "\(fake.runs.map(\.arguments))")
         if case .checked = m.limits["client"] {} else { Issue.record("\(String(describing: m.limits["client"]))") }
     }
 

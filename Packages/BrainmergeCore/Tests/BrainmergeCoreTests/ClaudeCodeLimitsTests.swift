@@ -101,6 +101,18 @@ import BrainmergeTestSupport
         #expect(ClaudeCodeLimits.configDir(of: adopted, paths: paths) == nil)
     }
 
+    /// The runner the app uses hands over exactly the invocation's variables: Brainmerge's own environment (an API key,
+    /// a token, another account's CLAUDE_CONFIG_DIR) never reaches Claude Code. A system program stands in for it.
+    @Test(.timeLimit(.minutes(1))) func theAppsRunnerPassesOnlyTheseVariables() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let invocation = ClaudeCodeLimits.Invocation(executable: "/usr/bin/env", arguments: [], directory: home.url,
+                                                     environment: ["HOME": home.url.path, "PATH": ClaudeCodeLimits.path], timeout: 10)
+        let result = try ClaudeCodeLimits.shell(invocation)
+        #expect(result.status == 0)
+        #expect(Set(result.stdout.split(separator: "\n").map(String.init))
+                == ["HOME=\(home.url.path)", "PATH=/usr/bin:/bin:/usr/sbin:/sbin"], "\(result.stdout)")
+    }
+
     /// Stands in for Claude Code: records each run and answers from `answers`, by first argument.
     final class FakeClaudeCode: @unchecked Sendable {
         private let lock = NSLock()
