@@ -6,9 +6,12 @@ public struct Doctor: Sendable {
     public let store: StateStore
     public let claudeAppURL: URL
     public let cliPath: String
+    /// Where apps the person made are looked for (see ExistingApps.folders).
+    public let appFolders: [URL]
 
-    public init(paths: Paths, store: StateStore, claudeAppURL: URL, cliPath: String) {
+    public init(paths: Paths, store: StateStore, claudeAppURL: URL, cliPath: String, appFolders: [URL]? = nil) {
         self.paths = paths; self.store = store; self.claudeAppURL = claudeAppURL; self.cliPath = cliPath
+        self.appFolders = appFolders ?? ExistingApps.folders(for: paths)
     }
 
     public struct Finding: Equatable, Sendable, Codable {
@@ -66,7 +69,14 @@ public struct Doctor: Sendable {
             findings.append(Finding(level: .warning, title: "Command line", detail: "\(cliLink.path) missing. Run: brainmerge install-cli"))
         }
 
+        // Apps the person made that open an account, read once for every account.
+        let existingApps = claude == nil ? [] : ExistingApps(paths: paths, claudeAppURL: claudeAppURL, folders: appFolders).scan()
         for identity in state.identities {
+            if let claude {
+                for app in existingApps where app.opens(identity, in: paths) && app.runsOlderClaude(than: claude.version) {
+                    findings.append(olderCopyFinding(identity, app: app, installed: claude.version))
+                }
+            }
             let brain = state.brain(for: identity).flatMap { ready[$0.id] }
             let profile = CLIProfile(directory: identity.cliProfile(in: paths))
             guard profile.exists else {
@@ -118,6 +128,14 @@ public struct Doctor: Sendable {
             }
         }
         return findings
+    }
+
+    /// A copy of Claude made by hand that opens this account with an older Claude: Brainmerge only says so, the person
+    /// retires the copy. Its path only, never anything read from the account.
+    func olderCopyFinding(_ identity: Identity, app: ExistingApp, installed: String) -> Finding {
+        let advice = identity.isPrimary ? "Open \(identity.name) with Claude itself" : "Use Brainmerge's app for this account"
+        return Finding(level: .warning, title: "\(identity.name): \(app.name)",
+                       detail: "A copy of Claude \(app.claudeVersion ?? "?") made by hand, \(app.url.path), also opens this account, and Claude \(installed) is installed: an older Claude on the same data can damage it. \(advice), and move the copy to the Trash yourself once \(identity.name) is closed.")
     }
 
     /// The primary's own app: there, and opening the Claude installed (it was built for another path if Claude moved).

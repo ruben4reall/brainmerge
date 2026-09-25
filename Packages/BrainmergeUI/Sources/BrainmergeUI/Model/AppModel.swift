@@ -103,6 +103,8 @@ public final class AppModel {
     public let store: StateStore
     public let manager: IdentityManager
     public let claudeAppURL: URL
+    /// Where apps the person made are looked for: ~/Applications, and /Applications for the real home only.
+    public var appFolders: [URL]
     private let watchers = Watchers()
     /// The clocks run: several windows, the launch and the onboarding switch can all ask, the clocks start once.
     public private(set) var isWatching = false
@@ -117,6 +119,7 @@ public final class AppModel {
 
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
+        appFolders = ExistingApps.folders(for: paths)
     }
 
     /// The installed app's model: engine embedded in the bundle. The command line link is only set up
@@ -304,6 +307,19 @@ public final class AppModel {
     /// The app that opens this account from the Dock: a secondary's launcher or copy, the primary's own app when it has one.
     public func appURL(of slug: String) -> URL? {
         accounts.first { $0.id == slug }?.identity.appURL(in: paths).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+    }
+
+    /// Apps the person made that also open this account (read off the main thread, never run). Nothing is stored:
+    /// the edit sheet asks each time it opens.
+    public func otherApps(opening slug: String) async -> [ExistingApp] {
+        guard let identity = accounts.first(where: { $0.id == slug })?.identity else { return [] }
+        let scanner = ExistingApps(paths: paths, claudeAppURL: claudeAppURL, folders: appFolders)
+        return await Task.detached(priority: .userInitiated) { scanner.apps(opening: identity) }.value
+    }
+
+    /// Shows an app the person made in Finder, selected: the only thing Brainmerge does with it.
+    public func revealInFinder(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     public func revealApp(_ slug: String) {

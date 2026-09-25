@@ -518,6 +518,36 @@ import BrainmergeTestSupport
         #expect(m.busy.isEmpty)          // two sets: the update's marker is never cleared by a nested change
     }
 
+    // MARK: Apps the person made
+
+    /// The owner's "Claude Second" copies open Agency's adopted folders: the edit sheet of Agency lists
+    /// both, the primary's lists none, and the copies are left exactly as they were.
+    @Test func appsMadeByHandAreFoundForTheAccountTheyOpen() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let data = e.home.url.appending(path: "Library/Application Support/Claude-Second")
+        let profile = e.home.url.appending(path: ".claude-second")
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        _ = try CLIProfile.create(at: profile, inheritingFrom: nil)
+        var request = IdentityManager.AddRequest(name: "Agency")
+        request.adoptDesktopData = data; request.adoptCLIProfile = profile
+        _ = try e.manager.add(request)
+        let apps = e.home.url.appending(path: "Applications")
+        try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
+        let copy = try HandMadeApp.make("Claude Second", in: apps, script: HandMadeApp.ownersScript, version: "2.2553.13")
+        try HandMadeApp.make("Claude Second (ancienne 1.49585)", in: apps, script: HandMadeApp.ownersScript, version: "1.49585.0")
+        let m = model(e)
+        m.reload()
+
+        let found = await m.otherApps(opening: "agency")
+        #expect(found.map(\.name) == ["Claude Second", "Claude Second (ancienne 1.49585)"])
+        #expect(found.first?.url.path == copy.path)
+        #expect(await m.otherApps(opening: "ruben").isEmpty)
+        #expect(await m.otherApps(opening: "nobody").isEmpty)
+        #expect(FileManager.default.fileExists(atPath: copy.path))
+        #expect(m.message == nil)
+    }
+
     // MARK: The launch splash
 
     @Test func capturesAndDemosSkipTheSplash() {

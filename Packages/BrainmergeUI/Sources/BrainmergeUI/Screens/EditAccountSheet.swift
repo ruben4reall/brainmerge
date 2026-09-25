@@ -3,13 +3,15 @@ import SwiftUI
 import BrainmergeCore
 
 /// Everything about an account in one place: name, color or photo, note, memory, and its app in the Dock (for the primary,
-/// which is Claude itself, an optional app of its own that opens Claude).
+/// which is Claude itself, an optional app of its own that opens Claude), with the apps the person made that also open it.
 public struct EditAccountSheet: View {
     @Bindable var model: AppModel
     @Binding var isPresented: Bool
     let account: Account
     @State private var edit: AccountEdit
     @State private var problem: String?
+    /// Apps the person made that also open this account, read when the sheet opens (never run, never touched).
+    @State private var otherApps: [ExistingApp] = []
 
     public init(model: AppModel, isPresented: Binding<Bool>, account: Account) {
         self.model = model; _isPresented = isPresented; self.account = account
@@ -72,6 +74,7 @@ public struct EditAccountSheet: View {
             if account.identity.isPrimary {
                 if account.identity.surfaces.desktop {
                     labeled("App") {
+                        otherAppLines
                         Toggle("Own app with this color", isOn: $edit.ownApp).toggleStyle(.switch).tint(Theme.Colors.accent)
                         Text(Self.ownAppText(name: current.identity.name))
                             .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
@@ -81,6 +84,7 @@ public struct EditAccountSheet: View {
                 }
             } else {
                 labeled("In the Dock") {
+                    otherAppLines
                     Toggle("Own icon in the Dock", isOn: $edit.distinctIcon).toggleStyle(.switch).tint(Theme.Colors.accent)
                     Text("Recommended when several accounts stay open: the Dock shows this account's icon and name while it runs. It is a local copy of Claude, rebuilt after each Claude update.")
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
@@ -103,6 +107,34 @@ public struct EditAccountSheet: View {
         .padding(22)
         .frame(width: 480)
         .background(WarmBackground(accents: [edit.tint]))
+        .task { otherApps = await model.otherApps(opening: account.id) }
+    }
+
+    /// Each app the person made that also opens this account: where it is, the risk of an older Claude, what to do.
+    /// A copy made by hand keeps Claude's icon, so the Dock switch below still matters.
+    var otherAppNotes: [OtherAppNote] {
+        otherApps.map { OtherAppNote.make(app: $0, account: current.identity, installedClaude: model.claude?.version, home: model.paths.home) }
+    }
+
+    @ViewBuilder var otherAppLines: some View {
+        ForEach(otherAppNotes) { note in
+            VStack(alignment: .leading, spacing: 4) {
+                Text(note.line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let warning = note.warning {
+                    Text(warning).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.accentLight)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(alignment: .top, spacing: 10) {
+                    Text(note.advice).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Show in Finder") { model.revealInFinder(note.app.url) }.buttonStyle(.glass).controlSize(.small)
+                        .accessibilityLabel("Show \(note.app.name) in Finder")
+                }
+            }
+            .padding(.bottom, 4)
+        }
     }
 
     /// Which email Claude Code uses for this account, and the renames it suggests. Nothing is renamed without a click.

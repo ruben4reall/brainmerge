@@ -87,6 +87,17 @@ import Testing
         #expect(found.isSubset(of: allowed), "unexpected string literals: \(found.subtracting(allowed))")
     }
 
+    /// Apps the person made are read, never run, changed or moved (SECURITY.md): no process, no opening, no writing, no trash.
+    @Test func existingAppsOnlyReadsBundles() throws {
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "ExistingApps.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        for forbidden in ["Shell", "Process", "execv", "posix_spawn", "NSWorkspace", "LSOpen", "bash", "trashItem", "removeItem",
+                          "moveItem", "copyItem", "replaceItem", "createFile", "createDirectory", "write(", "setAttributes", "codesign", "lsregister"] {
+            #expect(!code.contains(forbidden), "ExistingApps.swift must only read: \(forbidden)")
+        }
+    }
+
     @Test func noTelemetryOrAnalytics() throws {
         let hits = try offenders(["Analytics", "Telemetry", "Sentry", "Crashlytics", "Firebase", "Mixpanel"])
         #expect(hits.isEmpty, "\(hits)")
