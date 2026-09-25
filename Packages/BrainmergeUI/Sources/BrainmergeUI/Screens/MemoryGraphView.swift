@@ -23,8 +23,6 @@ struct MemoryGraphView: View {
     /// An account clicked in the legend: its notes stay lit until it is clicked again.
     @State private var pinnedAccount: String?
     @State private var preview = ""
-    /// Set by the capture script: the pointer may rest over the window by chance, and a screenshot should show the graph unlit.
-    static let capturing = ProcessInfo.processInfo.environment["BRAINMERGE_CAPTURE"] != nil
 
     var tints: [String: Color] {
         Dictionary(app.accounts.map { ($0.id, Theme.color(for: $0.identity.tint)) }, uniquingKeysWith: { a, _ in a })
@@ -45,7 +43,8 @@ struct MemoryGraphView: View {
                         switch phase {
                         case .active(let point):
                             graph.pointer = point
-                            if !Self.capturing { graph.hovered = note(at: point, size: geo.size) }
+                            // A capture: the pointer may rest over the window by chance, and a screenshot shows the graph unlit.
+                            if !Theme.Motion.isCapture { graph.hovered = note(at: point, size: geo.size) }
                         case .ended: graph.pointerLeft()
                         }
                     }

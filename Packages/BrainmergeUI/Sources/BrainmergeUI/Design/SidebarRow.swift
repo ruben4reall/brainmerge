@@ -42,7 +42,7 @@ struct SidebarRowStyle: ButtonStyle {
                 .background { shape.fill(fill).animation(reduceMotion ? nil : .easeOut(duration: SidebarRowStyle.fade), value: fill) }
                 .opacity(isEnabled ? 1 : SidebarRowStyle.disabledOpacity)
                 // Screenshots never show a stray highlight where the pointer happens to rest.
-                .onHover { inside in hovering = inside && isEnabled && !MemoryGraphView.capturing }
+                .onHover { inside in hovering = inside && isEnabled && !Theme.Motion.isCapture }
                 // A click hands the focus to Claude: the exit event may never come, so the highlight goes with the click.
                 .onChange(of: configuration.isPressed) { wasPressed, pressed in if wasPressed, !pressed { hovering = false } }
                 .onChange(of: isEnabled) { _, enabled in if !enabled { hovering = false } }

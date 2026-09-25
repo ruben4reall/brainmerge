@@ -40,7 +40,7 @@ public struct OnboardingView: View {
 
     var welcome: some View {
         VStack(spacing: 20) {
-            CreatureView(state: .awake, size: 56)
+            CreatureView(state: .awake, size: 64, profile: .stage)
             if let missing = model.missingBrainPath {
                 Text("Your memory folder is missing.").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center)
                 Text("It was at \(missing). Choose where it lives now, or create it again. Your accounts will be attached to it.")
@@ -194,7 +194,8 @@ public struct OnboardingView: View {
 
     var allSet: some View {
         VStack(spacing: 14) {
-            CreatureView(state: .awake, size: 36)
+            // A hop with sparkles, 350 ms after the step appears: the setup is done.
+            CreatureView(state: .awake, size: 48, profile: .stage, events: [CreatureStamp(.memorySaved, at: 0.35)])
             Text("All set").font(Theme.Fonts.onboardingTitle)
             GlassCard {
                 VStack(alignment: .leading, spacing: 8) {

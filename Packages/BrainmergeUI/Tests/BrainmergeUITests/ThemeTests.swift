@@ -16,7 +16,6 @@ import BrainmergeCore
         #expect(Theme.Halo.radius >= 90)
         #expect(Theme.Aura.softOpacity <= 0.15 && Theme.Aura.fullOpacity <= 0.6)
         #expect(Theme.Aura.lineWidth <= 10)
-        #expect(Theme.Creature.glowOpacity <= 0.35)
         // The accent is the creature's purple.
         let (r, g, b) = Theme.Colors.accent.rgb255
         #expect((r, g, b) == (160, 107, 224))
@@ -37,6 +36,25 @@ import BrainmergeCore
         #expect(Theme.Launch.reducedFade < Theme.Launch.fade)
         #expect(Theme.Launch.slowCaptionAfter >= 1)
         #expect(Theme.Launch.unit == Theme.Launch.unit.rounded())
+    }
+
+    /// Motion: interface changes stay quick, a page a little longer, Reduce Motion's fade shorter than any of them.
+    @Test func motionTokensStayQuick() {
+        for d in [Theme.Motion.hover, Theme.Motion.quick, Theme.Motion.base] { #expect(d > 0 && d <= 0.25) }
+        #expect(Theme.Motion.hover < Theme.Motion.quick && Theme.Motion.quick < Theme.Motion.base)
+        #expect(Theme.Motion.page <= 0.35 && Theme.Motion.page > Theme.Motion.base)
+        #expect(Theme.Motion.reducedDuration < Theme.Motion.base)
+        #expect(Theme.Motion.ring == 1.2)
+        // Tests are never a capture, and never slowed down.
+        #expect(!Theme.Motion.isCapture)
+        #expect(Theme.Motion.slow == 1)
+        #expect(Theme.Motion.slowFactor(environment: [:], debug: true) == 1)
+        #expect(Theme.Motion.slowFactor(environment: ["BRAINMERGE_SLOW_MOTION": "4"], debug: true) == 4)
+        #expect(Theme.Motion.slowFactor(environment: ["BRAINMERGE_SLOW_MOTION": "4"], debug: false) == 1)
+        #expect(Theme.Motion.slowFactor(environment: ["BRAINMERGE_SLOW_MOTION": "zero"], debug: true) == 1)
+        #expect(Theme.Motion.slowFactor(environment: ["BRAINMERGE_SLOW_MOTION": "0.1"], debug: true) == 1)
+        #expect(Theme.Motion.isCapture(environment: ["BRAINMERGE_CAPTURE": "1"]))
+        #expect(!Theme.Motion.isCapture(environment: ["BRAINMERGE_HOME": "/tmp/demo"]))
     }
 
     @Test func pickableTintsShowEachColorOnce() {

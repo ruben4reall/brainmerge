@@ -159,29 +159,19 @@ public struct RootView: View {
         .accessibilityHint(help)
     }
 
-    var creatureState: CreatureState {
-        if let last = model.lastMemorySave, Date().timeIntervalSince(last) < 10 { return .glowing }
-        if !model.opening.isEmpty || !model.openAccounts.isEmpty { return .awake }
-        return .asleep
-    }
-
-    var creatureLine: String {
-        switch creatureState {
-        case .glowing: return "Memory saved just now"
-        case .awake:
-            if !model.opening.isEmpty { return "Opening…" }
-            let n = model.openAccounts.count
-            return n == 1 ? "1 account open" : "\(n) accounts open"
-        case .asleep: return "No account open"
-        }
-    }
-
+    /// The creature and its line: it walks while an account opens, waves when it is open, hops when the memory saves a
+    /// note (and glows for exactly 4 s, redrawn once more when they are over), startles at an error, wakes and dozes.
     var creatureFooter: some View {
-        HStack(spacing: 8) {
-            CreatureView(state: creatureState, size: 28)
-            Text(creatureLine).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+        TimelineView(.explicit(model.glowEnds.map { [$0.addingTimeInterval(0.001)] } ?? [])) { context in
+            let state = model.creatureState(at: context.date), line = model.creatureLine(at: context.date)
+            HStack(spacing: 8) {
+                CreatureView(state: state, size: 32, moments: model.creatureStamps, walking: !model.opening.isEmpty)
+                Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                    .contentTransition(.opacity)
+                    .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.out(Theme.Motion.quick), value: line)
+            }
+            .padding(.horizontal, 6).padding(.bottom, 2)
         }
-        .padding(.horizontal, 6).padding(.bottom, 2)
     }
 
     func perform(_ m: UserMessage) {

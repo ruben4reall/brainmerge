@@ -43,7 +43,7 @@ public struct UserMessage: Identifiable, Equatable, Sendable {
 
 @MainActor @Observable
 public final class AppModel {
-    public private(set) var accounts: [Account] = [] { didSet { refreshSetupState() } }
+    public private(set) var accounts: [Account] = [] { didSet { refreshSetupState(); followCreature() } }
     /// The default memory (the first of the list), initialized.
     public private(set) var brain: Brain? { didSet { refreshSetupState() } }
     /// Every memory the app knows, the default one first.
@@ -91,7 +91,13 @@ public final class AppModel {
     public var message: UserMessage?
     /// Accounts launched and not seen running yet: cleared as soon as `reload()` sees their process,
     /// or after a few seconds if it never shows up.
-    public private(set) var opening: Set<String> = []
+    public private(set) var opening: Set<String> = [] {
+        didSet {
+            // An account that leaves `opening` running has opened: the creature waves (one wave, however many opened).
+            if oldValue.subtracting(opening).contains(where: { slug in accounts.first { $0.id == slug }?.isRunning == true }) { stamp(.accountOpened) }
+            followCreature()
+        }
+    }
     private var openingMarks: [String: Int] = [:]
     /// Accounts whose app bundle is being rebuilt, updated or removed right now: opening one would open a half-built app.
     /// Kept apart from `rebuilding`, whose marker must outlive the nested rebuild of an update.
@@ -108,6 +114,17 @@ public final class AppModel {
     /// The last process brought to the front by "Show" (observable in tests).
     public private(set) var lastShownProcess: Int32?
     public private(set) var lastMemorySave: Date?
+    /// The creature's reactions, the latest few (see `stamp`): the sidebar creature plays each once.
+    public private(set) var creatureStamps: [CreatureMoment] = []
+    /// When a new save in the memory was seen (never the first read): the creature glows for `glowDuration` from it.
+    public private(set) var memorySavedAt: Date?
+    /// The clock of the creature's stamps and glow, injectable in tests.
+    @ObservationIgnored public var now: @Sendable () -> Date = { Date() }
+    /// The memory's head at the last read: a newer head in the same memory is a save.
+    @ObservationIgnored private var lastHead: (root: URL, hash: String, date: Date)?
+    @ObservationIgnored private var lastSaveStamp: Date?
+    /// Whether an account is open or opening, as of the last change: the creature wakes and dozes when it turns.
+    @ObservationIgnored private var creatureWasAwake = false
     public private(set) var memoryEvents: [MemoryEvent] = []
     public private(set) var memoryCounts: [String: Int] = [:]
     public private(set) var projectCount = 0
@@ -526,6 +543,7 @@ public final class AppModel {
         memoryEvents = MemoryFeed.events(from: Array(entries.prefix(50)), identities: accounts.map(\.identity))
         memoryCounts = MemoryFeed.counts(entries)
         lastMemorySave = entries.first?.date
+        noticeSave(head: entries.first, in: brain.root)
         if let state = try? store.load() {
             let wiring = MemoryWiring(brain: brain, paths: paths, machineID: state.machineID)
             var projects: Set<String> = []
@@ -536,6 +554,66 @@ public final class AppModel {
             }
             projectCount = projects.count
         }
+    }
+
+    // MARK: The creature
+
+    static let glowDuration: TimeInterval = 4
+    /// Several saves in a row make one hop per 1.5 s at most; the glow still counts from the latest.
+    static let saveStampInterval: TimeInterval = 1.5
+
+    /// Keeps the last 4 stamps, none older than a second: every reaction is shorter than that.
+    nonisolated static func pruned(_ stamps: [CreatureMoment], now: Date) -> [CreatureMoment] {
+        Array(stamps.filter { now.timeIntervalSince($0.date) <= 1 }.suffix(4))
+    }
+
+    func stamp(_ event: CreatureEvent) {
+        let date = now()
+        creatureStamps = Self.pruned(creatureStamps + [CreatureMoment(event, date: date)], now: date)
+    }
+
+    /// A head newer than the last one read, in the same memory, is a save. The first read (at launch, or of another memory)
+    /// never is: before this, "glowing" lasted anywhere from 0 to 10 s depending on when the memory clock ticked.
+    private func noticeSave(head: BrainGit.Entry?, in root: URL) {
+        defer { lastHead = head.map { (root, $0.hash, $0.date) } }
+        guard let head, let last = lastHead, last.root == root, head.hash != last.hash, head.date >= last.date else { return }
+        let date = now()
+        memorySavedAt = date
+        if let stamped = lastSaveStamp, date.timeIntervalSince(stamped) < Self.saveStampInterval { return }
+        lastSaveStamp = date
+        stamp(.memorySaved)
+    }
+
+    /// The moment the glow of the last save ends (RootView redraws then).
+    public var glowEnds: Date? { memorySavedAt?.addingTimeInterval(Self.glowDuration) }
+
+    /// The creature at a moment: glowing for 4 s after a save, awake while an account is open or opening, asleep otherwise.
+    public func creatureState(at date: Date) -> CreatureState {
+        // A date a hair before the save (a timeline's last date) still glows: the save was just seen.
+        if let saved = memorySavedAt, date.timeIntervalSince(saved) < Self.glowDuration { return .glowing }
+        return creatureAwake ? .awake : .asleep
+    }
+
+    /// The line under the sidebar's creature.
+    public func creatureLine(at date: Date) -> String {
+        switch creatureState(at: date) {
+        case .glowing: return "Memory saved just now"
+        case .awake:
+            if !opening.isEmpty { return "Opening…" }
+            let n = openAccounts.count
+            return n == 1 ? "1 account open" : "\(n) accounts open"
+        case .asleep: return "No account open"
+        }
+    }
+
+    var creatureAwake: Bool { !opening.isEmpty || accounts.contains(where: \.isRunning) }
+
+    /// Wakes or dozes the creature when the accounts turn it, once the first load is done (the launch lands it as it is).
+    private func followCreature() {
+        let awake = creatureAwake
+        defer { creatureWasAwake = awake }
+        guard launchPhase == .ready, awake != creatureWasAwake else { return }
+        stamp(awake ? .wake : .doze)
     }
 
     // MARK: Memories
@@ -893,7 +971,10 @@ public final class AppModel {
         return FileManager.default.fileExists(atPath: dest)
     }
 
-    public func present(_ error: Error) { message = Self.sentence(for: error) }
+    public func present(_ error: Error) {
+        message = Self.sentence(for: error)
+        stamp(.error)
+    }
 
     /// Clears a message once its caller showed it elsewhere (the edit sheet), only if it is still the one shown.
     public func dismiss(_ shown: UserMessage) { if message?.id == shown.id { message = nil } }

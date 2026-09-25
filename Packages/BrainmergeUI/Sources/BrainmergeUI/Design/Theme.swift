@@ -78,8 +78,34 @@ public enum Theme {
         public static let period: TimeInterval = 7
     }
 
-    public enum Creature {
-        public static let glowOpacity = 0.0      // no glow behind the creature
+    /// Motion tokens: two curves, a few durations, three springs. Scenes built from `Ease` (Motion.swift) use the same curves.
+    public enum Motion {
+        /// Entering, exiting, feedback: cubic-bezier(0.23, 1, 0.32, 1). Site: --ease-out.
+        public static func out(_ d: Double) -> Animation { .timingCurve(0.23, 1, 0.32, 1, duration: d * slow) }
+        /// Moving on screen: cubic-bezier(0.77, 0, 0.175, 1). Site: --ease-move.
+        public static func inOut(_ d: Double) -> Animation { .timingCurve(0.77, 0, 0.175, 1, duration: d * slow) }
+        public static let hover = 0.12, quick = 0.15, base = 0.22, page = 0.32, ring = 1.2
+        public static var pop: Animation { .spring(response: 0.35 * slow, dampingFraction: 0.6) }
+        public static var settle: Animation { .spring(response: 0.4 * slow, dampingFraction: 0.88) }
+        public static var hop: Animation { .spring(response: 0.28 * slow, dampingFraction: 0.55) }
+        /// Reduce Motion: opacity and color only, in this plain fade.
+        public static let reducedDuration = 0.15
+        public static let reduced = Animation.linear(duration: reducedDuration)
+        /// README captures: every scene shows its still, nothing plays. `BRAINMERGE_HOME` demos stay animated.
+        public static let isCapture = isCapture(environment: ProcessInfo.processInfo.environment)
+        static func isCapture(environment: [String: String]) -> Bool { environment["BRAINMERGE_CAPTURE"] != nil }
+        /// Debug builds only: BRAINMERGE_SLOW_MOTION=4 slows every token and every pure scene 4 times (t / slow). 1 in release.
+        public static let slow: Double = {
+            #if DEBUG
+            slowFactor(environment: ProcessInfo.processInfo.environment, debug: true)
+            #else
+            1
+            #endif
+        }()
+        static func slowFactor(environment: [String: String], debug: Bool) -> Double {
+            guard debug, let text = environment["BRAINMERGE_SLOW_MOTION"], let factor = Double(text), factor >= 1, factor <= 20 else { return 1 }
+            return factor
+        }
     }
 
     /// The launch: the creature walks on the splash while the first load runs, then the window crossfades to its screen.

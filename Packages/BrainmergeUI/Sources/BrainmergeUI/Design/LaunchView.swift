@@ -8,6 +8,7 @@ public struct LaunchView: View {
     static let readyAnnouncement = "Brainmerge is ready"
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.displayScale) private var displayScale
     @State private var start = Date()
     @State private var slow = false
 
@@ -19,11 +20,10 @@ public struct LaunchView: View {
             GeometryReader { geo in
                 let frame = Self.creatureFrame(in: geo.size)
                 if reduceMotion {
-                    creature(Creature.walkFrame(0), in: frame)
+                    creature(0, in: frame)
                 } else {
                     TimelineView(.periodic(from: start, by: Theme.Launch.frameDuration)) { context in
-                        let index = Creature.walkIndex(at: context.date, since: start, frameDuration: Theme.Launch.frameDuration, frozen: false)
-                        creature(Creature.walkFrame(index), in: frame)
+                        creature(Creature.walkIndex(at: context.date, since: start, frameDuration: Theme.Launch.frameDuration, frozen: false), in: frame)
                     }
                 }
                 Text("Waking up…")
@@ -50,20 +50,16 @@ public struct LaunchView: View {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 
-    /// One frame: the shadow, then the body as a single path (rectangles filled one by one leave seams), then the eyes.
-    private func creature(_ walk: Creature.WalkFrame, in frame: CGRect) -> some View {
+    /// One frame of the walk: the flat shadow on the row under the feet, then the creature (Creature.draw).
+    private func creature(_ index: Int, in frame: CGRect) -> some View {
         Canvas { context, _ in
             let unit = Theme.Launch.unit
-            func cell(_ x: Int, _ y: Int, height: CGFloat = 1) -> CGRect {
-                CGRect(x: frame.minX + CGFloat(x) * unit, y: frame.minY + CGFloat(y) * unit, width: unit, height: unit * height)
-            }
-            var shadow = Path()
-            for p in walk.shadow { shadow.addRect(cell(p.x, p.y)) }
-            context.fill(shadow, with: .color(Theme.Colors.selection))
-            var body = Path()
-            for p in walk.body { body.addRect(cell(p.x, p.y)) }
-            context.fill(body, with: .color(Theme.Colors.creature))
-            for e in walk.eyes { context.fill(Path(cell(e.x, e.y, height: e.height)), with: .color(Theme.Colors.creatureEye)) }
+            let ground = frame.minY + CGFloat(Creature.walkRows - 1) * unit
+            let shadow = Creature.walkShadow(index)
+            context.fill(Path(CGRect(x: frame.minX + CGFloat(shadow.lowerBound) * unit, y: ground,
+                                     width: CGFloat(shadow.count) * unit, height: unit)), with: .color(Theme.Colors.selection))
+            var ctx = context
+            Creature.draw(&ctx, pose: Creature.walkFrame(index), feet: CGPoint(x: frame.midX, y: ground), unit: unit, displayScale: displayScale)
         }
     }
 }
