@@ -17,7 +17,7 @@ import BrainmergeCore
     /// The owner's setup: "Ruben" is logged in with the address named after "Agency", and the reverse.
     @Test func swappedNamesAreOfferedASwap() throws {
         let ruben = account("Ruben", primary: true, email: "agency@example.com", displayName: "Ruben")
-        let agency = account("Agency", email: "ruben@example.com", displayName: "Ruben")
+        let agency = account("Agency", email: "r.dev@example.com", displayName: "Ruben")
         let all = [ruben, agency]
         let mine = try #require(note(ruben, all))
         #expect(mine.line == "Claude Code uses agency@example.com.")
@@ -28,13 +28,13 @@ import BrainmergeCore
         #expect(mine.useLabel == nil)
         // On the other account: its address does not look like a name, and "Ruben" is taken.
         let theirs = try #require(note(agency, all))
-        #expect(theirs.line == "Claude Code uses ruben@example.com.")
+        #expect(theirs.line == "Claude Code uses r.dev@example.com.")
         #expect(theirs.swapWith == nil && theirs.swapLabel == nil && theirs.swapLine == nil)
         #expect(theirs.useLabel == nil)
     }
 
     @Test func theAddressIsComparedLettersAndDigitsOnly() {
-        let agency = account("Agency By Agency")
+        let agency = account("Agen Cy")
         let me = account("Ruben", email: "Ag.En-Cy@example.com")
         #expect(note(me, [me, agency])?.swapWith?.slug == agency.id)
         // An address that is this account's own name, even if another name looks the same: no swap.

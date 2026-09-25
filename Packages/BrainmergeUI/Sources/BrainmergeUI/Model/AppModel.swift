@@ -564,7 +564,8 @@ public final class AppModel {
         NSApp?.yieldActivation(to: app)
         app.activate()
         let running = NSWorkspace.shared.runningApplications.map { (pid: $0.processIdentifier, bundle: $0.bundleURL) }
-        if case .reopen(let bundle) = WindowReveal.of(pid: pid, bundle: app.bundleURL, running: running) {
+        // Reopening an app that has just quit would start it again, possibly as another account: only a live process.
+        if case .reopen(let bundle) = WindowReveal.of(pid: pid, bundle: app.bundleURL, running: running), !app.isTerminated {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
             configuration.addsToRecentItems = false
@@ -852,7 +853,7 @@ public final class AppModel {
 
     /// An account whose app is being worked on (an update, a rename, a swap, a removal) is left alone: its change
     /// rebuilds it anyway. Each account is looked at again when its turn comes, as an earlier step may have changed it.
-    /// A failure is said once per Claude version, and never replaces or hides another message.
+    /// A failure is said once per Claude version, so the same failure never comes back every few minutes.
     public func checkClaudeUpdate() async {
         reload()
         guard let claude, !checkingClaudeUpdate else { return }

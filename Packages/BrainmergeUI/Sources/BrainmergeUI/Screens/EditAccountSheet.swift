@@ -24,12 +24,12 @@ public struct EditAccountSheet: View {
         _edit = State(initialValue: AccountEdit(account: account, memory: memory))
     }
 
-    /// The account as loaded now: its name changes after a swap, its Claude Code account on a refresh.
     /// The tallest the sheet gets, its buttons included (a 1440 by 900 screen keeps it whole): beyond it, its sections scroll.
     nonisolated static let maxHeight: CGFloat = 680
     /// What the sections may take of it: the header, the buttons, a line of problem and the margins take the rest.
     nonisolated static let maxSectionsHeight: CGFloat = 500
 
+    /// The account as loaded now: its name changes after a swap, its Claude Code account on a refresh.
     var current: Account { model.accounts.first { $0.id == account.id } ?? account }
 
     var appLabel: String? {

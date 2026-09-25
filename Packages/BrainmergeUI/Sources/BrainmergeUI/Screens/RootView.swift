@@ -121,7 +121,7 @@ public struct RootView: View {
                 .padding(.horizontal, 10).padding(.vertical, 7)
         }
         .buttonStyle(SidebarRowStyle(selected: selected))
-        .help("\(s.title) (Command-\(s.digit))")
+        .help("\(s.title) (Command-\(String(s.digit)))")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
