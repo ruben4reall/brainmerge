@@ -5,6 +5,8 @@
 
 ## À faire
 
+- [ ] Ruben : dans Brainmerge, ouvrir Edit sur un compte et cliquer « Swap names » (les noms sont inversés par rapport aux e-mails de Claude Code) ; puis ne plus ouvrir le compte secondaire avec les « Claude Secondaire » faites main (Claude plus ancien sur les mêmes données), les mettre à la corbeille une fois le compte fermé
+- [ ] Vérifier à la main dans l'app installée : survol et clic sur toute la ligne, Cmd-1 à Cmd-4, « Show » qui ramène une fenêtre fermée
 - [ ] Rejouer S2 et S3 (vraies sessions Claude Code des deux comptes) quand les profils CLI sont reconnectés
 - [ ] Réglages GitHub à faire par Ruben : protéger main (fusion par PR, CI verte), téléverser l'aperçu social (docs/brand/banner-1280x640.png), description et sujets du dépôt, activer « Report a vulnerability »
 - [ ] Codex et autres assistants (CODEX_HOME, AGENTS.md, notify) derrière une abstraction « provider » ; sessions Terminal dans la RAM par compte
@@ -17,6 +19,8 @@
 - [ ] Windows en natif, après la v1
 
 ## Fait
+
+- [x] 2026-09-25 : v0.5.0 publiée, notarisée et installée : barre latérale cliquable sur toute la ligne avec survol et Open/Show visibles, animation de démarrage du personnage qui marche, e-mail Claude Code de chaque compte (3 champs d'affichage lus, jamais stockés) avec échange des noms inversés, compte principal modifiable sans quitter Claude et app à sa couleur, apps faites main reconnues et signalées ; un seul bouton violet par écran (teinte globale de la 0.4.0 retirée) ; captures toujours arrêtées à la fin du script
 
 - [x] 2026-09-25 : notarisation de la 0.4.0 acceptée par Apple (soumission 00621551), DMG agrafés et remplacés dans la release, consignes d'installation mises à jour (site, README, notes de release)
 
