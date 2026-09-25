@@ -65,7 +65,7 @@ Give it a name and a color (or a photo), optionally a note, and pick its memory:
 
 ![Edit an account](docs/design/captures/08-edit.png)
 
-Editing an account changes everything in one place: name, color or photo, note, memory, and the "Own icon in the Dock" option. With it, the Dock shows this account's icon and name while it runs (a local tinted copy of Claude, rebuilt after each Claude update); without it, a small launcher starts the real Claude with the right folders. Advanced options when adding: share the conversation history with your first account, or reuse folders you already had for that account.
+Editing an account changes everything in one place: name, color or photo, note, memory, and the "Own icon in the Dock" option. With it, the Dock shows this account's icon and name while it runs (a local tinted copy of Claude, rebuilt after each Claude update); without it, a small launcher starts the real Claude with the right folders. Your first account is the Claude app itself: its name, color, photo and note change while Claude stays open (only a new memory waits for Claude to quit). Brainmerge never changes Claude, so the Dock shows Claude's icon while it runs; the "Own app with this color" switch adds a small app with the account's color or photo that opens Claude, to keep in the Dock in its place. Advanced options when adding: share the conversation history with your first account, or reuse folders you already had for that account.
 
 ### The memory
 
@@ -92,6 +92,7 @@ Each card is one account, or two accounts that share their history (they write t
 - Each account is the official Claude app launched with its own data folder (a standard setting of the app) and Claude Code launched with its own `CLAUDE_CONFIG_DIR` (a variable documented by Anthropic).
 - Brainmerge links each project's memory folder into the account's memory, and installs a small Claude Code hook that saves that memory to git at the end of each session.
 - The Dock icon of a second account is a small launcher app that starts the real Claude with the right folders. By default nothing else is created. The "own icon" option makes a local copy of Claude on your own Mac, never shared.
+- The first account's own app, when you switch it on, is the same small app with its color or photo. It asks macOS to open Claude itself, and only Claude: the one it was built for, signed by Anthropic. Claude opens on its usual folders, or comes to the front if it already runs.
 - "Connected" comes from the presence of Claude's own storage files in the account's data folder. Their contents are never read.
 - The email on a card comes from Claude Code's own `.claude.json`, where it records the account it last used for display: only the email, the display name and the organization name are decoded, never the rest. It is shown in the window and written nowhere (not in Brainmerge's state, a memory, a commit or the command line's output).
 
@@ -145,7 +146,7 @@ brainmerge identity list [--json]
 brainmerge identity add --name NAME [--tint COLOR] [--logo FILE] [--note TEXT]
                         [--brain ID | --own-brain] [--no-desktop] [--tinted-icon]
                         [--shared-history] [--adopt-cli DIR] [--adopt-desktop DIR]
-brainmerge identity edit SLUG [--name] [--tint] [--logo] [--note] [--brain ID] [--icon distinct|launcher]
+brainmerge identity edit SLUG [--name] [--tint] [--logo] [--note] [--brain ID] [--icon distinct|launcher] [--own-app on|off]
 brainmerge identity remove SLUG [--delete-data]
 brainmerge identity launch | quit | rebuild SLUG
 brainmerge usage [--identity SLUG] [--json] [--timing]

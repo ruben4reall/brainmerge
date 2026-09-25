@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import BrainmergeTestSupport
+import LauncherGuard
 @testable import BrainmergeCore
 
 @Suite struct LauncherBuilderTests {
@@ -70,8 +71,73 @@ import BrainmergeTestSupport
         #expect(result.status == 3)
         #expect(result.stderr.contains("only starts Claude"))
         // Relative folders are refused as well.
-        let relative = LauncherConfig(configDir: "../elsewhere", dataDir: config.dataDir, claudeExecutable: claude.executable.path)
+        let relative = LauncherConfig(configDir: "../elsewhere", dataDir: home.paths.desktopData(slug: "client", isPrimary: false).path, claudeExecutable: claude.executable.path)
         try JSONEncoder().encode(relative).write(to: app.appending(path: "Contents/Resources/brainmerge.json"), options: .atomic)
         #expect(try Shell().run(app.appending(path: "Contents/MacOS/launcher").path, []).status == 3)
+    }
+
+    // MARK: The primary's own app
+
+    @Test func thePrimarysOpenerCarriesNoFoldersAndPinsClaude() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        let identity = Identity(slug: "ruben", name: "Ruben", isPrimary: true, ownApp: true)
+        let app = try LauncherBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .buildOpener(for: identity, claude: claude, icon: nil, register: false)
+
+        #expect(app.path == home.paths.launcherApp(name: "Ruben").path)
+        // Only the app to open: no Claude Code folder, no data folder, no executable to run directly.
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: app.appending(path: "Contents/Resources/brainmerge.json"))) as? [String: Any]
+        #expect(json?.keys.sorted() == ["openApp"])
+        #expect(json?["openApp"] as? String == claude.url.path)
+        let plist = try Plist.read(app.appending(path: "Contents/Info.plist"))
+        #expect(plist["CFBundleIdentifier"] as? String == "ch.rubencatalao.brainmerge.launch.ruben")
+        #expect(plist["CFBundleName"] as? String == "Ruben")
+        #expect(plist["CFBundleExecutable"] as? String == "launcher")
+        #expect(plist["LSUIElement"] as? Bool == true)
+        #expect(plist[OpenTarget.pinKey] as? String == claude.url.path)
+        #expect(try Shell().run("/usr/bin/codesign", ["--verify", app.path]).status == 0)
+    }
+
+    /// Never the success path: the fake Claude is never signed by Anthropic, so each case below is refused twice over
+    /// (by the check it is about, and by the signature) and `open` is never reached.
+    @Test func thePrimarysOpenerRefusesToOpenAnythingElse() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        let identity = Identity(slug: "ruben", name: "Ruben", isPrimary: true, ownApp: true)
+        let app = try LauncherBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .buildOpener(for: identity, claude: claude, icon: nil, register: false)
+        let configFile = app.appending(path: "Contents/Resources/brainmerge.json")
+        func launch(_ config: LauncherConfig) throws -> ShellResult {
+            try JSONEncoder().encode(config).write(to: configFile, options: .atomic)
+            return try Shell().run(app.appending(path: "Contents/MacOS/launcher").path, [])
+        }
+
+        // Another Claude-looking app than the one pinned when the app was built.
+        let otherDir = home.url.appending(path: "other", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: otherDir, withIntermediateDirectories: true)
+        let other = try FakeClaudeApp.make(in: otherDir)
+        let moved = try launch(LauncherConfig(openApp: other.url.path))
+        #expect(moved.status == 3)
+        #expect(moved.stderr.contains("only opens Claude") && moved.stderr.contains(OpenTarget.Refusal.notPinned.reason))
+
+        // A relative path, and a path that climbs out with /../.
+        let relative = try launch(LauncherConfig(openApp: "Claude.app"))
+        #expect(relative.status == 3 && relative.stderr.contains(OpenTarget.Refusal.notAnApp.reason))
+        let climbing = try launch(LauncherConfig(openApp: otherDir.path + "/../Claude.app"))
+        #expect(climbing.status == 3 && climbing.stderr.contains(OpenTarget.Refusal.notAnApp.reason))
+
+        // Folders next to the app to open: this app never runs Claude on folders of its own.
+        var mixed = LauncherConfig(configDir: home.url.path + "/.claude-x", dataDir: home.url.path + "/data", claudeExecutable: claude.executable.path)
+        mixed.openApp = claude.url.path
+        let both = try launch(mixed)
+        #expect(both.status == 3 && both.stderr.contains("only opens Claude"))
+
+        // The pinned path, but the app there is not Claude any more.
+        var plist = try Plist.read(claude.infoPlist)
+        plist["CFBundleIdentifier"] = "com.example.notclaude"
+        try Plist.write(plist, to: claude.infoPlist)
+        let replaced = try launch(LauncherConfig(openApp: claude.url.path))
+        #expect(replaced.status == 3 && replaced.stderr.contains(OpenTarget.Refusal.notClaude.reason))
     }
 }

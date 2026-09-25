@@ -1,13 +1,18 @@
 import Foundation
+import LauncherGuard
 
-/// What the wrapper reads at launch (Contents/Resources/brainmerge.json).
+/// What the wrapper reads at launch (Contents/Resources/brainmerge.json): the folders and the Claude binary of a
+/// secondary account, or, for the primary account's own app, only the Claude app to open.
 public struct LauncherConfig: Codable, Equatable, Sendable {
-    public var configDir: String
-    public var dataDir: String
-    public var claudeExecutable: String
+    public var configDir: String?
+    public var dataDir: String?
+    public var claudeExecutable: String?
+    /// The primary's own app: the Claude app it opens, on Claude's own folders. Nil for a secondary account.
+    public var openApp: String?
     public init(configDir: String, dataDir: String, claudeExecutable: String) {
         self.configDir = configDir; self.dataDir = dataDir; self.claudeExecutable = claudeExecutable
     }
+    public init(openApp: String) { self.openApp = openApp }
 }
 
 /// Builds `~/Applications/Brainmerge/<Name>.app`: a tiny, ad hoc signed bundle
@@ -32,6 +37,22 @@ public struct LauncherBuilder: Sendable {
     /// `register: false` avoids registering the disposable test bundles with Launch Services.
     @discardableResult
     public func build(for identity: Identity, claude: ClaudeApp, icon: URL?, register: Bool = true) throws -> URL {
+        let config = LauncherConfig(configDir: identity.cliProfile(in: paths).path,
+                                    dataDir: identity.desktopData(in: paths).path,
+                                    claudeExecutable: claude.executable.path)
+        return try makeBundle(for: identity, config: config, plist: [:], icon: icon, register: register)
+    }
+
+    /// The primary account's own app: the same small bundle with the account's icon, whose launcher opens Claude itself
+    /// (`open -a`) on its own folders. Claude's path is pinned in the Info.plist as well: the launcher opens nothing else,
+    /// and only when Anthropic signed it (see OpenTarget). No Dock tile of its own while it hands over (LSUIElement).
+    @discardableResult
+    public func buildOpener(for identity: Identity, claude: ClaudeApp, icon: URL?, register: Bool = true) throws -> URL {
+        try makeBundle(for: identity, config: LauncherConfig(openApp: claude.url.path),
+                       plist: [OpenTarget.pinKey: claude.url.path, "LSUIElement": true], icon: icon, register: register)
+    }
+
+    func makeBundle(for identity: Identity, config: LauncherConfig, plist extra: [String: Any], icon: URL?, register: Bool) throws -> URL {
         let fm = FileManager.default
         let app = paths.launcherApp(name: identity.bundleDisplayName)
         let contents = app.appending(path: "Contents", directoryHint: .isDirectory)
@@ -41,10 +62,6 @@ public struct LauncherBuilder: Sendable {
         try fm.createDirectory(at: macos, withIntermediateDirectories: true)
         try fm.createDirectory(at: resources, withIntermediateDirectories: true)
         try fm.copyItem(at: launcherBinary, to: macos.appending(path: "launcher"))
-
-        let config = LauncherConfig(configDir: identity.cliProfile(in: paths).path,
-                                    dataDir: identity.desktopData(in: paths).path,
-                                    claudeExecutable: claude.executable.path)
         try JSONEncoder().encode(config).write(to: resources.appending(path: "brainmerge.json"), options: .atomic)
 
         var plist: [String: Any] = [
@@ -58,6 +75,7 @@ public struct LauncherBuilder: Sendable {
             "LSMinimumSystemVersion": "13.0",
             "NSHighResolutionCapable": true,
         ]
+        plist.merge(extra) { _, new in new }
         if let icon {
             try fm.copyItem(at: icon, to: resources.appending(path: "icon.icns"))
             plist["CFBundleIconFile"] = "icon"

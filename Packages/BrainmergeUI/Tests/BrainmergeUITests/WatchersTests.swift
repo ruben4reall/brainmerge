@@ -13,6 +13,9 @@ import BrainmergeTestSupport
         #expect(!UpdatePolicy.shouldRebuild(identity: clone, installedVersion: "2.8000.0", running: true, autoRebuild: true))
         #expect(!UpdatePolicy.shouldRebuild(identity: clone, installedVersion: "2.8000.0", running: false, autoRebuild: false))
         #expect(!UpdatePolicy.shouldRebuild(identity: launcher, installedVersion: "2.8000.0", running: false, autoRebuild: true))
+        // The primary's own app opens Claude itself: nothing to follow after a Claude update, whatever the state says.
+        let primary = Identity(slug: "ruben", name: "Ruben", isPrimary: true, iconMode: .tintedClone, builtForClaudeVersion: "2.7032.0", ownApp: true)
+        #expect(!UpdatePolicy.shouldRebuild(identity: primary, installedVersion: "2.8000.0", running: false, autoRebuild: true))
     }
 
     @MainActor @Test func oneProcessListPerRefreshTick() throws {

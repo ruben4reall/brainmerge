@@ -179,8 +179,8 @@ import BrainmergeTestSupport
         #expect(m.busy.isEmpty)
     }
 
-    /// The primary follows the core's rule for any edit (IdentityManager.ensureEditable): today it must be closed too,
-    /// and the refusal comes before any rename.
+    /// The primary follows the core's rule for any edit (IdentityManager.ensureEditable): it may stay open, since Claude
+    /// itself is never rebuilt. Only the closed secondary's app is.
     @Test func swappingWhileThePrimaryRunsFollowsTheEditRule() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
@@ -190,9 +190,10 @@ import BrainmergeTestSupport
         m.reload()
         #expect(m.accounts.first { $0.id == "ruben" }?.isRunning == true)
         await m.swapNames("ruben", with: "agency")
-        #expect(m.message?.title == "Ruben is open")
-        #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
-        #expect(m.appURL(of: "agency") == e.home.paths.launcherApp(name: "Agency"))
+        #expect(m.message == nil)
+        #expect(try e.store.load().identities.map(\.name) == ["Agency", "Ruben"])
+        #expect(m.appURL(of: "agency") == e.home.paths.launcherApp(name: "Ruben"))
+        #expect(m.accounts.first { $0.id == "ruben" }?.isRunning == true)
         #expect(m.busy.isEmpty)
     }
 }

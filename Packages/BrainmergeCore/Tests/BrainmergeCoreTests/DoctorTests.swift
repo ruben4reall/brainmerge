@@ -46,6 +46,27 @@ import BrainmergeTestSupport
         #expect(findings.contains { $0.title == "Memory: Shared" && $0.level == .error })
     }
 
+    @Test func checksThePrimarysOwnApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(!doctor(e).run().contains { $0.title == "Perso: own app" })   // switched off: nothing to check
+        _ = try e.manager.update(slug: "perso", name: nil, tint: nil, logo: nil, ownApp: true)
+        let app = e.home.paths.launcherApp(name: "Perso")
+        #expect(doctor(e).run().contains { $0.title == "Perso: own app" && $0.level == .ok && $0.detail == app.path })
+
+        // It opens another Claude than the one installed: rebuilding it points it back.
+        try JSONEncoder().encode(LauncherConfig(openApp: "/Applications/Other.app"))
+            .write(to: app.appending(path: "Contents/Resources/brainmerge.json"), options: .atomic)
+        let moved = doctor(e).run().first { $0.title == "Perso: own app" }
+        #expect(moved?.level == .warning)
+        #expect(moved?.detail.contains("brainmerge identity rebuild perso") == true)
+
+        try FileManager.default.removeItem(at: app)
+        let missing = doctor(e).run().first { $0.title == "Perso: own app" }
+        #expect(missing?.level == .error)
+        #expect(missing?.detail == "Missing \(app.path). Run: brainmerge identity rebuild perso")
+    }
+
     @Test func everyMemoryIsChecked() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")

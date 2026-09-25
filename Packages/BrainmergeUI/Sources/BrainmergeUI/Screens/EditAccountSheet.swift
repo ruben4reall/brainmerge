@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import BrainmergeCore
 
-/// Everything about an account in one place: name, color or photo, note, memory, and its app in the Dock.
+/// Everything about an account in one place: name, color or photo, note, memory, and its app in the Dock (for the primary,
+/// which is Claude itself, an optional app of its own that opens Claude).
 public struct EditAccountSheet: View {
     @Bindable var model: AppModel
     @Binding var isPresented: Bool
@@ -31,7 +32,7 @@ public struct EditAccountSheet: View {
                 OrbView(name: edit.name, tint: edit.tint, logo: edit.logo.flatMap { NSImage(contentsOf: $0) }, size: 44)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Edit \(current.identity.name)").font(Theme.Fonts.sheetTitle)
-                    Text(current.isRunning ? "Quit this account first: its app is rebuilt when you save." : "Changes apply when you save.")
+                    Text(Self.header(for: current))
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
@@ -68,17 +69,23 @@ public struct EditAccountSheet: View {
                 Text("What this account wrote so far stays where it is; it goes on in the memory you pick.")
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
             }
-            if !account.identity.isPrimary {
+            if account.identity.isPrimary {
+                if account.identity.surfaces.desktop {
+                    labeled("App") {
+                        Toggle("Own app with this color", isOn: $edit.ownApp).toggleStyle(.switch).tint(Theme.Colors.accent)
+                        Text(Self.ownAppText(name: current.identity.name))
+                            .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                            .fixedSize(horizontal: false, vertical: true)
+                        appLocation
+                    }
+                }
+            } else {
                 labeled("In the Dock") {
                     Toggle("Own icon in the Dock", isOn: $edit.distinctIcon).toggleStyle(.switch).tint(Theme.Colors.accent)
                     Text("Recommended when several accounts stay open: the Dock shows this account's icon and name while it runs. It is a local copy of Claude, rebuilt after each Claude update.")
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
-                    if let appLabel {
-                        HStack(spacing: 10) {
-                            Text(appLabel).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1).truncationMode(.middle)
-                            Spacer()
-                            Button("Show in Finder") { model.revealApp(account.id) }.buttonStyle(.glass).controlSize(.small)
-                        }
+                    appLocation
+                    if appLabel != nil {
                         Text("Drag it to your Dock to open this account from there, like any app.")
                             .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                     }
@@ -128,6 +135,29 @@ public struct EditAccountSheet: View {
             if let message = model.message { problem = message.detail; model.message = nil }
             else { edit.name = current.identity.name }
         }
+    }
+
+    /// Where the account's app is, with a way to find it, once it exists on disk.
+    @ViewBuilder var appLocation: some View {
+        if let appLabel {
+            HStack(spacing: 10) {
+                Text(appLabel).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Button("Show in Finder") { model.revealApp(account.id) }.buttonStyle(.glass).controlSize(.small)
+            }
+        }
+    }
+
+    /// Only a secondary's app is rebuilt on save, so only a secondary has to be closed first. The primary is Claude itself:
+    /// saving never touches it (its memory still waits for Claude to quit, which the save then says).
+    nonisolated static func header(for account: Account) -> String {
+        guard account.isRunning else { return "Changes apply when you save." }
+        return account.identity.isPrimary ? "Changes apply when you save. Claude stays open." : "Quit this account first: its app is rebuilt when you save."
+    }
+
+    /// Why the primary has no icon of its own in the Dock, and what the switch adds instead.
+    nonisolated static func ownAppText(name: String) -> String {
+        "\(name) is the Claude app itself. Brainmerge never changes Claude, so while it runs the Dock shows Claude's icon. With this switch, Brainmerge adds an app with this color or photo that opens \(name): keep it in the Dock in place of Claude."
     }
 
     func labeled<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {

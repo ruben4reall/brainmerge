@@ -66,7 +66,7 @@ struct IdentityCommand: ParsableCommand {
     }
 
     struct Edit: ParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Rename an identity, change its tint, logo, note or memory. The slug never changes.")
+        static let configuration = CommandConfiguration(abstract: "Rename an identity, change its tint, logo, note, memory or app. The slug never changes. The primary can be edited while Claude runs, except its memory.")
         @Argument var slug: String
         @Option var name: String?
         @Option var tint: Tint?
@@ -74,14 +74,22 @@ struct IdentityCommand: ParsableCommand {
         @Option var note: String?
         @Option(help: "Attach the identity to this memory (its id, see brain list). Its notes stay where they were written.") var brain: String?
         @Option(help: "The Dock icon: distinct (a local tinted copy of Claude, its own icon and name in the Dock) or launcher.") var icon: String?
+        @Option(name: .customLong("own-app"), help: "The primary account only: on adds an app with its color or photo in ~/Applications/Brainmerge that opens Claude, off removes it. Claude itself is never changed.") var ownApp: String?
         func run() throws {
             let context = Context()
             let iconMode: IconMode? = try icon.map {
                 switch $0 { case "distinct": return .tintedClone; case "launcher": return .launcher; default: throw ValidationError("--icon must be distinct or launcher") }
             }
+            let ownAppOn: Bool? = try ownApp.map {
+                switch $0 { case "on": return true; case "off": return false; default: throw ValidationError("--own-app must be on or off") }
+            }
+            if ownAppOn != nil, try context.store.load().identity(slug: slug)?.isPrimary == false {
+                throw ValidationError("--own-app is for the primary account only: the other accounts open through an app of their own already.")
+            }
             if let brain { try context.manager.setBrain(of: slug, to: brain) }
-            if name != nil || tint != nil || logo != nil || note != nil || iconMode != nil {
-                let identity = try context.manager.update(slug: slug, name: name, tint: tint, logo: logo.map { URL(fileURLWithPath: $0) }, note: note, iconMode: iconMode)
+            if name != nil || tint != nil || logo != nil || note != nil || iconMode != nil || ownAppOn != nil {
+                let identity = try context.manager.update(slug: slug, name: name, tint: tint, logo: logo.map { URL(fileURLWithPath: $0) }, note: note,
+                                                          iconMode: iconMode, ownApp: ownAppOn)
                 print("Updated \(identity.name) (\(identity.slug)).")
             } else if let brain {
                 print("\(slug) now writes to the memory \(brain).")
@@ -120,7 +128,7 @@ struct IdentityCommand: ParsableCommand {
     }
 
     struct Rebuild: ParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Rebuild the launcher or tinted copy for the installed Claude version.")
+        static let configuration = CommandConfiguration(abstract: "Rebuild the launcher or tinted copy for the installed Claude version, or the primary's own app.")
         @Argument var slug: String
         func run() throws {
             try Context().manager.rebuild(slug: slug)

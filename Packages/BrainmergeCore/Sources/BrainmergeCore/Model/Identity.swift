@@ -31,16 +31,19 @@ public struct Identity: Codable, Equatable, Identifiable, Sendable {
     public var createdAt: Date
     /// The memory this identity writes to (a MemoryFolder id); nil means the default one.
     public var brain: String?
+    /// The primary only: an app of Brainmerge's in ~/Applications/Brainmerge, with this account's color or photo, that
+    /// opens Claude itself. Claude is never changed, so its own icon still shows while it runs. Nil (older states) means off.
+    public var ownApp: Bool?
 
     public init(id: UUID = UUID(), slug: String, name: String, tint: Tint = .orange, logoPath: String? = nil, note: String? = nil,
                 isPrimary: Bool = false, surfaces: Surfaces = Surfaces(), iconMode: IconMode = .launcher,
                 sharedHistory: Bool = false, cliProfilePath: String? = nil, desktopDataPath: String? = nil,
-                builtForClaudeVersion: String? = nil, createdAt: Date = Date(), brain: String? = nil) {
+                builtForClaudeVersion: String? = nil, createdAt: Date = Date(), brain: String? = nil, ownApp: Bool? = nil) {
         self.id = id; self.slug = slug; self.name = name; self.tint = tint; self.logoPath = logoPath; self.note = note
         self.isPrimary = isPrimary; self.surfaces = surfaces; self.iconMode = iconMode
         self.sharedHistory = sharedHistory; self.cliProfilePath = cliProfilePath
         self.desktopDataPath = desktopDataPath; self.builtForClaudeVersion = builtForClaudeVersion
-        self.createdAt = createdAt; self.brain = brain
+        self.createdAt = createdAt; self.brain = brain; self.ownApp = ownApp
     }
 
     /// Name usable as a bundle name: macOS forbids "/" and displays ":" as "/".
@@ -57,9 +60,11 @@ public struct Identity: Codable, Equatable, Identifiable, Sendable {
         if let p = desktopDataPath { return URL(fileURLWithPath: p, isDirectory: true) }
         return paths.desktopData(slug: slug, isPrimary: isPrimary)
     }
-    /// The app that opens this account from the Dock or Launchpad: its launcher or its tinted copy. None for the primary.
+    /// The app that opens this account from the Dock or Launchpad: its launcher or its tinted copy. For the primary,
+    /// its own app when switched on (never a copy of Claude), otherwise none: the primary is Claude itself.
     public func appURL(in paths: Paths) -> URL? {
-        guard !isPrimary, surfaces.desktop else { return nil }
+        guard surfaces.desktop else { return nil }
+        if isPrimary { return ownApp == true ? paths.launcherApp(name: bundleDisplayName) : nil }
         return iconMode == .launcher ? paths.launcherApp(name: bundleDisplayName) : paths.tintedClone(name: bundleDisplayName)
     }
 }

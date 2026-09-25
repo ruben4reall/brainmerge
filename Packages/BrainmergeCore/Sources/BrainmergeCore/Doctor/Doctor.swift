@@ -96,6 +96,9 @@ public struct Doctor: Sendable {
                 findings.append(Finding(level: fm.fileExists(atPath: data.path) ? .ok : .warning, title: "\(identity.name): data",
                                         detail: data.path))
             }
+            if identity.isPrimary, let app = identity.appURL(in: paths) {
+                findings.append(ownAppFinding(identity, app: app))
+            }
             if identity.surfaces.desktop {
                 let session = DesktopSession.hasSession(dataDir: identity.desktopData(in: paths))
                 findings.append(Finding(level: session ? .ok : .warning, title: "\(identity.name): login",
@@ -115,6 +118,21 @@ public struct Doctor: Sendable {
             }
         }
         return findings
+    }
+
+    /// The primary's own app: there, and opening the Claude installed (it was built for another path if Claude moved).
+    func ownAppFinding(_ identity: Identity, app: URL) -> Finding {
+        let title = "\(identity.name): own app"
+        let rebuild = "Run: brainmerge identity rebuild \(identity.slug)"
+        guard FileManager.default.fileExists(atPath: app.path) else {
+            return Finding(level: .error, title: title, detail: "Missing \(app.path). \(rebuild)")
+        }
+        let config = (try? Data(contentsOf: app.appending(path: "Contents/Resources/brainmerge.json")))
+            .flatMap { try? JSONDecoder().decode(LauncherConfig.self, from: $0) }
+        guard let opens = config?.openApp, opens == claudeAppURL.path else {
+            return Finding(level: .warning, title: title, detail: "Opens \(config?.openApp ?? "nothing"), Claude is at \(claudeAppURL.path). \(rebuild)")
+        }
+        return Finding(level: .ok, title: title, detail: app.path)
     }
 }
 

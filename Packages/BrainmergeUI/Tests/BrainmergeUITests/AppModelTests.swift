@@ -440,6 +440,74 @@ import BrainmergeTestSupport
         #expect(try e.store.load().identity(slug: "ruben")?.note == "Personal")
     }
 
+    // MARK: The primary while Claude runs
+
+    /// The real Claude's command line, with no --user-data-dir: the primary account is open.
+    func withClaudeOpen(_ e: ManagerEnv) -> AppModel {
+        let exe = e.claude.executable.path
+        return model(e, monitor: ProcessMonitor(psOutput: { "  800 1 90000 \(exe)\n" }))
+    }
+
+    @Test func editingThePrimaryWhileOpenSavesWithoutAskingToQuit() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = withClaudeOpen(e)
+        m.reload()
+        let ruben = try #require(m.accounts.first { $0.id == "ruben" })
+        #expect(ruben.isRunning)
+        var edit = AccountEdit(account: ruben, memory: "shared")
+        #expect(!edit.ownApp)
+        edit.name = "Ruben C"; edit.tint = .green; edit.note = "Personal"; edit.ownApp = true
+        await m.apply(edit, to: "ruben")
+        #expect(m.message == nil)
+        let saved = try #require(try e.store.load().primary)
+        #expect(saved.name == "Ruben C" && saved.tint == .green && saved.note == "Personal" && saved.ownApp == true)
+        #expect(m.appURL(of: "ruben") == e.home.paths.launcherApp(name: "Ruben C"))
+        #expect(m.accounts.first { $0.id == "ruben" }?.isRunning == true)
+        #expect(m.busy.isEmpty)
+        // Its own app can be rebuilt with Claude open too, and switched off again.
+        try FileManager.default.removeItem(at: e.home.paths.launcherApp(name: "Ruben C"))
+        await m.rebuild("ruben")
+        #expect(m.message == nil && m.appURL(of: "ruben") != nil)
+        var off = AccountEdit(account: try #require(m.accounts.first { $0.id == "ruben" }), memory: "shared")
+        #expect(off.ownApp)
+        off.ownApp = false
+        await m.apply(off, to: "ruben")
+        #expect(m.message == nil && m.appURL(of: "ruben") == nil)
+    }
+
+    /// Moving the memory links is not atomic: that one change still waits for Claude to quit.
+    @Test func thePrimarysMemoryStillWaitsForClaudeToQuit() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        let m = withClaudeOpen(e)
+        m.reload()
+        var edit = AccountEdit(account: try #require(m.accounts.first { $0.id == "ruben" }), memory: "work")
+        edit.note = "Personal"
+        await m.apply(edit, to: "ruben")
+        #expect(m.message?.title == "Ruben is open")
+        #expect(try e.store.load().primary?.note == "Personal")
+        #expect(try e.store.load().primary?.brain == nil)
+    }
+
+    /// A secondary's app is rebuilt when it is saved: it still has to be closed first.
+    @Test func editingAnOpenSecondaryStillAsksToQuitIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let exe = e.claude.executable.path, data = client.desktopData(in: e.home.paths).path
+        let m = model(e, monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe) --user-data-dir=\(data)\n" }))
+        m.reload()
+        var edit = AccountEdit(account: try #require(m.accounts.first { $0.id == "client" }), memory: "shared")
+        edit.note = "Work"
+        edit.ownApp = true   // the primary's switch: ignored for a secondary
+        await m.apply(edit, to: "client")
+        #expect(m.message?.title == "Client is open")
+        #expect(try e.store.load().identity(slug: "client")?.note == nil)
+        #expect(try e.store.load().identity(slug: "client")?.ownApp == nil)
+    }
+
     @Test func theSidebarSeesAnUpdateUnderWayAsBusy() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")

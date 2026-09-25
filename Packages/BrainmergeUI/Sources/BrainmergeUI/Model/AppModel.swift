@@ -301,7 +301,7 @@ public final class AppModel {
 
     // MARK: A real app per account
 
-    /// The app that opens this account from the Dock (nil for the primary).
+    /// The app that opens this account from the Dock: a secondary's launcher or copy, the primary's own app when it has one.
     public func appURL(of slug: String) -> URL? {
         accounts.first { $0.id == slug }?.identity.appURL(in: paths).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
     }
@@ -311,7 +311,8 @@ public final class AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    /// Applies the edit sheet: name, color, photo, note and Dock icon in one core call, then the memory if it changed.
+    /// Applies the edit sheet: name, color, photo, note and Dock icon (or the primary's own app) in one core call, then
+    /// the memory if it changed. The primary may stay open for all of it but the memory: Claude itself is never rebuilt.
     public func apply(_ edit: AccountEdit, to slug: String) async {
         guard let account = accounts.first(where: { $0.id == slug }) else { return }
         if let problem = edit.validate(existing: accounts.map(\.identity).filter { $0.slug != slug }) {
@@ -323,11 +324,14 @@ public final class AppModel {
         let logo = edit.logo?.path == identity.logoPath ? nil : edit.logo
         let clearLogo = edit.logo == nil && identity.logoPath != nil
         let note = edit.trimmedNote == (identity.note ?? "") ? nil : edit.trimmedNote
-        let iconMode: IconMode? = edit.distinctIcon == (identity.iconMode == .tintedClone) ? nil : (edit.distinctIcon ? .tintedClone : .launcher)
+        let iconMode: IconMode? = identity.isPrimary || edit.distinctIcon == (identity.iconMode == .tintedClone) ? nil : (edit.distinctIcon ? .tintedClone : .launcher)
+        let ownApp: Bool? = identity.isPrimary && edit.ownApp != (identity.ownApp == true) ? edit.ownApp : nil
         if let old = identity.logoPath, logo != nil || clearLogo { logos[old] = nil }
-        if name != nil || tint != nil || logo != nil || clearLogo || note != nil || iconMode != nil {
+        if name != nil || tint != nil || logo != nil || clearLogo || note != nil || iconMode != nil || ownApp != nil {
             let manager = self.manager
-            await change(slug, "Saving \(edit.trimmedName)…", touchesApp: true) { _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo) }
+            await change(slug, "Saving \(edit.trimmedName)…", touchesApp: true, primaryStaysOpen: true) {
+                _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo, ownApp: ownApp)
+            }
             if message != nil { return }
         }
         if brain(of: identity)?.id != edit.memory {
@@ -569,9 +573,13 @@ public final class AppModel {
     /// Any change to an open account is refused, with its real name, before calling the engine.
     /// `touchesApp`: the work deletes and rebuilds (or removes) the account's app, so the account is busy meanwhile.
     /// Only a secondary account with a Claude window opens through its own app: the primary opens Claude itself.
-    func change(_ slug: String, _ label: String, touchesApp: Bool = false, _ work: @escaping @Sendable () throws -> Void) async {
-        if let open = runningSentence(slug) { message = open; return }
+    /// `primaryStaysOpen`: the work never touches Claude (names, colors, notes, the primary's own app), so an open
+    /// primary is changed as it is, without asking to quit it.
+    func change(_ slug: String, _ label: String, touchesApp: Bool = false, primaryStaysOpen: Bool = false,
+                _ work: @escaping @Sendable () throws -> Void) async {
         let identity = accounts.first { $0.id == slug }?.identity
+        let mayStayOpen = primaryStaysOpen && identity?.isPrimary == true
+        if !mayStayOpen, let open = runningSentence(slug) { message = open; return }
         let marks = touchesApp && identity.map { !$0.isPrimary && $0.surfaces.desktop } == true
         if marks { markBusy(slug, true) }
         defer { if marks { markBusy(slug, false) } }
@@ -595,7 +603,7 @@ public final class AppModel {
 
     public func rebuild(_ slug: String) async {
         let manager = self.manager
-        await change(slug, "Rebuilding \(name(of: slug))…", touchesApp: true) { try manager.rebuild(slug: slug) }
+        await change(slug, "Rebuilding \(name(of: slug))…", touchesApp: true, primaryStaysOpen: true) { try manager.rebuild(slug: slug) }
     }
 
     /// Adds an account from the form; returns true if it's done, otherwise sets the message.
@@ -618,7 +626,7 @@ public final class AppModel {
             message = UserMessage(title: "Check the form", detail: problem); return
         }
         let manager = self.manager; let clean = form.trimmedName
-        await change(slug, "Renaming to \(clean)…", touchesApp: true) { _ = try manager.update(slug: slug, name: clean, tint: nil, logo: nil) }
+        await change(slug, "Renaming to \(clean)…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: clean, tint: nil, logo: nil) }
     }
     /// Swaps two accounts' names in one step (the edit sheet offers it when the names look swapped against the emails
     /// Claude Code uses). A rename rebuilds a secondary's app, so an open secondary is said and nothing changes; whether
@@ -637,16 +645,16 @@ public final class AppModel {
 
     public func changeTint(_ slug: String, to tint: Tint) async {
         let manager = self.manager
-        await change(slug, "Recoloring \(name(of: slug))…", touchesApp: true) { _ = try manager.update(slug: slug, name: nil, tint: tint, logo: nil) }
+        await change(slug, "Recoloring \(name(of: slug))…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: nil, tint: tint, logo: nil) }
     }
     public func changeLogo(_ slug: String, to url: URL?) async {
         let manager = self.manager
         if let old = accounts.first(where: { $0.id == slug })?.identity.logoPath { logos[old] = nil }
-        await change(slug, "Updating the photo of \(name(of: slug))…", touchesApp: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: url) }
+        await change(slug, "Updating the photo of \(name(of: slug))…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: url) }
     }
     public func changeNote(_ slug: String, to note: String) async {
         let manager = self.manager
-        await change(slug, "Saving…", touchesApp: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: nil, note: note) }
+        await change(slug, "Saving…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: nil, note: note) }
     }
 
     // MARK: Repair, command line

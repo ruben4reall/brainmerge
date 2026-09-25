@@ -165,6 +165,7 @@ public struct AccountsView: View {
         if model.appURL(of: account.id) != nil { Button("Show in Finder") { model.revealApp(account.id) } }
         if account.isOutdated { Button("Update for Claude") { Task { await model.updateAccount(account.id) } } }
         if !account.identity.isPrimary { Button(account.identity.iconMode == .tintedClone ? "Rebuild icon" : "Rebuild launcher") { Task { await model.rebuild(account.id) } } }
+        else if account.identity.appURL(in: model.paths) != nil { Button("Rebuild app") { Task { await model.rebuild(account.id) } } }
         if account.isRunning { Button("Quit") { model.quit(account.id) } }
         Divider()
         Button("Remove from Brainmerge…", role: .destructive) { pendingRemoval = account }

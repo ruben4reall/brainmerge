@@ -94,8 +94,11 @@ public final class IdentityManager: @unchecked Sendable {
 
     /// Renames, changes the tint, the logo, the note or the kind of Dock icon. The slug never changes: it carries
     /// the attribution and the folders. Switching the icon mode replaces the launcher by a tinted copy, or the reverse.
+    /// The primary can be changed while Claude runs: nothing of Claude is rebuilt, only files written atomically, and its
+    /// own app (`ownApp`, the primary only) is built, renamed or removed next to Claude. It never gets a tinted copy.
     @discardableResult
-    public func update(slug: String, name: String?, tint: Tint?, logo: URL?, note: String? = nil, iconMode: IconMode? = nil, clearLogo: Bool = false) throws -> Identity {
+    public func update(slug: String, name: String?, tint: Tint?, logo: URL?, note: String? = nil, iconMode: IconMode? = nil,
+                       clearLogo: Bool = false, ownApp: Bool? = nil) throws -> Identity {
         var state = try store.load()
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         let name = name.map(NameRules.clean)
@@ -103,8 +106,10 @@ public final class IdentityManager: @unchecked Sendable {
             guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
             try ensureNameAvailable(name, excluding: slug, in: state)
         }
+        if identity.isPrimary, iconMode == .tintedClone { throw BrainmergeError.primaryIsClaude }
         try ensureEditable(identity)
         let fm = FileManager.default
+        let before = identity
         let oldName = identity.bundleDisplayName
         if let name { identity.name = name }
         if let tint { identity.tint = tint }
@@ -112,8 +117,11 @@ public final class IdentityManager: @unchecked Sendable {
         if clearLogo { identity.logoPath = nil }
         if let note { identity.note = NameRules.clean(note) }
         if let iconMode { identity.iconMode = iconMode }
+        if let ownApp, identity.isPrimary { identity.ownApp = ownApp }
         try attachBrain(to: identity, state: state)
-        if identity.surfaces.desktop, !identity.isPrimary {
+        if identity.isPrimary {
+            try updateOwnApp(from: before, to: identity)
+        } else if identity.surfaces.desktop {
             for app in [paths.launcherApp(name: oldName), paths.tintedClone(name: oldName)] where fm.fileExists(atPath: app.path) {
                 try fm.removeItem(at: app)
             }
@@ -137,7 +145,7 @@ public final class IdentityManager: @unchecked Sendable {
         guard let other = state.identity(slug: otherSlug) else { throw BrainmergeError.identityNotFound(otherSlug) }
         try ensureEditable(one)
         try ensureEditable(other)
-        let rebuildsApp = { (identity: Identity) in identity.surfaces.desktop && !identity.isPrimary }
+        let rebuildsApp = { (identity: Identity) in identity.appURL(in: self.paths) != nil }
         if rebuildsApp(one) || rebuildsApp(other) { _ = try ClaudeApp.detect(at: claudeAppURL) }
         // The account without an app of its own takes the temporary name: nothing is built under it.
         let (first, second) = rebuildsApp(one) && !rebuildsApp(other) ? (other, one) : (one, other)
@@ -164,11 +172,8 @@ public final class IdentityManager: @unchecked Sendable {
         let fm = FileManager.default
         if !identity.isPrimary { try ensureStopped(identity) }
         try detachBrain(from: identity)
+        for app in apps(of: identity) where fm.fileExists(atPath: app.path) { try fm.removeItem(at: app) }
         if !identity.isPrimary {
-            for app in [paths.launcherApp(name: identity.bundleDisplayName), paths.tintedClone(name: identity.bundleDisplayName)]
-            where fm.fileExists(atPath: app.path) {
-                try fm.removeItem(at: app)
-            }
             // Only folders created by Brainmerge can be deleted; an adopted folder doesn't belong to it.
             if deleteData {
                 var owned: [URL] = []
@@ -181,10 +186,17 @@ public final class IdentityManager: @unchecked Sendable {
         try store.save(state)
     }
 
+    /// Rebuilds a secondary's app for the installed Claude (the account must be closed), or the primary's own app when it
+    /// has one (Claude may stay open: the primary's app only opens it).
     public func rebuild(slug: String) throws {
         var state = try store.load()
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
-        guard !identity.isPrimary, identity.surfaces.desktop else { return }
+        if identity.isPrimary {
+            guard identity.appURL(in: paths) != nil else { return }
+            try buildApp(for: identity, claude: try ClaudeApp.detect(at: claudeAppURL))
+            return
+        }
+        guard identity.surfaces.desktop else { return }
         try ensureStopped(identity)
         let claude = try ClaudeApp.detect(at: claudeAppURL)
         try buildApp(for: identity, claude: claude)
@@ -321,8 +333,10 @@ public final class IdentityManager: @unchecked Sendable {
     }
 
     /// What `update` requires of an account before changing it, checked the same way by `swapNames` before its first step.
+    /// A secondary is closed first (its app is rebuilt). The primary may stay open: Claude itself is never rebuilt, and the
+    /// files an edit writes (CLAUDE.md, settings, the memory's list of accounts) are replaced atomically.
     func ensureEditable(_ identity: Identity) throws {
-        try ensureStopped(identity)
+        if !identity.isPrimary { try ensureStopped(identity) }
     }
 
     /// Rebuilding, updating, or removing a running identity would break its instance.
@@ -345,8 +359,35 @@ public final class IdentityManager: @unchecked Sendable {
         return brain
     }
 
+    /// Every app Brainmerge may have built for this account, for removal: both kinds for a secondary, the own app of the primary.
+    func apps(of identity: Identity) -> [URL] {
+        if identity.isPrimary { return identity.appURL(in: paths).map { [$0] } ?? [] }
+        return [paths.launcherApp(name: identity.bundleDisplayName), paths.tintedClone(name: identity.bundleDisplayName)]
+    }
+
+    /// The primary's own app follows its name, color and photo, and goes when switched off. It is only rebuilt when what it
+    /// shows changed (or it went missing), so a note or an unrelated edit never needs the Claude app.
+    func updateOwnApp(from before: Identity, to identity: Identity) throws {
+        let fm = FileManager.default
+        guard let app = identity.appURL(in: paths) else {
+            for old in apps(of: before) where fm.fileExists(atPath: old.path) { try fm.removeItem(at: old) }
+            return
+        }
+        let looksTheSame = before.appURL(in: paths) == app && before.tint == identity.tint && before.logoPath == identity.logoPath
+        if looksTheSame, fm.fileExists(atPath: app.path) { return }
+        let claude = try ClaudeApp.detect(at: claudeAppURL)
+        for old in apps(of: before) where fm.fileExists(atPath: old.path) { try fm.removeItem(at: old) }
+        try buildApp(for: identity, claude: claude)
+    }
+
+    /// The primary only ever gets its own app, which opens Claude: never a tinted copy, whatever the state says.
     func buildApp(for identity: Identity, claude: ClaudeApp) throws {
         let icon = try makeIcon(for: identity, claude: claude)
+        if identity.isPrimary {
+            try LauncherBuilder(paths: paths, launcherBinary: launcherBinary, shell: shell)
+                .buildOpener(for: identity, claude: claude, icon: icon, register: registerLaunchers)
+            return
+        }
         switch identity.iconMode {
         case .launcher:
             try LauncherBuilder(paths: paths, launcherBinary: launcherBinary, shell: shell)

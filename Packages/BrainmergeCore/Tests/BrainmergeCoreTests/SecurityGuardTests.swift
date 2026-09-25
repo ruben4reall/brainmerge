@@ -7,9 +7,9 @@ import Testing
 @Suite struct SecurityGuardTests {
     static let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    /// The shipped code: the core, the command line, the launcher, the app. Test fakes (BrainmergeTestSupport) are not shipped.
+    /// The shipped code: the core, the command line, the launcher and its guard, the app. Test fakes (BrainmergeTestSupport) are not shipped.
     static let roots = ["Packages/BrainmergeCore/Sources/BrainmergeCore", "Packages/BrainmergeCore/Sources/brainmerge",
-                        "Packages/BrainmergeCore/Sources/launcher", "Packages/BrainmergeUI/Sources", "App"].map { repo.appending(path: $0) }
+                        "Packages/BrainmergeCore/Sources/launcher", "Packages/BrainmergeCore/Sources/LauncherGuard", "Packages/BrainmergeUI/Sources", "App"].map { repo.appending(path: $0) }
 
     static func sources() throws -> [(URL, String)] {
         var files: [(URL, String)] = []
