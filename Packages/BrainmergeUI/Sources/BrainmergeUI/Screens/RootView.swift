@@ -48,10 +48,9 @@ public struct RootView: View {
             if !model.needsOnboarding { model.startWatching() }
         }
         // Back in front: Claude may have updated itself in the meantime.
+        // And a login may have changed in Claude Code: the emails on the accounts are read again.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            // And a login may have changed in Claude Code: the emails on the accounts are read again.
-            if model.launchPhase == .ready { model.refreshCodeAccounts() }
-            if model.launchPhase == .ready, !model.needsOnboarding { Task { await model.checkClaudeUpdate() } }
+            model.windowBecameActive()
         }
         // The first load changes it behind the splash: the launch above starts watching then, not this.
         .onChange(of: model.needsOnboarding) { _, needs in
@@ -126,7 +125,7 @@ public struct RootView: View {
         let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
                                              othersOpen: othersOpen, appExists: model.appURL(of: account.id) != nil)
         let help = action.help(for: account, othersOpen: othersOpen)
-        return Button { click(action, on: account) } label: {
+        return Button { Task { await model.perform(action, on: account.id) } } label: {
             HStack(spacing: 9) {
                 OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 22)
                 Text(account.identity.name).font(.system(size: 13)).lineLimit(1)
@@ -143,15 +142,6 @@ public struct RootView: View {
         .help(help)
         .accessibilityLabel(action.accessibilityLabel(for: account))
         .accessibilityHint(help)
-    }
-
-    func click(_ action: SidebarAccountAction, on account: Account) {
-        switch action {
-        case .rebuild: Task { await model.rebuild(account.id) }
-        case .opening, .updating: break
-        // A Claude Code only account: open() says why there is no window.
-        case .open, .show, .none: model.open(account.id)
-        }
     }
 
     var creatureState: CreatureState {

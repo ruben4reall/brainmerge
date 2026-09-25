@@ -400,7 +400,7 @@ import BrainmergeTestSupport
         _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
         let m = model(e)
         m.reload()
-        let task = Task { await m.rebuild("client") }
+        let task = Task { _ = await m.rebuild("client") }
         for _ in 0..<1000 where m.working == nil { await Task.yield() }
         #expect(m.working != nil)
         #expect(m.busy == ["client"])
@@ -418,7 +418,7 @@ import BrainmergeTestSupport
         m.reload()
         _ = await m.addBrain(name: "Work", path: nil)
         // The app bundle is not touched: opening it stays possible.
-        let task = Task { await m.setBrain(of: "client", to: "work") }
+        let task = Task { _ = await m.setBrain(of: "client", to: "work") }
         for _ in 0..<1000 where m.working == nil { await Task.yield() }
         #expect(m.working != nil)
         #expect(m.busy.isEmpty)
@@ -476,7 +476,8 @@ import BrainmergeTestSupport
         #expect(m.message == nil && m.appURL(of: "ruben") == nil)
     }
 
-    /// Moving the memory links is not atomic: that one change still waits for Claude to quit.
+    /// Moving the memory links is not atomic: that one change still waits for Claude to quit, and it is said before
+    /// anything is saved, so an edit is never half applied.
     @Test func thePrimarysMemoryStillWaitsForClaudeToQuit() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
@@ -484,10 +485,12 @@ import BrainmergeTestSupport
         let m = withClaudeOpen(e)
         m.reload()
         var edit = AccountEdit(account: try #require(m.accounts.first { $0.id == "ruben" }), memory: "work")
-        edit.note = "Personal"
-        await m.apply(edit, to: "ruben")
-        #expect(m.message?.title == "Ruben is open")
-        #expect(try e.store.load().primary?.note == "Personal")
+        edit.note = "Personal"; edit.name = "Ruben C"
+        let failure = await m.apply(edit, to: "ruben")
+        #expect(failure?.title == "Ruben is open")
+        #expect(m.message == failure)
+        #expect(try e.store.load().primary?.note == nil)
+        #expect(try e.store.load().primary?.name == "Ruben")
         #expect(try e.store.load().primary?.brain == nil)
     }
 

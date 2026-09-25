@@ -163,8 +163,8 @@ public struct EditAccountSheet: View {
     func swapNames(with other: CodeAccountNote.Other) {
         problem = nil
         Task {
-            await model.swapNames(account.id, with: other.slug)
-            if let message = model.message { problem = message.detail; model.message = nil }
+            // Only the swap's own problem is shown here: another message set meanwhile stays for the window's alert.
+            if let failure = await model.swapNames(account.id, with: other.slug) { problem = failure.detail; model.dismiss(failure) }
             else { edit.name = current.identity.name }
         }
     }
@@ -202,8 +202,8 @@ public struct EditAccountSheet: View {
     func save() {
         problem = nil
         Task {
-            await model.apply(edit, to: account.id)
-            if let message = model.message { problem = message.detail; model.message = nil } else { isPresented = false }
+            if let failure = await model.apply(edit, to: account.id) { problem = failure.detail; model.dismiss(failure) }
+            else { isPresented = false }
         }
     }
 

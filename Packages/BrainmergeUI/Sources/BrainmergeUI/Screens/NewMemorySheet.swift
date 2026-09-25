@@ -73,8 +73,7 @@ public struct NewMemorySheet: View {
         Task {
             guard let created = await model.addBrain(name: clean, path: folder) else { problem = model.message?.detail; model.message = nil; return }
             if let attach {
-                await model.setBrain(of: attach.id, to: created.id)
-                if let message = model.message { problem = message.detail; model.message = nil; return }
+                if let failure = await model.setBrain(of: attach.id, to: created.id) { problem = failure.detail; model.dismiss(failure); return }
             }
             isPresented = false
         }

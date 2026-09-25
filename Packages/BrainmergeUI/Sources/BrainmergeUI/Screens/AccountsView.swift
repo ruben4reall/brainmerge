@@ -137,8 +137,7 @@ public struct AccountsView: View {
     func switchMemory(of account: Account, to folder: MemoryFolder) async {
         let previous = model.brainName(of: account.identity) ?? "its previous memory"
         guard folder.name != previous else { return }
-        await model.setBrain(of: account.id, to: folder.id)
-        if model.message == nil {
+        if await model.setBrain(of: account.id, to: folder.id) == nil {
             model.message = UserMessage(title: "\(account.identity.name) now writes to \(folder.name)",
                                         detail: "What it wrote so far stays in \(previous). It goes on with what \(folder.name) already holds.")
         }
