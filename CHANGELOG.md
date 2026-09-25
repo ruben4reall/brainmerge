@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 (unreleased)
+
+- Sidebar: every row is clickable across its whole width, not only on its text or icon, and lights up softly under the pointer (a neutral fill; the purple still marks the current screen). Cmd-1 to Cmd-4 switch screens, and VoiceOver says which screen is selected.
+- Sidebar accounts say what a click does: "Open", "Show" when the window already runs, "Opening…" until it appears, "Updating…" while its app is being rebuilt (the row waits instead of opening a half-built app), "Rebuild" when its app is missing. A tooltip says more: which Claude an outdated copy was built for, or, for an account that still has to log in while other Claude windows are open, to quit them first.
+- Several accounts can be opening at once, and each one stops showing "Opening…" as soon as its window runs.
+- An account without a Claude window (Claude Code only) explains itself when opened, instead of ending in "Something went wrong".
+
 ## 0.4.0
 
 - The memory as a live graph, like Obsidian's graph view. Every note is a bubble in the color of the account that saved it last, links between notes are threads, and each project is a larger bubble that is also its index (`MEMORY.md`). A note pulses while Claude Code writes it, and again, in the account's color, when that account saves it. Hover a bubble to light it and its neighbors, click it to read it (who saved it, when, its first lines, updated live), double-click it to open it in your notes app. Drag to move around or to pull a bubble, pinch or scroll to zoom. The legend counts each account's notes; click an account to keep its notes lit. The timeline of sentences stays one click away.

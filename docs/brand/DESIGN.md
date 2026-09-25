@@ -6,10 +6,10 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 
 1. **A dark, quiet canvas.** Near-black with a faint purple cast at the top left. No halos, no decoration: nothing competes with the accounts.
 2. **Cream text, three levels.** Full, muted (64%), faint (50%): every level reads at 4.5:1 or better on the canvas. Serif for titles (the system serif), sans for everything else.
-3. **One accent.** The purple of the creature, and only it, for actions: switches, segmented controls, the selected item in the sidebar, progress dots. Primary buttons are filled with its deep shade (`Colors.button`), so their white label reads at 4.7:1. Secondary actions are glass buttons.
-4. **Glass surfaces, native controls.** Cards, sidebar and chips use the system glass (`glassEffect`) with a thin rim; primary actions are the system's prominent glass button tinted with the accent, secondary actions plain glass. Corner radius 12 for cards, 14 for the sidebar, capsules for chips.
+3. **One accent.** The purple of the creature, and only it, for actions: switches, segmented controls, the selected item in the sidebar, progress dots. A sidebar row under the pointer gets a neutral cream fill, fainter than the selection, so the purple keeps meaning "selected". Primary buttons are filled with its deep shade (`Colors.button`), so their white label reads at 4.7:1. Secondary actions are glass buttons.
+4. **Glass surfaces, native controls.** Cards, sidebar and chips use the system glass (`glassEffect`) with a thin rim; primary actions are the system's prominent glass button tinted with the accent, secondary actions plain glass. Corner radius 12 for cards, 14 for the sidebar, 10 for its rows, capsules for chips. A sidebar row is clickable across its whole width.
 5. **Flat account colors.** Each account has a muted tint (or a photo) on a flat circle with its initial. No gloss, no glow.
-6. **Motion with a purpose.** The aura appears only around an account that is opening, and around the creature when the memory was just saved. Reduce Motion freezes it. The creature is a small companion in the sidebar, never a hero.
+6. **Motion with a purpose.** The aura appears only around an account that is opening, and around the creature when the memory was just saved. Reduce Motion freezes it. A sidebar row's fill changes color in 0.12 s under the pointer, instantly with Reduce Motion. The creature is a small companion in the sidebar, never a hero.
 
 ## Tokens
 
@@ -27,6 +27,8 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices / the fill of prominent buttons |
 | `Colors.button` | `accentDeep` | prominent buttons (4.7:1 with `onAccent`) |
 | `Colors.selection` | accent at 18% | the selected sidebar row, the memory box of the diagram |
+| `Colors.rowHover` | text at 6% | a sidebar row under the pointer (neutral, fainter than `selection`) |
+| `Colors.rowPressed` | text at 10% | a sidebar row while it is pressed |
 | `Colors.accentSoft` | accent at 35% | the older bars of the usage chart |
 | `Colors.onAccent` | `#FBF7FF` | text on the accent |
 | `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states |
@@ -35,6 +37,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Aura.softOpacity` / `fullOpacity` / `lineWidth` / `period` | 0.10 / 0.45 / 6 / 7 s | the spinning aura |
 | `Creature.glowOpacity` | 0 | glow behind the creature (off) |
 | `Layout.padding` / `cardRadius` | 20 / 12 | screen padding, card corners |
+| `Layout.rowRadius` | 10 | sidebar rows: their selection, hover and press fills |
 | `Layout.readingWidth` / `formWidth` | 880 / 720 | the widest a Memory or Usage card gets / the settings form |
 
 Account tints (`Theme.hex(for:)`): orange `#D97757`, blue `#6FA3D8`, green `#7FA37A`, purple `#A87BC9`, pink `#D97A8E`, yellow `#E0A526`, gray `#7D8A99`. Red maps to pink and is not offered in pickers.

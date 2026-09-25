@@ -234,7 +234,7 @@ import BrainmergeTestSupport
         m.reload()
         m.open("client")
         // No second launch on the same data folder: no opening aura, no message.
-        #expect(m.openingSlug == nil)
+        #expect(m.opening.isEmpty)
         #expect(m.message == nil)
         #expect(m.lastShownProcess == 900)
     }
@@ -249,7 +249,7 @@ import BrainmergeTestSupport
         #expect(await m.add(form))
         #expect(m.accounts.map(\.identity.slug).contains("work"))
         // The login link would open in the window that's already running: no launch, a sentence and a button.
-        #expect(m.openingSlug == nil)
+        #expect(m.opening.isEmpty)
         #expect(m.message?.title == "Close your other Claude windows first")
         #expect(m.message?.action == .quitOthersThenOpen(slug: "work"))
         #expect(m.working == nil)
@@ -263,7 +263,7 @@ import BrainmergeTestSupport
         var form = AddAccountForm(); form.name = "Work"
         #expect(await m.add(form, open: false))
         #expect(m.accounts.map(\.identity.slug) == ["ruben", "work"])
-        #expect(m.openingSlug == nil && m.message == nil)
+        #expect(m.opening.isEmpty && m.message == nil)
     }
 
     @Test func reloadReportsWhetherSomethingChanged() throws {
@@ -350,6 +350,113 @@ import BrainmergeTestSupport
         let m = model(e)
         m.reload()
         m.markOpening("ruben")
-        #expect(m.openingSlug == "ruben")
+        #expect(m.opening == ["ruben"])
+    }
+
+    // MARK: The sidebar's labels
+
+    @Test func severalAccountsCanBeOpeningAtOnceAndEachClearsWhenItsWindowRuns() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let data = client.desktopData(in: e.home.paths).path
+        let exe = e.claude.executable.path
+        let ps = PSOutput()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps.text }))
+        m.reload()
+        // Opening Ruben then Client: Ruben does not turn back to "Open" while its window is still on its way.
+        m.markOpening("ruben")
+        m.markOpening("client")
+        #expect(m.opening == ["ruben", "client"])
+        // Client's window appears: it is no longer "opening", without waiting for the timer.
+        ps.text = "  900 1 120000 \(exe) --user-data-dir=\(data)\n"
+        m.reload()
+        #expect(m.opening == ["ruben"])
+        ps.text = "  800 1 90000 \(exe)\n  900 1 120000 \(exe) --user-data-dir=\(data)\n"
+        m.reload()
+        #expect(m.opening.isEmpty)
+    }
+
+    @Test func openingAClaudeCodeOnlyAccountExplainsInsteadOfFailing() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        var request = IdentityManager.AddRequest(name: "Terminal"); request.surfaces = Surfaces(desktop: false)
+        _ = try e.manager.add(request)
+        // Claude is removed, so that nothing here could ever reach /usr/bin/open: without the check,
+        // the click would end in "Claude isn't installed" instead of saying what this account is.
+        try FileManager.default.removeItem(at: e.claude.url)
+        let m = model(e)
+        m.reload()
+        m.open("terminal")
+        #expect(m.message?.title == "Terminal is Claude Code only")
+        #expect(m.message?.detail == "This account has no Claude window. Use it with Claude Code in the terminal.")
+        #expect(m.message?.action == nil)
+        #expect(m.opening.isEmpty)
+    }
+
+    @Test func aRebuildMarksOnlyItsAccountBusyAndLeavesNoneBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let m = model(e)
+        m.reload()
+        let task = Task { await m.rebuild("client") }
+        for _ in 0..<1000 where m.working == nil { await Task.yield() }
+        #expect(m.working != nil)
+        #expect(m.busy == ["client"])
+        #expect(m.accountsBusy == ["client"])
+        await task.value
+        #expect(m.busy.isEmpty && m.accountsBusy.isEmpty)
+        #expect(m.message == nil)
+    }
+
+    @Test func attachingAnotherMemoryDoesNotMarkTheAccountBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let m = model(e)
+        m.reload()
+        _ = await m.addBrain(name: "Work", path: nil)
+        // The app bundle is not touched: opening it stays possible.
+        let task = Task { await m.setBrain(of: "client", to: "work") }
+        for _ in 0..<1000 where m.working == nil { await Task.yield() }
+        #expect(m.working != nil)
+        #expect(m.busy.isEmpty)
+        await task.value
+        #expect(try e.store.load().identity(slug: "client")?.brain == "work")
+    }
+
+    @Test func editingThePrimaryNeverMarksItBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        // Opening the primary opens Claude itself, which no edit touches: its row keeps saying "Open".
+        let task = Task { await m.changeNote("ruben", to: "Personal") }
+        for _ in 0..<1000 where m.working == nil { await Task.yield() }
+        #expect(m.working != nil)
+        #expect(m.busy.isEmpty)
+        await task.value
+        #expect(try e.store.load().identity(slug: "ruben")?.note == "Personal")
+    }
+
+    @Test func theSidebarSeesAnUpdateUnderWayAsBusy() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        m.rebuilding.insert("client")   // updateAccount or the automatic check at work
+        #expect(m.accountsBusy == ["client"])
+        #expect(m.busy.isEmpty)          // two sets: the update's marker is never cleared by a nested change
+    }
+}
+
+/// A `ps` output a test can change between two reloads.
+final class PSOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = ""
+    var text: String {
+        get { lock.lock(); defer { lock.unlock() }; return value }
+        set { lock.lock(); value = newValue; lock.unlock() }
     }
 }

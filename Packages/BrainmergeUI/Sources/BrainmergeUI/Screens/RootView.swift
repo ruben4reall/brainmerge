@@ -9,6 +9,8 @@ public struct RootView: View {
         case accounts, memory, usage, settings
         public var id: String { rawValue }
         var title: String { rawValue.capitalized }
+        /// Cmd-1 to Cmd-4, in the sidebar's order.
+        var digit: Character { Character(String((Self.allCases.firstIndex(of: self) ?? 0) + 1)) }
         var symbol: String {
             switch self { case .accounts: "person.2"; case .memory: "brain"; case .usage: "chart.bar"; case .settings: "slider.horizontal.3" }
         }
@@ -81,34 +83,56 @@ public struct RootView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    /// A screen: the whole row switches to it, Cmd-1 to Cmd-4 too.
     func navRow(_ s: Section) -> some View {
-        Button { section = s } label: {
+        let selected = section == s
+        return Button { section = s } label: {
             Label(s.title, systemImage: s.symbol)
-                .font(.system(size: 13.5, weight: section == s ? .semibold : .regular))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.system(size: 13.5, weight: selected ? .semibold : .regular))
                 .padding(.horizontal, 10).padding(.vertical, 7)
-                .background(section == s ? Theme.Colors.selection : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarRowStyle(selected: selected))
+        .keyboardShortcut(KeyEquivalent(s.digit), modifiers: .command)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
+    /// An account: the word on the right says what a click does (see SidebarAccountAction).
     func accountRow(_ account: Account) -> some View {
-        Button { model.open(account.id) } label: {
+        let othersOpen = model.openAccounts.contains { $0.id != account.id }
+        let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
+                                             othersOpen: othersOpen, appExists: model.appURL(of: account.id) != nil)
+        let help = action.help(for: account, othersOpen: othersOpen)
+        return Button { click(action, on: account) } label: {
             HStack(spacing: 9) {
                 OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 22)
                 Text(account.identity.name).font(.system(size: 13)).lineLimit(1)
-                Spacer()
-                if account.isRunning { Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4) }
+                Spacer(minLength: 4)
+                HStack(spacing: 6) {
+                    if let label = action.label { SidebarRowHint(text: label) }
+                    if account.isRunning { Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4) }
+                }
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarRowStyle())
+        .disabled(!action.isEnabled)
+        .help(help)
+        .accessibilityLabel(action.accessibilityLabel(for: account))
+        .accessibilityHint(help)
+    }
+
+    func click(_ action: SidebarAccountAction, on account: Account) {
+        switch action {
+        case .rebuild: Task { await model.rebuild(account.id) }
+        case .opening, .updating: break
+        // A Claude Code only account: open() says why there is no window.
+        case .open, .show, .none: model.open(account.id)
+        }
     }
 
     var creatureState: CreatureState {
         if let last = model.lastMemorySave, Date().timeIntervalSince(last) < 10 { return .glowing }
-        if model.openingSlug != nil || !model.openAccounts.isEmpty { return .awake }
+        if !model.opening.isEmpty || !model.openAccounts.isEmpty { return .awake }
         return .asleep
     }
 
@@ -116,7 +140,7 @@ public struct RootView: View {
         switch creatureState {
         case .glowing: return "Memory saved just now"
         case .awake:
-            if model.openingSlug != nil { return "Opening…" }
+            if !model.opening.isEmpty { return "Opening…" }
             let n = model.openAccounts.count
             return n == 1 ? "1 account open" : "\(n) accounts open"
         case .asleep: return "No account open"

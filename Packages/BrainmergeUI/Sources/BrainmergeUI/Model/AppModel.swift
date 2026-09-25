@@ -52,7 +52,14 @@ public final class AppModel {
     /// What opens the memory folder (see NotesApps.target).
     public private(set) var notesApp: String?
     public var message: UserMessage?
-    public private(set) var openingSlug: String?
+    /// Accounts launched and not seen running yet: cleared as soon as `reload()` sees their process,
+    /// or after a few seconds if it never shows up.
+    public private(set) var opening: Set<String> = []
+    private var openingMarks: [String: Int] = [:]
+    /// Accounts whose app bundle is being rebuilt, updated or removed right now: opening one would open a half-built app.
+    /// Kept apart from `rebuilding`, whose marker must outlive the nested rebuild of an update.
+    public private(set) var busy: Set<String> = []
+    private var busyCount: [String: Int] = [:]
     /// A waiting sentence while heavy core work runs off the main thread.
     public private(set) var working: String?
     /// The last process brought to the front by "Show" (observable in tests).
@@ -150,6 +157,8 @@ public final class AppModel {
             changed = true
         }
         set(\.memoryWarning, Self.memoryWarning(level: memoryPressure(), open: openAccounts.count, bytes: totalResidentBytes))
+        // A window that showed up is no longer "opening".
+        set(\.opening, opening.subtracting(openAccounts.map(\.id)))
         return changed
     }
 
@@ -199,7 +208,7 @@ public final class AppModel {
         if let old = identity.logoPath, logo != nil || clearLogo { logos[old] = nil }
         if name != nil || tint != nil || logo != nil || clearLogo || note != nil || iconMode != nil {
             let manager = self.manager
-            await change(slug, "Saving \(edit.trimmedName)…") { _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo) }
+            await change(slug, "Saving \(edit.trimmedName)…", touchesApp: true) { _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo) }
             if message != nil { return }
         }
         if brain(of: identity)?.id != edit.memory {
@@ -211,6 +220,9 @@ public final class AppModel {
 
     /// The accounts whose copy is being rebuilt right now: the automatic check leaves them alone.
     var rebuilding: Set<String> = []
+
+    /// Every account whose app is being worked on, whatever the reason: the sidebar does not offer to open them.
+    var accountsBusy: Set<String> { busy.union(rebuilding) }
 
     /// Quits the account if it is open, rebuilds its copy for the installed Claude, then reopens it.
     public func updateAccount(_ slug: String) async {
@@ -351,13 +363,26 @@ public final class AppModel {
 
     // MARK: Open, show, close
 
+    /// Marks an account as opening until its window runs; the timer is only a fallback for a launch that never shows up.
     public func markOpening(_ slug: String) {
-        openingSlug = slug
-        Task { try? await Task.sleep(for: .seconds(4)); if self.openingSlug == slug { self.openingSlug = nil } }
+        opening.insert(slug)
+        let mark = (openingMarks[slug] ?? 0) + 1
+        openingMarks[slug] = mark
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            guard self.openingMarks[slug] == mark else { return }
+            self.openingMarks[slug] = nil
+            if self.opening.contains(slug) { self.opening.remove(slug) }
+        }
     }
 
     /// Opens the account; if it's already running, brings its window to the front: never two instances on the same data folder.
     public func open(_ slug: String) {
+        if let account = accounts.first(where: { $0.id == slug }), !account.identity.surfaces.desktop {
+            message = UserMessage(title: "\(account.identity.name) is Claude Code only",
+                                  detail: "This account has no Claude window. Use it with Claude Code in the terminal.")
+            return
+        }
         if let pid = runningProcess(for: slug) { show(pid); return }
         do { try manager.launch(slug: slug); markOpening(slug) } catch { present(error) }
         reload()
@@ -423,21 +448,35 @@ public final class AppModel {
     }
 
     /// Any change to an open account is refused, with its real name, before calling the engine.
-    func change(_ slug: String, _ label: String, _ work: @escaping @Sendable () throws -> Void) async {
+    /// `touchesApp`: the work deletes and rebuilds (or removes) the account's app, so the account is busy meanwhile.
+    /// Only a secondary account with a Claude window opens through its own app: the primary opens Claude itself.
+    func change(_ slug: String, _ label: String, touchesApp: Bool = false, _ work: @escaping @Sendable () throws -> Void) async {
         if let open = runningSentence(slug) { message = open; return }
+        let identity = accounts.first { $0.id == slug }?.identity
+        let marks = touchesApp && identity.map { !$0.isPrimary && $0.surfaces.desktop } == true
+        if marks { markBusy(slug, true) }
+        defer { if marks { markBusy(slug, false) } }
         _ = await perform(label, work)
+    }
+
+    /// Counted, so that two overlapping changes of one account do not clear each other's mark.
+    private func markBusy(_ slug: String, _ on: Bool) {
+        let count = max(0, (busyCount[slug] ?? 0) + (on ? 1 : -1))
+        busyCount[slug] = count == 0 ? nil : count
+        if count > 0, !busy.contains(slug) { busy.insert(slug) }
+        if count == 0, busy.contains(slug) { busy.remove(slug) }
     }
 
     func name(of slug: String) -> String { accounts.first { $0.id == slug }?.identity.name ?? slug }
 
     public func remove(_ slug: String, deleteData: Bool) async {
         let manager = self.manager
-        await change(slug, "Removing \(name(of: slug))…") { try manager.remove(slug: slug, deleteData: deleteData) }
+        await change(slug, "Removing \(name(of: slug))…", touchesApp: true) { try manager.remove(slug: slug, deleteData: deleteData) }
     }
 
     public func rebuild(_ slug: String) async {
         let manager = self.manager
-        await change(slug, "Rebuilding \(name(of: slug))…") { try manager.rebuild(slug: slug) }
+        await change(slug, "Rebuilding \(name(of: slug))…", touchesApp: true) { try manager.rebuild(slug: slug) }
     }
 
     /// Adds an account from the form; returns true if it's done, otherwise sets the message.
@@ -460,20 +499,20 @@ public final class AppModel {
             message = UserMessage(title: "Check the form", detail: problem); return
         }
         let manager = self.manager; let clean = form.trimmedName
-        await change(slug, "Renaming to \(clean)…") { _ = try manager.update(slug: slug, name: clean, tint: nil, logo: nil) }
+        await change(slug, "Renaming to \(clean)…", touchesApp: true) { _ = try manager.update(slug: slug, name: clean, tint: nil, logo: nil) }
     }
     public func changeTint(_ slug: String, to tint: Tint) async {
         let manager = self.manager
-        await change(slug, "Recoloring \(name(of: slug))…") { _ = try manager.update(slug: slug, name: nil, tint: tint, logo: nil) }
+        await change(slug, "Recoloring \(name(of: slug))…", touchesApp: true) { _ = try manager.update(slug: slug, name: nil, tint: tint, logo: nil) }
     }
     public func changeLogo(_ slug: String, to url: URL?) async {
         let manager = self.manager
         if let old = accounts.first(where: { $0.id == slug })?.identity.logoPath { logos[old] = nil }
-        await change(slug, "Updating the photo of \(name(of: slug))…") { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: url) }
+        await change(slug, "Updating the photo of \(name(of: slug))…", touchesApp: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: url) }
     }
     public func changeNote(_ slug: String, to note: String) async {
         let manager = self.manager
-        await change(slug, "Saving…") { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: nil, note: note) }
+        await change(slug, "Saving…", touchesApp: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: nil, note: note) }
     }
 
     // MARK: Repair, command line

@@ -70,7 +70,7 @@ public struct AccountsView: View {
     var subtitle: String {
         if let working = model.working { return working }
         let open = model.openAccounts
-        if let slug = model.openingSlug, let a = model.accounts.first(where: { $0.id == slug }) { return "Opening \(a.identity.name)…" }
+        if let a = model.accounts.first(where: { model.opening.contains($0.id) }) { return "Opening \(a.identity.name)…" }
         if open.isEmpty { return "\(model.accounts.count) accounts, none open" }
         let memory = model.totalResidentBytes > 0 ? ", \(ByteCountFormatter.string(fromByteCount: model.totalResidentBytes, countStyle: .memory))" : ""
         return open.count == 1 ? "1 account open\(memory)" : "\(open.count) accounts open\(memory)"
@@ -88,7 +88,7 @@ public struct AccountsView: View {
 
     /// A compact card: swatch, name, note, status; the primary action and the "more" menu on the right.
     func card(_ account: Account) -> some View {
-        let opening = model.openingSlug == account.id
+        let opening = model.opening.contains(account.id)
         let memory = model.residentBytes(of: account.id)
         return ZStack {
             AuraView(state: opening ? .full : .off, cornerRadius: Theme.Layout.cardRadius).padding(-3)

@@ -30,6 +30,10 @@ public enum Theme {
         public static let field = Color.white.opacity(0.07)
         public static let selection = accent.opacity(0.18)
         public static let accentSoft = accent.opacity(0.35)
+        /// Sidebar rows under the pointer and while pressed: neutral cream, fainter than `selection`,
+        /// so the purple keeps meaning "selected".
+        public static let rowHover = text.opacity(0.06)
+        public static let rowPressed = text.opacity(0.10)
         /// The threads of the memory graph, at rest and lit by a hovered or selected note.
         public static let graphLink = Color(hex: "#F4EFE6").opacity(0.22)
         public static let graphLinkLit = Color(hex: "#F4EFE6").opacity(0.55)
@@ -86,6 +90,8 @@ public enum Theme {
     public enum Layout {
         public static let padding: CGFloat = 20
         public static let cardRadius: CGFloat = 12
+        /// The rows of the sidebar: screens and accounts, their hover, press and selection fills.
+        public static let rowRadius: CGFloat = 10
         /// Reading column of the Memory and Usage screens: cards never stretch beyond it.
         public static let readingWidth: CGFloat = 880
         /// The settings form.

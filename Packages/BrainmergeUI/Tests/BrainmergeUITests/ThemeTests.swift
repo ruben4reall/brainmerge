@@ -21,6 +21,15 @@ import BrainmergeCore
         let (r, g, b) = Theme.Colors.accent.rgb255
         #expect((r, g, b) == (160, 107, 224))
         #expect(Theme.Colors.creature.rgb255 == Theme.Colors.accent.rgb255)
+        // Sidebar rows: hover and press are neutral cream, fainter than the purple selection, which keeps meaning "selected".
+        func alpha(_ c: Color) -> CGFloat { NSColor(c).usingColorSpace(.sRGB)?.alphaComponent ?? 1 }
+        #expect(Theme.Colors.rowHover.rgb255 == Theme.Colors.text.rgb255)
+        #expect(Theme.Colors.rowPressed.rgb255 == Theme.Colors.text.rgb255)
+        #expect(Theme.Colors.rowHover.rgb255 != Theme.Colors.accent.rgb255)
+        #expect(alpha(Theme.Colors.rowHover) > 0 && alpha(Theme.Colors.rowHover) <= 0.08)
+        #expect(alpha(Theme.Colors.rowHover) < alpha(Theme.Colors.rowPressed))
+        #expect(alpha(Theme.Colors.rowPressed) < alpha(Theme.Colors.selection))
+        #expect(Theme.Layout.rowRadius == 10)
     }
 
     @Test func pickableTintsShowEachColorOnce() {

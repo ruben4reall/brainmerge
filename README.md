@@ -60,7 +60,7 @@ Brainmerge is built so that there is nothing in it Anthropic's terms could objec
 
 ![Add an account](docs/design/captures/04-ajout.png)
 
-Give it a name and a color (or a photo), optionally a note, and pick its memory: shared, another one, or its own. Claude opens in a new window and asks you to log in, like always. The card then shows whether it is open, logged in, and which memory it writes to. Every card has a menu: edit, memory, show its app in Finder, rebuild, quit, remove.
+Give it a name and a color (or a photo), optionally a note, and pick its memory: shared, another one, or its own. Claude opens in a new window and asks you to log in, like always. The card then shows whether it is open, logged in, and which memory it writes to. Every card has a menu: edit, memory, show its app in Finder, rebuild, quit, remove. In the sidebar, each account says what a click does: "Open", or "Show" when its window already runs. Cmd-1 to Cmd-4 switch screens.
 
 ![Edit an account](docs/design/captures/08-edit.png)
 
