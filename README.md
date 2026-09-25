@@ -35,7 +35,7 @@ Brainmerge is built so that there is nothing in it Anthropic's terms could objec
 - **One memory, or one each.** What Claude Code learns about a project in one account, the others know too, through a shared folder of Markdown notes (`~/Brain` by default, or a folder you already have: an Obsidian vault works well). Give an account its own memory in one click, for work or a client: what it learns then stays there. Every account writes to exactly one memory; nothing is ever moved or deleted behind your back.
 - **A timeline of what was remembered.** Who saved what, about which project, and when, in plain sentences, for each memory.
 - **Connected, or not yet.** Each card says whether the account has logged in, and the guided setup turns to "Connected" on its own once you have. Brainmerge only looks at the names of Claude's own storage files, never inside them.
-- **Which account is which.** Each card shows the email Claude Code uses for that account, the search finds it, and two accounts on the same Claude account are pointed out. When the names ended up on each other's account, the edit sheet offers to swap them in one click. Claude Code's display name can become the name, never without a click.
+- **Which account is which.** Each card shows the email Claude Code uses for that account, the search finds it, and two accounts on the same Claude account are pointed out. When the names ended up on each other's account, the edit sheet offers to swap them, once you confirm. Claude Code's display name can become the name, never without a click.
 - **Alive.** When Claude updates itself, the accounts that keep a copy of it (the ones with their own Dock icon) are rebuilt for the new version, on their own or with one click. Claude's version is checked every few minutes and whenever the window comes to the front.
 - **Usage per account.** What each account spent, read from Claude Code's own transcripts on your Mac: today, seven days, thirty days, by project and by model. Informative only: Brainmerge never switches accounts for you, and it never reads your limits (only Claude knows them). Reading eight gigabytes of transcripts takes under twenty seconds and a few dozen megabytes; the next read takes under a second.
 - **Memory per account.** How much RAM each open Claude window uses, and a quiet warning when your Mac runs low.
@@ -61,7 +61,7 @@ Brainmerge is built so that there is nothing in it Anthropic's terms could objec
 
 ![Add an account](docs/design/captures/04-ajout.png)
 
-Give it a name and a color (or a photo), optionally a note, and pick its memory: shared, another one, or its own. Claude opens in a new window and asks you to log in, like always. The card then shows whether it is open, logged in, and which memory it writes to. Every card has a menu: edit, memory, show its app in Finder, rebuild, quit, remove. In the sidebar, each account says what a click does: "Open", or "Show" when its window already runs. Cmd-1 to Cmd-4 switch screens.
+Give it a name and a color (or a photo), optionally a note, and pick its memory: shared, another one, or its own. Claude opens in a new window and asks you to log in, like always. The card then shows whether it is open, logged in, and which memory it writes to. Every card has a menu: edit, memory, show its app in Finder, rebuild, quit, remove. In the sidebar and on the cards, each account says what a click does: "Open", or "Show" when its window already runs. Cmd-1 to Cmd-4 switch screens (see the View menu).
 
 ![Edit an account](docs/design/captures/08-edit.png)
 
