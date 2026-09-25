@@ -136,6 +136,12 @@ import Testing
         #expect(LifeProfile.stage.awakeBreath == 2 && LifeProfile.stage.sleepBreath == 2)
     }
 
+    @Test func theProfilesAreTheSpecsTable() {
+        // MOTION.md 2.1: how often each place blinks and glances (seconds), breathes (device pixels) and how high it hops (cells).
+        #expect(LifeProfile.companion == LifeProfile(blinkEvery: 3.4...7.5, glanceEvery: 9...16, awakeBreath: 0, sleepBreath: 1, hopHeight: 1.75))
+        #expect(LifeProfile.stage == LifeProfile(blinkEvery: 2.6...6.0, glanceEvery: 5.5...10, awakeBreath: 2, sleepBreath: 2, hopHeight: 2.25))
+    }
+
     @Test func reduceMotionNeverMoves() {
         let stamps = [CreatureStamp(.memorySaved, at: 0.2), CreatureStamp(.error, at: 1), CreatureStamp(.accountOpened, at: 1.5),
                       CreatureStamp(.wake, at: 2.2), CreatureStamp(.doze, at: 3)]
@@ -200,11 +206,24 @@ import Testing
         #expect(startle.armLeft == .out && startle.armRight == .out)
     }
 
+    @Test func theStartleWidensTheEyesThenBlinks() {
+        // Eyes 1.35 high (growing upward from their bottom row) until 0.40 s, open, then a relieved blink at 0.56 s.
+        let error = [CreatureStamp(.error, at: 1)]
+        for tau in [0.0, 0.1, 0.3, 0.39] {
+            let p = Self.pose(.awake, 1 + tau, error)
+            #expect(p.eyeHeight == 1.35 && p.eyeBottom == 2, "\(tau)")
+        }
+        #expect(Self.pose(.awake, 1.45, error).eyeHeight == 1)
+        #expect(Self.pose(.awake, 1.58, error).eyeHeight == 0.5)
+        #expect(Self.pose(.awake, 1.62, error).eyeHeight == 0.2)
+    }
+
     @Test func theHopLeavesTheGroundWithItsArmsUpAndSparkles() {
-        for (name, profile) in Self.profiles {
+        // The sidebar hops 1.75 cells (3.5 pt), a stage 2.25 cells.
+        for (name, profile, height) in [("companion", LifeProfile.companion, 1.75), ("stage", .stage, 2.25)] {
             let stamps = [CreatureStamp(.memorySaved, at: 1)]
             let apex = Self.pose(.awake, 1.30, stamps, profile: profile)
-            #expect(abs(apex.offset.dy + profile.hopHeight) < 1e-6, "\(name)")
+            #expect(abs(apex.offset.dy + height) < 1e-6, "\(name)")
             #expect(apex.legsTucked && apex.armLeft == .up && apex.armRight == .up)
             let crouch = Self.pose(.awake, 1.07, stamps, profile: profile)
             #expect(crouch.scaleY < 0.9 && crouch.scaleX > 1.05 && crouch.eyeHeight == 0.5)
@@ -270,6 +289,9 @@ import Testing
         let walk = CreatureWalk(start: 1, end: 1.5)
         #expect(walk.stop.map { abs($0 - 1.6) < 1e-9 } == true)
         #expect(CreatureWalk(start: 1, end: 1.36).stop.map { abs($0 - 1.36) < 1e-9 } == true)
+        // Ended just after a contact frame (1.12): the next frame boundary (1.24) is a passing frame, so it runs on to 1.36.
+        #expect(CreatureWalk(start: 1, end: 1.2).stop.map { abs($0 - 1.36) < 1e-9 } == true)
+        #expect(Self.pose(.awake, 1.3, walking: CreatureWalk(start: 1, end: 1.2)).raise == 1)
         #expect(CreatureWalk(start: 1).stop == nil)
         let stamps = [CreatureStamp(.accountOpened, at: 1.5)]
         // Passing frame first: the click shows at once.

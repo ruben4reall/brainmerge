@@ -522,9 +522,13 @@ public enum CreatureLife {
 }
 
 /// The creature's timeline: 60 dates a second only while something moves smoothly (a reaction, the walk, the glow, the first
-/// minute asleep), otherwise one date per stepped change of the idle (`nextChange`), and none once nothing will change.
-/// Captures and `.lowFrequency` show one still; Reduce Motion wakes only for its fading cues; a window in the background
-/// plays reactions and the walk but holds the idle.
+/// minute asleep), otherwise one date per stepped change of the idle (`nextChange`), and a far-future wait once nothing will
+/// change. Captures and `.lowFrequency` show one still; Reduce Motion wakes only for its fading cues.
+///
+/// A window in the background plays reactions and the walk but holds the idle. The sidebar's moments happen while another
+/// app is in front (an opened account's window comes forward, Claude Code saves the memory): paused, the creature would never
+/// be seen walking, waving or hopping. Each is bounded (under 0.8 s, the walk until the opening ends) and ends on its resting
+/// frame; the endless parts (blinks, glances, the sleep loop) hold still.
 public struct CreatureSchedule: TimelineSchedule {
     public enum Mode: Equatable, Sendable {
         case live, background, reduced, still
@@ -575,7 +579,7 @@ public struct CreatureSchedule: TimelineSchedule {
         }
     }
 
-    /// The entry after `date`, or nil when nothing will change.
+    /// The entry after `date`, or nil when nothing will change (the entries then wait, see `Entries`).
     func nextDate(after date: Date) -> Date? {
         let t = time(at: date)
         let next: Double
@@ -604,13 +608,16 @@ public struct CreatureSchedule: TimelineSchedule {
         Entries(schedule: self, pending: startDate, paused: mode == .lowFrequency)
     }
 
+    /// The dates, then a wait on a far-future date once nothing will change: SwiftUI never draws a schedule's last entry, so
+    /// without it the frame that stays (landed, asleep, faded out) would never be drawn and the last moving one would stick.
     public struct Entries: Sequence, IteratorProtocol {
         let schedule: CreatureSchedule
         var pending: Date?
         let paused: Bool
         public mutating func next() -> Date? {
             guard let date = pending else { return nil }
-            pending = paused ? nil : schedule.nextDate(after: date)
+            if date == .distantFuture { pending = nil; return date }
+            pending = (paused ? nil : schedule.nextDate(after: date)) ?? .distantFuture
             return date
         }
     }

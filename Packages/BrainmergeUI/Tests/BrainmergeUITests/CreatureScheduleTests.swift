@@ -15,8 +15,9 @@ import Testing
         CreatureSchedule(start: start, mode: mode, state: state, events: events, profile: profile, walking: walking,
                          asleepSince: asleepSince, slow: slow)
     }
+    /// The dates drawn, as scene times: the far-future date a finished timeline waits on is left out.
     static func times(_ s: CreatureSchedule, from t: Double = 0, count: Int, mode: TimelineScheduleMode = .normal) -> [Double] {
-        Array(s.entries(from: start.addingTimeInterval(t), mode: mode).prefix(count)).map { $0.timeIntervalSince(start) }
+        Array(s.entries(from: start.addingTimeInterval(t), mode: mode).prefix(count)).filter { $0 != .distantFuture }.map { $0.timeIntervalSince(start) }
     }
 
     @Test func theIdleWakesOnlyForItsSteps() {
@@ -83,6 +84,34 @@ import Testing
         #expect(t.count < 200 && t.contains { $0 > 1 && $0 < 1.74 } && t.last! < 1.8)
         let walk = Self.times(Self.schedule(.background, walking: CreatureWalk(start: 0, end: 1)), count: 200)
         #expect(walk.count > 30 && walk.last! < 1.2)
+    }
+
+    /// SwiftUI never draws a schedule's last entry: a timeline that ends must reach the frame that stays, then wait on a
+    /// far-future date, or the creature freezes on its last moving frame (eyes open while asleep, a sparkle hanging in the air,
+    /// a fade at 5%, half a step).
+    @Test func aTimelineThatEndsDrawsItsSettledFrameThenWaits() {
+        let cases: [(String, CreatureSchedule, Double, LifeFrame)] = [
+            ("asleep past a minute, then a save", Self.schedule(state: .asleep, events: [CreatureStamp(.memorySaved, at: 70.2)], asleepSince: 0),
+             70, LifeFrame(pose: .asleep)),
+            ("asleep past a minute, then an error", Self.schedule(state: .asleep, events: [CreatureStamp(.error, at: 70.2)], asleepSince: 0),
+             70, LifeFrame(pose: .asleep)),
+            ("background, a hop", Self.schedule(.background, events: [CreatureStamp(.memorySaved, at: 1)]), 0, LifeFrame(pose: .rest)),
+            ("background, a walk and no wave", Self.schedule(.background, walking: CreatureWalk(start: 0.5, end: 1.1)), 0, LifeFrame(pose: .rest)),
+            ("background asleep, an error", Self.schedule(.background, state: .asleep, events: [CreatureStamp(.error, at: 1)], asleepSince: 0),
+             0, LifeFrame(pose: .asleep)),
+            ("reduced, a save", Self.schedule(.reduced, events: [CreatureStamp(.memorySaved, at: 1)]), 0, LifeFrame()),
+            ("reduced, an error", Self.schedule(.reduced, events: [CreatureStamp(.error, at: 1)]), 0, LifeFrame()),
+            ("capture", Self.schedule(.still, state: .glowing), 0, CreatureLife.reducedFrame(state: .glowing, t: 0, events: [])),
+        ]
+        for (name, schedule, from, settled) in cases {
+            let dates = Array(schedule.entries(from: Self.start.addingTimeInterval(from), mode: .normal).prefix(3000))
+            #expect(dates.count < 3000 && dates.last == .distantFuture, "\(name) never waits")
+            guard dates.count >= 2 else { continue }
+            let drawnLast = schedule.frame(at: dates[dates.count - 2])
+            #expect(drawnLast == settled, "\(name) ends on \(drawnLast)")
+        }
+        // Low frequency: the first date, then the wait.
+        #expect(Array(Self.schedule().entries(from: Self.start, mode: .lowFrequency).prefix(10)) == [Self.start, .distantFuture])
     }
 
     @Test func theSleepLoopEndsTheTimeline() {

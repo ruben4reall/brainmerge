@@ -175,6 +175,75 @@ import BrainmergeTestSupport
         #expect(m.creatureStamps.map(\.event) == [.doze, .wake])
     }
 
+    @Test func theGlowEndingAsleepDozesOff() throws {
+        // A save while no account is open: the hop opens the eyes and the glow keeps them open for 4 s. Then the creature
+        // dozes off (heavy lids, then the asleep dash) instead of snapping to the dash, in the same redraw as its state.
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        try save(e, "first")
+        let clock = Clock()
+        let m = model(e, clock: clock)
+        m.reload()
+        m.refreshMemory()
+        try save(e, "second")
+        m.refreshMemory()
+        let saved = try #require(m.memorySavedAt), ends = saved.addingTimeInterval(4)
+        #expect(m.creatureMoments(at: saved.addingTimeInterval(3.99)) == [CreatureMoment(.memorySaved, date: saved)])
+        #expect(m.creatureState(at: ends.addingTimeInterval(0.001)) == .asleep)
+        #expect(m.creatureMoments(at: ends.addingTimeInterval(0.001)).last == CreatureMoment(.doze, date: ends))
+        // Once it has played, it goes, like any stamp.
+        #expect(!m.creatureMoments(at: ends.addingTimeInterval(1.5)).contains { $0.event == .doze })
+    }
+
+    @Test func theGlowEndingAwakeKeepsTheEyesOpen() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        let work = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        try save(e, "first")
+        let clock = Clock(), processes = Processes()
+        processes.output = "  900 1 120000 \(e.claude.executable.path) --user-data-dir=\(work.desktopData(in: e.home.paths).path)\n"
+        let m = model(e, clock: clock, processes: processes)
+        await m.launch(minimum: .zero)
+        try save(e, "second")
+        m.refreshMemory()
+        let ends = try #require(m.glowEnds)
+        #expect(m.creatureState(at: ends.addingTimeInterval(0.001)) == .awake)
+        #expect(m.creatureMoments(at: ends.addingTimeInterval(0.001)).map(\.event) == [.memorySaved])
+    }
+
+    @Test func accountsTurningDuringTheGlowStampNothing() async throws {
+        // While it glows the creature shows its eyes whatever the accounts do: a doze or a wake would shut them over the
+        // sparkles. The glow's end then dozes it if nothing is open any more.
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        let work = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        try save(e, "first")
+        let clock = Clock(), processes = Processes()
+        processes.output = "  900 1 120000 \(e.claude.executable.path) --user-data-dir=\(work.desktopData(in: e.home.paths).path)\n"
+        let m = model(e, clock: clock, processes: processes)
+        await m.launch(minimum: .zero)
+        try save(e, "second")
+        m.refreshMemory()
+        let ends = try #require(m.glowEnds)
+        clock.advance(1)
+        processes.output = ""
+        m.reload()
+        #expect(m.creatureStamps.map(\.event) == [.memorySaved])
+        clock.advance(1)
+        m.markOpening("work", fallback: .milliseconds(20))
+        #expect(m.creatureStamps.map(\.event) == [.memorySaved])
+        // The opening times out (on the main actor: wait for it, up to 10 s), still inside the glow.
+        for _ in 0..<500 where !m.opening.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(m.opening.isEmpty)
+        #expect(m.creatureStamps.map(\.event) == [.memorySaved])
+        #expect(m.creatureMoments(at: ends.addingTimeInterval(0.001)).last == CreatureMoment(.doze, date: ends))
+        // After the glow, the accounts turn it again.
+        clock.advance(3)
+        m.markOpening("work", fallback: .milliseconds(20))
+        #expect(m.creatureStamps.last?.event == .wake)
+        for _ in 0..<500 where !m.opening.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+    }
+
     @Test func anErrorStartles() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let clock = Clock()

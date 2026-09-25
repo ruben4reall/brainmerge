@@ -594,6 +594,13 @@ public final class AppModel {
         return creatureAwake ? .awake : .asleep
     }
 
+    /// The creature's reactions as of a moment: its stamps, and the doze that ends a glow once nothing is open. That doze is
+    /// dated at the glow's very end and comes with the asleep state in the same redraw: the eyes close, never snap shut.
+    public func creatureMoments(at date: Date) -> [CreatureMoment] {
+        guard let ends = glowEnds, date >= ends, date.timeIntervalSince(ends) <= 1, creatureState(at: date) == .asleep else { return creatureStamps }
+        return (creatureStamps + [CreatureMoment(.doze, date: ends)]).sorted { $0.date < $1.date }
+    }
+
     /// The line under the sidebar's creature.
     public func creatureLine(at date: Date) -> String {
         switch creatureState(at: date) {
@@ -609,10 +616,11 @@ public final class AppModel {
     var creatureAwake: Bool { !opening.isEmpty || accounts.contains(where: \.isRunning) }
 
     /// Wakes or dozes the creature when the accounts turn it, once the first load is done (the launch lands it as it is).
+    /// Not while it glows: its eyes stay open whatever the accounts do, and the glow's end dozes it if needed.
     private func followCreature() {
         let awake = creatureAwake
         defer { creatureWasAwake = awake }
-        guard launchPhase == .ready, awake != creatureWasAwake else { return }
+        guard launchPhase == .ready, awake != creatureWasAwake, creatureState(at: now()) != .glowing else { return }
         stamp(awake ? .wake : .doze)
     }
 

@@ -162,10 +162,10 @@ public struct RootView: View {
     /// The creature and its line: it walks while an account opens, waves when it is open, hops when the memory saves a
     /// note (and glows for exactly 4 s, redrawn once more when they are over), startles at an error, wakes and dozes.
     var creatureFooter: some View {
-        TimelineView(.explicit(model.glowEnds.map { [$0.addingTimeInterval(0.001)] } ?? [])) { context in
+        TimelineView(GlowSchedule(ends: model.glowEnds)) { context in
             let state = model.creatureState(at: context.date), line = model.creatureLine(at: context.date)
             HStack(spacing: 8) {
-                CreatureView(state: state, size: 32, moments: model.creatureStamps, walking: !model.opening.isEmpty)
+                CreatureView(state: state, size: 32, moments: model.creatureMoments(at: context.date), walking: !model.opening.isEmpty)
                 Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                     .contentTransition(.opacity)
                     .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.out(Theme.Motion.quick), value: line)
@@ -183,5 +183,17 @@ public struct RootView: View {
         case .moveToApplications: Installer.moveAndRelaunch { error in model.present(error) }
         case nil: break
         }
+    }
+}
+
+/// When the sidebar's creature and its line change on their own: now, just after the glow of the last save ends, then a
+/// far-future wait. SwiftUI draws a schedule's first entry at once, even a future one, and never its last one: the first is
+/// the moment it (re)starts, so a save is drawn glowing and a window reopened later never shows a glow that is over.
+struct GlowSchedule: TimelineSchedule {
+    var ends: Date?
+    func entries(from start: Date, mode: TimelineScheduleMode) -> [Date] {
+        var dates = [start]
+        if let ends, ends > start { dates.append(ends.addingTimeInterval(0.001)) }
+        return dates + [.distantFuture]
     }
 }
