@@ -35,13 +35,41 @@ import BrainmergeCore
         #expect(AccountsView.nameHelp(of: account("Work", email: "alex@example.com")) == nil)
     }
 
-    @Test func twoAccountsOnOneClaudeAccountAreSaid() {
-        let work = account(running: false, session: true)
-        #expect(AccountsView.status(of: work, memory: 0, sameAs: "Ruben") == "Same Claude account as Ruben")
-        #expect(AccountsView.status(of: account(running: true, session: true), memory: 0, sameAs: "Ruben") == "Same Claude account as Ruben")
-        // What asks for an action keeps its place.
-        #expect(AccountsView.status(of: account(running: false, session: false), memory: 0, sameAs: "Ruben") == "Not logged in yet")
-        let outdated = ClaudeVersionState.outdated(installed: "2.8000.0", built: "2.7032.0")
-        #expect(AccountsView.status(of: account(running: false, session: true, version: outdated), memory: 0, sameAs: "Ruben").hasPrefix("Closed · built for"))
+    /// Two accounts on one Claude account: the status keeps saying open or closed with the memory used, and a small
+    /// mark next to the name carries the whole sentence, the other account's name included (a card is too narrow for it).
+    @Test func twoAccountsOnOneClaudeAccountAreMarkedWithoutHidingTheStatus() {
+        #expect(AccountsView.duplicateHelp(sameAs: "Agency") == "Same Claude account as Agency")
+        let size = ByteCountFormatter.string(fromByteCount: 1_300_000_000, countStyle: .memory)
+        #expect(AccountsView.status(of: account(running: true, session: true), memory: 1_300_000_000) == "Open · \(size)")
+        #expect(AccountsView.status(of: account(running: false, session: true), memory: 0) == "Closed")
+    }
+
+    /// The email on the second line is cut in the middle on a narrow card: its tooltip shows it whole.
+    @Test func theSecondLineShowsItsWholeTextOnHover() {
+        #expect(AccountsView.subtitleHelp(of: account("Ruben", primary: true, email: "ruben@example.com")) == "ruben@example.com")
+        #expect(AccountsView.subtitleHelp(of: account("Work", note: "Day job", email: "alex@example.com")) == "Day job")
+        #expect(AccountsView.subtitleHelp(of: account("Work")) == nil)
+    }
+
+    /// A Claude Code only account has no window: its status says so rather than "Closed", and its card offers no Open.
+    @Test func aClaudeCodeOnlyAccountSaysSo() {
+        var identity = Identity(slug: "cli", name: "Terminal"); identity.surfaces = Surfaces(desktop: false, cli: true)
+        let terminal = Account(identity: identity, isRunning: false, hasSession: false)
+        #expect(AccountsView.status(of: terminal, memory: 0) == "Claude Code only")
+        #expect(AccountsView.cardButton(for: terminal, action: .none) == nil)
+    }
+
+    /// The card's button says what the sidebar says, and is off where the sidebar is (a second click would open twice,
+    /// or open a half-built app). Only the card offers "Update" for an outdated copy.
+    @Test func theCardsButtonMatchesTheSidebar() {
+        let closed = account(running: false, session: true), running = account(running: true, session: true)
+        #expect(AccountsView.cardButton(for: closed, action: .open) == .init(label: "Open", run: .open, isEnabled: true, isProminent: true))
+        #expect(AccountsView.cardButton(for: running, action: .show) == .init(label: "Show", run: .open, isEnabled: true, isProminent: false))
+        #expect(AccountsView.cardButton(for: closed, action: .opening) == .init(label: "Opening…", run: .open, isEnabled: false, isProminent: true))
+        #expect(AccountsView.cardButton(for: closed, action: .updating) == .init(label: "Updating…", run: .open, isEnabled: false, isProminent: true))
+        #expect(AccountsView.cardButton(for: closed, action: .rebuild) == .init(label: "Rebuild", run: .rebuild, isEnabled: true, isProminent: true))
+        let outdated = account(running: false, session: true, version: .outdated(installed: "2.8000.0", built: "2.7032.0"))
+        #expect(AccountsView.cardButton(for: outdated, action: .open) == .init(label: "Update", run: .update, isEnabled: true, isProminent: true))
+        #expect(AccountsView.cardButton(for: outdated, action: .updating)?.label == "Updating…")
     }
 }
