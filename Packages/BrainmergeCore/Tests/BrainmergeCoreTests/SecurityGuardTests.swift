@@ -99,6 +99,37 @@ import Testing
         #expect(found.isSubset(of: allowed), "unexpected string literals: \(found.subtracting(allowed))")
     }
 
+    /// The SessionStart hook reads one field of the session Claude Code sends, the folder it runs in (SECURITY.md): never
+    /// the session's id, its transcript's path, the model or anything else. Only the wire command reads the standard
+    /// input, and only through this type.
+    @Test func sessionStartInputIsTheFolderOnly() throws {
+        #expect(SessionStartInput.readFields == ["cwd"])
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "SessionStartInput.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        let lowered = code.lowercased()
+        for forbidden in ["jsonserialization", "[string: any]", "[string:any]", "session_id", "transcript_path", "model", "prompt",
+                          "decode([string", "decodeifpresent([string", "anycodable", "environment", "processinfo"] {
+            #expect(!lowered.contains(forbidden), "SessionStartInput.swift must decode the folder only: \(forbidden)")
+        }
+        let enums = try Regex(#"enum\s+\w+\s*:[^{]*CodingKey[^{]*\{([^}]*)\}"#)
+        let caseLine = try Regex(#"case\s+([^\n;]+)"#)
+        let keys = Set(code.matches(of: enums).flatMap { match in
+            String(match.output[1].substring ?? "").matches(of: caseLine).flatMap { String($0.output[1].substring ?? "").split(separator: ",") }
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+        })
+        #expect(keys == ["cwd"], "decodable keys: \(keys)")
+        let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
+        #expect(code.matches(of: literals).isEmpty, "no key may be named by a string")
+
+        #expect(try offenders(["standardInput"], except: ["WireCommand.swift", "Shell.swift"]).isEmpty, "only the wire command reads its input")
+        let wire = try #require(try Self.sources().first { $0.0.lastPathComponent == "WireCommand.swift" }).1
+        #expect(wire.contains("SessionStartInput"))
+        for forbidden in ["JSONSerialization", "JSONDecoder", "Decodable", "[String: Any]"] {
+            #expect(!wire.contains(forbidden), "WireCommand.swift decodes through SessionStartInput only: \(forbidden)")
+        }
+    }
+
     /// Connections read names only (SECURITY.md): a browser profile's folder id and display name, never the Google address
     /// or ids stored next to it; MCP server names, never their values, which can hold secrets.
     @Test func connectionReadersDecodeNamesOnly() throws {

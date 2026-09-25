@@ -114,7 +114,7 @@ public struct OnboardingView: View {
                 .padding(18)
             }
             navigation { Button("Back") { model.back() }.buttonStyle(.glass); Button("Continue") { finish() }.buttonStyle(.glassProminent).tint(Theme.Colors.button) }
-            Text("Brainmerge also links its command line at ~/.local/bin/brainmerge: the memory hook needs it.")
+            Text("Brainmerge also links its command line at ~/.local/bin/brainmerge: the memory hooks need it.")
                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
         }
     }

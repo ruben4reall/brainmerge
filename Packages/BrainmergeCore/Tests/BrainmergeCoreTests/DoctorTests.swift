@@ -32,9 +32,24 @@ import BrainmergeTestSupport
         let findings = doctor(e).run()
         #expect(findings.hasErrors)
         #expect(findings.contains { $0.title == "Client: launcher" && $0.level == .error })
-        #expect(findings.contains { $0.title == "Perso: hook" && $0.level == .warning })
+        #expect(findings.contains { $0.title == "Perso: hooks" && $0.level == .warning && $0.detail.hasPrefix("missing") })
         #expect(findings.contains { $0.title == "Client: CLAUDE.md" && $0.level == .warning })
         #expect(findings.contains { $0.title == "Perso: memory atelier" && $0.level == .error })
+    }
+
+    /// One finding per account for its hooks: current, outdated (an older Brainmerge wrote them) or missing.
+    @Test func saysWhetherEachAccountsHooksAreCurrent() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let hooks = { doctor(e).run().filter { $0.title.hasSuffix(": hooks") } }
+        #expect(hooks().map(\.title) == ["Perso: hooks", "Client: hooks"])
+        #expect(hooks().allSatisfy { $0.level == .ok && $0.detail == "current" })
+        let settings = CLIProfile(directory: client.cliProfile(in: e.home.paths)).settingsFile
+        try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\"\#(e.cliPath)\" sync --identity client"}]}]}}"#.utf8).write(to: settings)
+        let outdated = try #require(hooks().first { $0.title == "Client: hooks" })
+        #expect(outdated.level == .warning && outdated.detail == "outdated. Run: brainmerge brain wire")
+        #expect(!doctor(e).run().contains { $0.title.hasSuffix(": hook") })
     }
 
     @Test func reportsMissingClaudeAndBrain() throws {

@@ -83,9 +83,7 @@ public struct Doctor: Sendable {
                 findings.append(Finding(level: .error, title: "\(identity.name): profile", detail: "Missing \(profile.directory.path)"))
                 continue
             }
-            let hook = (try? HookInstaller.isInstalled(settingsFile: profile.settingsFile)) ?? false
-            findings.append(Finding(level: hook ? .ok : .warning, title: "\(identity.name): hook",
-                                    detail: hook ? "Stop hook installed" : "Stop hook missing in \(profile.settingsFile.path). Run: brainmerge brain wire"))
+            findings.append(hooksFinding(identity, profile: profile))
             let claudeMD = (try? String(contentsOf: profile.claudeMD, encoding: .utf8)) ?? ""
             let blockOK = ManagedBlock.contains(claudeMD) && (brain.map { claudeMD.contains($0.root.path) } ?? true)
             findings.append(Finding(level: blockOK ? .ok : .warning, title: "\(identity.name): CLAUDE.md",
@@ -128,6 +126,16 @@ public struct Doctor: Sendable {
             }
         }
         return findings
+    }
+
+    /// The account's hooks (memory saved when a turn ends, linked when a session starts): current, outdated, or missing.
+    func hooksFinding(_ identity: Identity, profile: CLIProfile) -> Finding {
+        let title = "\(identity.name): hooks"
+        switch HookInstaller.health(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug) {
+        case .current: return Finding(level: .ok, title: title, detail: "current")
+        case .outdated: return Finding(level: .warning, title: title, detail: "outdated. Run: brainmerge brain wire")
+        case .missing: return Finding(level: .warning, title: title, detail: "missing in \(profile.settingsFile.path). Run: brainmerge brain wire")
+        }
     }
 
     /// A copy of Claude made by hand that opens this account with an older Claude: Brainmerge only says so, the person

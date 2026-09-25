@@ -97,6 +97,13 @@ public struct SettingsView: View {
                                 Text(model.commandLineInstalled ? "Installed at ~/.local/bin/brainmerge" : "Not installed").foregroundStyle(Theme.Colors.textMuted)
                                 Button("Install command line") { model.installCommandLine() }.buttonStyle(.glass)
                             }
+                            if let hooks = model.hooks, let sentence = hooks.sentence {
+                                HStack(spacing: 10) {
+                                    Circle().fill(hooks.allCurrent ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 8, height: 8)
+                                    Text(sentence).foregroundStyle(Theme.Colors.textMuted)
+                                    Button("Repair hooks") { Task { await model.repairHooks() } }.buttonStyle(.glass)
+                                }
+                            }
                             Text("Optional. Everything here can be done from a terminal with the brainmerge command.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
@@ -124,6 +131,7 @@ public struct SettingsView: View {
             .frame(maxWidth: Theme.Layout.formWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .task { await model.refreshHooks() }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory) }
         .sheet(isPresented: $showUninstall) { UninstallSheet(model: model, isPresented: $showUninstall) }
     }

@@ -36,40 +36,72 @@ public struct MemoryWiring: Sendable {
     }
 
     public func wire(profile: CLIProfile, identitySlug: String) throws -> Result {
-        let fm = FileManager.default
         var result = Result()
         var registry = try ProjectRegistry.load(brain.projectsFile)
         for ref in try profile.projects() {
             let preferred = ref.path.map { ProjectSlug.projectName(forPath: $0, home: paths.home) }
                 ?? ProjectSlug.projectName(forSlug: ref.slug, home: paths.home)
             let name = registry.register(preferredName: preferred, path: Self.registryKey(ref), machineID: machineID)
-            let projectDir = profile.projectsDir.appending(path: ref.slug, directoryHint: .isDirectory)
-            let link = projectDir.appending(path: "memory")
-            let target = brain.memoryDir(forProject: name)
-            switch try Self.inspect(link, target: target) {
-            case .linked:
-                continue
-            case .external(let other):
-                // Into another memory the app manages: relinked here, its notes left where they are.
-                guard isInsideKnownMemory(other) else { result.external.append("\(name) -> \(other)"); continue }
-                try fm.removeItem(at: link)
-            case .realDirectory:
-                try fm.createDirectory(at: target, withIntermediateDirectories: true)
-                result.conflicts += try Self.adopt(from: link, into: target, suffix: identitySlug)
-                result.adopted.append(name)
-                try fm.removeItem(at: link)
-            case .broken:
-                try fm.removeItem(at: link)
-            case .missing:
-                break
-            }
-            try fm.createDirectory(at: target, withIntermediateDirectories: true)
-            try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
-            try fm.createSymbolicLink(at: link, withDestinationURL: target)
-            result.linked.append(name)
+            try link(profile.projectsDir.appending(path: ref.slug, directoryHint: .isDirectory), name: name,
+                     identitySlug: identitySlug, into: &result)
         }
         try registry.save(to: brain.projectsFile)
         return result
+    }
+
+    /// The one project a session starts in (the SessionStart hook), whether or not `.claude.json` lists it yet: Claude Code's
+    /// project folder is created when Claude Code has not made it, and a real memory folder is adopted like `wire` does.
+    /// A project already linked into this memory, under any name, is left as it is and nothing is written.
+    public func wireOne(projectPath: String, profile: CLIProfile, identitySlug: String) throws -> Result {
+        var result = Result()
+        guard projectPath.hasPrefix("/") else { return result }
+        let slug = ProjectSlug.slug(forPath: projectPath)
+        let projectDir = profile.projectsDir.appending(path: slug, directoryHint: .isDirectory)
+        if isLinkedIntoThisMemory(projectDir.appending(path: "memory")) { return result }
+        var registry = try ProjectRegistry.load(brain.projectsFile)
+        // The name it already has, by its path or by its sessions folder alone, so it never becomes "name-2".
+        let name = registry.name(forPath: projectPath, machineID: machineID)
+            ?? registry.name(forPath: Self.registryKey(ProjectRef(slug: slug, path: nil)), machineID: machineID)
+            ?? registry.register(preferredName: ProjectSlug.projectName(forPath: projectPath, home: paths.home),
+                                 path: projectPath, machineID: machineID)
+        try link(projectDir, name: name, identitySlug: identitySlug, into: &result)
+        try registry.save(to: brain.projectsFile)
+        return result
+    }
+
+    /// Links `<projectDir>/memory` to the memory's folder for `name`.
+    private func link(_ projectDir: URL, name: String, identitySlug: String, into result: inout Result) throws {
+        let fm = FileManager.default
+        let link = projectDir.appending(path: "memory")
+        let target = brain.memoryDir(forProject: name)
+        switch try Self.inspect(link, target: target) {
+        case .linked:
+            return
+        case .external(let other):
+            // Into another memory the app manages: relinked here, its notes left where they are.
+            guard isInsideKnownMemory(other) else { result.external.append("\(name) -> \(other)"); return }
+            try fm.removeItem(at: link)
+        case .realDirectory:
+            try fm.createDirectory(at: target, withIntermediateDirectories: true)
+            result.conflicts += try Self.adopt(from: link, into: target, suffix: identitySlug)
+            result.adopted.append(name)
+            try fm.removeItem(at: link)
+        case .broken:
+            try fm.removeItem(at: link)
+        case .missing:
+            break
+        }
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: target)
+        result.linked.append(name)
+    }
+
+    /// A link into a folder of this memory that exists, whatever the project's name there.
+    func isLinkedIntoThisMemory(_ link: URL) -> Bool {
+        guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) else { return false }
+        let resolved = URL(fileURLWithPath: destination, relativeTo: link.deletingLastPathComponent()).standardizedFileURL
+        return resolved.path.hasPrefix(brain.memoryDir.standardizedFileURL.path + "/") && FileManager.default.fileExists(atPath: resolved.path)
     }
 
     public func status(profile: CLIProfile) throws -> [ProjectLinkStatus] {

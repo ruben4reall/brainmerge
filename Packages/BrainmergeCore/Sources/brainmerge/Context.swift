@@ -28,7 +28,7 @@ struct Context {
         return Brain(root: url)
     }
 
-    /// The Stop hook calls ~/.local/bin/brainmerge: this link must exist before installing a hook.
+    /// The hooks call ~/.local/bin/brainmerge: this link must exist before installing them.
     func ensureCLILink(replaceValid: Bool = false) throws {
         let target = CLIInstaller.currentExecutable() ?? URL(fileURLWithPath: CommandLine.arguments[0])
         try CLIInstaller.ensureLink(paths: paths, target: target, replaceValid: replaceValid)

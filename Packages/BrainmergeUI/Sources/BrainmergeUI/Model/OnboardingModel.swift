@@ -101,7 +101,7 @@ public final class OnboardingModel {
 
     /// The already-installed Claude becomes the first account. If Claude Code has never run, its folder is created.
     public func adoptPrimary() throws {
-        // Each account's Stop hook calls ~/.local/bin/brainmerge: the link is set up here, with this screen's consent.
+        // Each account's hooks call ~/.local/bin/brainmerge: the link is set up here, with this screen's consent.
         try app.linkCommandLineForHooks()
         _ = try CLIProfile.create(at: app.paths.primaryCLIProfile, inheritingFrom: nil)
         _ = try app.manager.adoptPrimary(name: primaryName.trimmingCharacters(in: .whitespaces))

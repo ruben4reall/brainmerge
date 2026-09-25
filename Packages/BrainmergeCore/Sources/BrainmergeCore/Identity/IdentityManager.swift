@@ -350,7 +350,7 @@ public final class IdentityManager: @unchecked Sendable {
 
     // MARK: Brain
 
-    /// Managed block, Stop hook, memory links, identity registry, in the identity's memory. Idempotent.
+    /// Managed block, hooks (Stop and SessionStart), memory links, identity registry, in the identity's memory. Idempotent.
     public func attachBrain(to identity: Identity, state: AppState) throws {
         let brain = try memory(for: identity, in: state)
         let profile = CLIProfile(directory: identity.cliProfile(in: paths))
@@ -359,8 +359,7 @@ public final class IdentityManager: @unchecked Sendable {
         let existing = (try? String(contentsOf: claudeMD, encoding: .utf8)) ?? ""
         let block = ManagedBlock.render(identityName: identity.name, slug: identity.slug, brainPath: brain.root.path)
         try Data(ManagedBlock.upsert(in: existing, block: block).utf8).write(to: claudeMD, options: .atomic)
-        try HookInstaller.install(settingsFile: profile.settingsFile,
-                                  command: HookInstaller.syncCommand(cliPath: cliPath, slug: identity.slug))
+        try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
         _ = try MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
             .wire(profile: profile, identitySlug: identity.slug)
         var registry = try IdentityRegistry.load(brain.identitiesFile)
@@ -368,7 +367,26 @@ public final class IdentityManager: @unchecked Sendable {
         try registry.save(to: brain.identitiesFile)
     }
 
-    /// Removes the block and the hook. The memory links stay: they break nothing and the brain keeps everything.
+    /// Each account's hooks as they stand, for the accounts whose Claude Code folder exists, in the accounts' order.
+    public func hooksHealth() throws -> [(Identity, HookInstaller.Health)] {
+        try store.load().identities.compactMap { identity in
+            let profile = CLIProfile(directory: identity.cliProfile(in: paths))
+            guard profile.exists else { return nil }
+            return (identity, HookInstaller.health(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug))
+        }
+    }
+
+    /// Writes every account's hooks as they are today (see HookInstaller.install), and nothing else. An account whose
+    /// Claude Code folder is gone is skipped: it is never recreated here.
+    public func repairHooks() throws {
+        for identity in try store.load().identities {
+            let profile = CLIProfile(directory: identity.cliProfile(in: paths))
+            guard profile.exists else { continue }
+            try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
+        }
+    }
+
+    /// Removes the block and every Brainmerge hook. The memory links stay: they break nothing and the brain keeps everything.
     public func detachBrain(from identity: Identity) throws {
         let profile = CLIProfile(directory: identity.cliProfile(in: paths))
         let claudeMD = profile.claudeMD.resolvingSymlinksInPath()

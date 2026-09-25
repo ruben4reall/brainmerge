@@ -138,6 +138,10 @@ public final class AppModel {
     public internal(set) var mcpInventories: [String: MCPInventory] = [:]
     /// Finds the browsers and their profiles; a fake in tests.
     @ObservationIgnored public var findBrowsers: @Sendable (URL) -> [InstalledBrowser] = { BrowserProfiles.available(home: $0) }
+    /// What Settings says about the accounts' hooks, read when it opens (see `refreshHooks`); nil until then.
+    public private(set) var hooks: HooksSummary?
+    /// The command line embedded in this copy of the app, which the link the hooks call points at; a fake in tests.
+    @ObservationIgnored public var commandLine: () -> URL? = { AppModel.embeddedCLI }
     /// Opens a browser; a fake in tests, which never open one.
     @ObservationIgnored public var browserRunner: @Sendable (BrowserProfiles.Command) throws -> Void = { try Shell().check($0.path, $0.arguments) }
     /// The Mac's memory pressure, injectable in tests.
@@ -204,8 +208,8 @@ public final class AppModel {
         appFolders = ExistingApps.folders(for: paths)
     }
 
-    /// The installed app's model: engine embedded in the bundle. The command line link is only set up
-    /// at the end of onboarding or from settings, never at launch.
+    /// The installed app's model: engine embedded in the bundle. The command line link is first set up at the end of the
+    /// guided setup or from Settings; after that, each launch only mends it (see `loadFirstTime`).
     public static func live() -> AppModel {
         let paths = Paths.current()
         let launcher = Bundle.main.url(forAuxiliaryExecutable: "launcher") ?? LauncherBuilder.siblingLauncher()
@@ -268,11 +272,17 @@ public final class AppModel {
     }
 
     /// `reload()` with its two subprocesses (`ps`, and `git log` of the default memory) run off the main thread first.
+    /// Once the guided setup has made an account, the link every hook calls is mended too: made when missing, pointed at
+    /// this copy when the Brainmerge it pointed at was moved or trashed (never from a disk image, see
+    /// `CLIInstaller.linkAtLaunch`). Before that, the setup asks first. A demo home's link is left alone.
     private func loadFirstTime() async {
-        let monitor = manager.monitor, store = self.store
+        let monitor = manager.monitor, store = self.store, paths = self.paths
+        let cli = AppLifecycle.isCaptureOrDemo(environment: environment) ? nil : commandLine()
         let (snapshot, log) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?) in
+            let state = try? store.load()
+            if let cli, state?.identities.isEmpty == false { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
             let snapshot = (try? monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
-            let brain = (try? store.load())?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
+            let brain = state?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
             return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) })
         }.value
         prefetchedSnapshot = snapshot
@@ -283,7 +293,7 @@ public final class AppModel {
     }
 
     /// The command line embedded in the app (task 8), looked up by its exact name.
-    static var embeddedCLI: URL? {
+    nonisolated static var embeddedCLI: URL? {
         let exe = CLIInstaller.currentExecutable() ?? URL(fileURLWithPath: CommandLine.arguments[0])
         return CLIInstaller.embeddedCLI(besideExecutable: exe)
     }
@@ -945,15 +955,38 @@ public final class AppModel {
             message = UserMessage(title: "All set", detail: "Every account is attached to the memory again.")
         } catch { present(error) }
         reload()
+        // Reattaching writes the hooks too: Settings, which shows them, reads them again.
+        if hooks != nil { Task { await refreshHooks() } }
     }
 
-    /// The Stop hook calls ~/.local/bin/brainmerge: the link is set up at the end of onboarding, never over a valid link.
+    /// The hooks call ~/.local/bin/brainmerge: the link is set up at the end of onboarding, never over a valid link.
     public func linkCommandLineForHooks() throws {
-        if let cli = Self.embeddedCLI { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+        if let cli = commandLine() { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+    }
+
+    /// Reads what Settings says about the hooks, on the core queue (the settings files may sit behind links). Nothing in a
+    /// capture or a demo, whose demo home's hooks call nothing real.
+    public func refreshHooks() async {
+        guard !AppLifecycle.isCaptureOrDemo(environment: environment) else { hooks = nil; return }
+        let manager = self.manager, queue = coreQueue
+        hooks = await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: HooksSummary.read(manager)) }
+        }
+    }
+
+    /// "Repair hooks": every account's hooks written as they are today, the person's own hooks left as they are, then the
+    /// link they call (made, or pointed at this copy when what it pointed at is gone; a link that works is kept).
+    public func repairHooks() async {
+        let manager = self.manager, paths = self.paths, cli = commandLine()
+        _ = await perform("Repairing hooks…") {
+            try manager.repairHooks()
+            if let cli { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+        }
+        await refreshHooks()
     }
 
     public func installCommandLine() {
-        guard let cli = Self.embeddedCLI else {
+        guard let cli = commandLine() else {
             message = UserMessage(title: "Command line not available", detail: "This build of Brainmerge doesn't embed the command line. Open the app from the Brainmerge release to get it.")
             return
         }

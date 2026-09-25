@@ -129,4 +129,69 @@ import BrainmergeTestSupport
         #expect(fm.fileExists(atPath: previous.appending(path: "note.md").path))
         #expect(!fm.fileExists(atPath: e.brain.memoryDir(forProject: "atelier").appending(path: "note.md").path))
     }
+
+    // MARK: One project, at session start
+
+    /// A session started in a folder Claude Code has not recorded yet (Brainmerge closed, the project brand new): its
+    /// memory is linked before Claude writes its first note.
+    @Test func wireOneLinksAFolderUnknownToClaudeJSON() throws {
+        let e = try env(); defer { e.home.remove() }
+        let kayak = e.home.url.path + "/kayak"
+        let result = try e.wiring.wireOne(projectPath: kayak, profile: e.profile, identitySlug: "perso")
+        #expect(result.linked == ["kayak"])
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: e.link(kayak).path) == e.brain.memoryDir(forProject: "kayak").path)
+        #expect(FileManager.default.fileExists(atPath: e.brain.memoryDir(forProject: "kayak").path))
+        #expect(try ProjectRegistry.load(e.brain.projectsFile).name(forPath: kayak, machineID: "m1") == "kayak")
+        // Only that project: the ones .claude.json lists wait for the full wiring.
+        #expect(!FileManager.default.fileExists(atPath: e.link(e.atelier).path))
+    }
+
+    @Test func wireOneAdoptsARealFolderWithTheAccountSuffix() throws {
+        let e = try env(); defer { e.home.remove() }
+        let fm = FileManager.default
+        let real = e.link(e.atelier)
+        try fm.createDirectory(at: real, withIntermediateDirectories: true)
+        try Data("local index\n".utf8).write(to: real.appending(path: "MEMORY.md"))
+        let target = e.brain.memoryDir(forProject: "atelier")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data("brain index\n".utf8).write(to: target.appending(path: "MEMORY.md"))
+        let result = try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso")
+        #expect(result.adopted == ["atelier"] && result.conflicts == ["MEMORY.perso.md"])
+        #expect(try String(contentsOf: target.appending(path: "MEMORY.perso.md"), encoding: .utf8) == "local index\n")
+        #expect(try fm.destinationOfSymbolicLink(atPath: real.path) == target.path)
+    }
+
+    /// Every session start asks again: a project already linked into this memory, under whatever name, is left exactly
+    /// as it is and nothing is written.
+    @Test func wireOneIsIdempotentAndWritesNothingWhenLinked() throws {
+        let e = try env(); defer { e.home.remove() }
+        _ = try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso")
+        let registry = try Data(contentsOf: e.brain.projectsFile)
+        let stamp = try FileManager.default.attributesOfItem(atPath: e.brain.projectsFile.path)[.modificationDate] as? Date
+        #expect(try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso") == MemoryWiring.Result())
+        #expect(try Data(contentsOf: e.brain.projectsFile) == registry)
+        #expect(try FileManager.default.attributesOfItem(atPath: e.brain.projectsFile.path)[.modificationDate] as? Date == stamp)
+        // Linked earlier under its sessions folder's name only: kept, never renamed "kayak-2".
+        let kayak = e.home.url.path + "/kayak"
+        try FileManager.default.createDirectory(at: e.profile.projectsDir.appending(path: ProjectSlug.slug(forPath: kayak)), withIntermediateDirectories: true)
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(try e.wiring.wireOne(projectPath: kayak, profile: e.profile, identitySlug: "perso") == MemoryWiring.Result())
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: e.link(kayak).path) == e.brain.memoryDir(forProject: "kayak").path)
+        #expect(try ProjectRegistry.load(e.brain.projectsFile).projects["kayak-2"] == nil)
+    }
+
+    @Test func wireOneLeavesAnExternalLinkAndIgnoresARelativePath() throws {
+        let e = try env(); defer { e.home.remove() }
+        let vault = e.home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: e.link(e.atelier).deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: e.link(e.atelier), withDestinationURL: vault)
+        let result = try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso")
+        #expect(result.external == ["atelier -> \(vault.path)"])
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: e.link(e.atelier).path) == vault.path)
+        for path in ["", "atelier", "../atelier"] {
+            #expect(try e.wiring.wireOne(projectPath: path, profile: e.profile, identitySlug: "perso") == MemoryWiring.Result())
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: e.profile.projectsDir.path) == [ProjectSlug.slug(forPath: e.atelier)])
+    }
 }
