@@ -310,6 +310,8 @@ public final class AppModel {
         var memory: [String: Int64] = [:]
         codeAccountsRead.formIntersection(state.identities.map(\.slug))
         readCodeAccounts(of: state.identities.filter { !codeAccountsRead.contains($0.slug) })
+        // Accounts changed outside the app (`brainmerge add` in a terminal) count like a change made here: walked again.
+        if accounts.map(\.identity) != state.identities { diskChanged() }
         set(\.accounts, state.identities.map { identity in
             let main = claudeApp.flatMap { app in snapshot.mains.first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: app) } }
             if let main { memory[identity.slug] = snapshot.memoryBytes(of: main.pid) }

@@ -7,38 +7,61 @@ import BrainmergeCore
     static let mib: Int64 = 1 << 20
     static let gib: Int64 = 1 << 30
 
+    /// Each test runs as is, then again with a French locale set explicitly, where C's "%.1f" prints "1,3".
+    static let locales: [String?] = [nil, "fr_FR.UTF-8"]
+
+    /// Sets the locale of this thread only (uselocale), so tests running meanwhile keep theirs, and checks it took.
+    static func inLocale(_ name: String?, _ body: () -> Void) {
+        guard let name else { body(); return }
+        let mask = LC_COLLATE_MASK | LC_CTYPE_MASK | LC_MESSAGES_MASK | LC_MONETARY_MASK | LC_NUMERIC_MASK | LC_TIME_MASK
+        guard let locale = newlocale(mask, name, nil) else { Issue.record("the \(name) locale is missing"); return }
+        let previous = uselocale(locale)
+        defer { uselocale(previous); freelocale(locale) }
+        #expect(String(cString: localeconv().pointee.decimal_point) == ",", "the French locale must be in effect")
+        body()
+    }
+
     /// RAM in binary units, like Activity Monitor and About This Mac; a point for decimals whatever the Mac's language.
-    @Test func ramReadsLikeActivityMonitor() {
-        #expect(ByteFormat.ram(0) == "0 GB")
-        #expect(ByteFormat.ram(300 * 1024) == "< 1 MB")
-        #expect(ByteFormat.ram(48 * Self.mib) == "48 MB")
-        #expect(ByteFormat.ram(700 * Self.mib) == "700 MB")
-        #expect(ByteFormat.ram(1023 * Self.mib + Self.mib * 9 / 10) == "1.0 GB")
-        #expect(ByteFormat.ram(1_610_612_736) == "1.5 GB")
-        #expect(ByteFormat.ram(2 * Self.gib) == "2.0 GB")
-        #expect(ByteFormat.ram(1_300_000_000) == "1.2 GB")
+    @Test(arguments: locales) func ramReadsLikeActivityMonitor(locale: String?) {
+        Self.inLocale(locale) {
+            #expect(ByteFormat.ram(1_395_864_371) == "1.3 GB")
+            #expect(ByteFormat.ram(0) == "0 GB")
+            #expect(ByteFormat.ram(300 * 1024) == "< 1 MB")
+            #expect(ByteFormat.ram(48 * Self.mib) == "48 MB")
+            #expect(ByteFormat.ram(700 * Self.mib) == "700 MB")
+            #expect(ByteFormat.ram(1023 * Self.mib + Self.mib * 9 / 10) == "1.0 GB")
+            #expect(ByteFormat.ram(1_610_612_736) == "1.5 GB")
+            #expect(ByteFormat.ram(2 * Self.gib) == "2.0 GB")
+            #expect(ByteFormat.ram(1_300_000_000) == "1.2 GB")
+        }
     }
 
     /// Disk in decimal units, like Finder.
-    @Test func diskReadsLikeFinder() {
-        #expect(ByteFormat.disk(0) == "0 GB")
-        #expect(ByteFormat.disk(999) == "< 1 MB")
-        #expect(ByteFormat.disk(1_300_000) == "1 MB")
-        #expect(ByteFormat.disk(350_400_000) == "350 MB")
-        #expect(ByteFormat.disk(999_700_000) == "1.0 GB")
-        #expect(ByteFormat.disk(15_365_000_000) == "15.4 GB")
-        #expect(ByteFormat.disk(999_960_000_000) == "1.0 TB")
-        #expect(ByteFormat.disk(1_200_000_000_000) == "1.2 TB")
+    @Test(arguments: locales) func diskReadsLikeFinder(locale: String?) {
+        Self.inLocale(locale) {
+            #expect(ByteFormat.disk(1_300_000_000) == "1.3 GB")
+            #expect(ByteFormat.disk(1_300_000_000_000) == "1.3 TB")
+            #expect(ByteFormat.disk(0) == "0 GB")
+            #expect(ByteFormat.disk(999) == "< 1 MB")
+            #expect(ByteFormat.disk(1_300_000) == "1 MB")
+            #expect(ByteFormat.disk(350_400_000) == "350 MB")
+            #expect(ByteFormat.disk(999_700_000) == "1.0 GB")
+            #expect(ByteFormat.disk(15_365_000_000) == "15.4 GB")
+            #expect(ByteFormat.disk(999_960_000_000) == "1.0 TB")
+            #expect(ByteFormat.disk(1_200_000_000_000) == "1.2 TB")
+        }
     }
 
-    @Test func capacityAndPercent() {
-        #expect(ByteFormat.capacity(18 * Self.gib) == "18 GB")
-        #expect(ByteFormat.capacity(8 * Self.gib) == "8 GB")
-        #expect(ByteFormat.percent(2 * Self.gib, of: 18 * Self.gib) == "11%")
-        #expect(ByteFormat.percent(1, of: 18 * Self.gib) == "< 1%")
-        #expect(ByteFormat.percent(0, of: 18 * Self.gib) == "0%")
-        #expect(ByteFormat.percent(Self.gib, of: 0) == "0%")
-        #expect(ByteFormat.percent(18 * Self.gib - 1, of: 18 * Self.gib) == "100%")
+    @Test(arguments: locales) func capacityAndPercent(locale: String?) {
+        Self.inLocale(locale) {
+            #expect(ByteFormat.capacity(18 * Self.gib) == "18 GB")
+            #expect(ByteFormat.capacity(8 * Self.gib) == "8 GB")
+            #expect(ByteFormat.percent(2 * Self.gib, of: 18 * Self.gib) == "11%")
+            #expect(ByteFormat.percent(1, of: 18 * Self.gib) == "< 1%")
+            #expect(ByteFormat.percent(0, of: 18 * Self.gib) == "0%")
+            #expect(ByteFormat.percent(Self.gib, of: 0) == "0%")
+            #expect(ByteFormat.percent(18 * Self.gib - 1, of: 18 * Self.gib) == "100%")
+        }
     }
 }
 

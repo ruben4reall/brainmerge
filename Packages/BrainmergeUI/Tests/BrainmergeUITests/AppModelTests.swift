@@ -374,23 +374,51 @@ import BrainmergeTestSupport
         #expect(m.disk["work"] != nil)
     }
 
-    /// Leaving the screen stops the walk: nothing half counted is kept, and the next visit walks again.
-    @Test func leavingTheScreenCancelsTheWalk() async throws {
+    /// An account added or removed outside the app (`brainmerge add` in a terminal) arrives through a reload: the next
+    /// pass of the Usage screen, a few seconds later, walks again and measures it.
+    @Test func anAccountAddedFromTheCommandLineIsMeasuredAtTheNextPass() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let m = model(e)
         m.reload()
-        let started = PSCounter()
+        m.diskMeasure = { _, _ in DiskSize(bytes: 1_000, complete: true) }
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        await m.refreshDisk(now: start)
+        #expect(m.diskMeasuredAt == start && m.disk["work"] == nil)
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        m.reload()
+        #expect(m.diskMeasuredAt == nil)
+        await m.refreshDisk(now: start.addingTimeInterval(5))
+        #expect(m.disk["work"] != nil)
+        // A reload that changes nothing keeps the measure.
+        m.reload()
+        #expect(m.diskMeasuredAt == start.addingTimeInterval(5))
+    }
+
+    /// Leaving the screen stops the walk: nothing half counted is kept, and the next visit walks again. Bounded: a walk
+    /// that is never told to stop gives up after two minutes and fails the test instead of hanging it (wide bounds: the
+    /// main actor is shared by the whole suite, so a step of this test can wait its turn for a long time).
+    @Test(.timeLimit(.minutes(5))) func leavingTheScreenCancelsTheWalk() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        let started = PSCounter(), stopped = PSCounter()
         m.diskMeasure = { _, cancelled in
             started.bump()
-            while !cancelled() { usleep(1000) }
+            let deadline = Date().addingTimeInterval(120)
+            while !cancelled(), Date() < deadline { usleep(1000) }
+            if cancelled() { stopped.bump() }
             return DiskSize(bytes: 1, complete: false)
         }
         let visit = Task { await m.refreshDisk() }
-        while started.value == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        let deadline = Date().addingTimeInterval(120)
+        while started.value == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(started.value > 0, "the walk never started")
         #expect(m.diskMeasuring)
         visit.cancel()
         await visit.value
+        #expect(stopped.value > 0, "the walk was not told to stop")
         #expect(!m.diskMeasuring)
         #expect(m.disk.isEmpty)
         #expect(m.diskMeasuredAt == nil)

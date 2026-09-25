@@ -145,6 +145,29 @@ import Testing
         }
     }
 
+    /// Planning which folders to walk only looks at paths and at link texts (SECURITY.md): DiskPlan.swift may resolve a
+    /// link, never list a folder, read a file, write, or start anything. The one file manager call it may make reads a
+    /// link's text.
+    @Test func diskPlanOnlyResolvesLinks() throws {
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "DiskPlan.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        #expect(code.contains("destinationOfSymbolicLink"), "the guard must see the link resolution")
+        for forbidden in ["contentsOfDirectory", "subpathsOfDirectory", "enumerator", "fts_open", "opendir", "readdir", "glob(",
+                          "Data(contentsOf", "String(contentsOf", "FileHandle", "InputStream", "fopen", "mmap", "getxattr", "listxattr",
+                          "fileExists", "attributesOfItem", "resourceValues", "realpath", "resolvingSymlinksInPath", "stat(",
+                          "removeItem", "moveItem", "copyItem", "createFile", "createDirectory", "write(", "setAttributes",
+                          "unlink", "rename(", "Shell", "Process", "posix_spawn", "NSWorkspace", "O_RDONLY", "O_RDWR", "O_WRONLY"] {
+            #expect(!code.contains(forbidden), "DiskPlan.swift must only resolve links: \(forbidden)")
+        }
+        for call in [#"\bopen\("#, #"\bread\("#, #"\bopenat\("#] {
+            #expect(code.firstMatch(of: try Regex(call)) == nil, "DiskPlan.swift must not open or read a file: \(call)")
+        }
+        let members = try Regex(#"(?:FileManager\.default|\bfm)\s*\.\s*(\w+)"#)
+        let used = Set(code.matches(of: members).map { String($0.output[1].substring ?? "") })
+        #expect(used == ["destinationOfSymbolicLink"], "file manager calls: \(used)")
+    }
+
     /// The RAM of Claude's processes is asked of the kernel as one number per process. Nothing reads another process's
     /// arguments with their environment (KERN_PROCARGS2 returns both, and an environment can hold API keys), its memory,
     /// or its open files; `ps` is asked for pid, parent, size and arguments, never the environment.
