@@ -13,8 +13,8 @@ import BrainmergeCore
 
     @Test func sentencesInPlainWords() {
         #expect(MemoryFeed.sentence(files: ["memory/atelier/decision_prix.md"], project: "atelier") == "remembered something about atelier")
-        #expect(MemoryFeed.sentence(files: ["memory/bivouak/MEMORY.md"], project: "bivouak") == "updated its notes about bivouak")
-        #expect(MemoryFeed.sentence(files: ["memory/bivouak/MEMORY.md", "memory/bivouak/feedback_tests.md"], project: "bivouak") == "updated 2 notes about bivouak")
+        #expect(MemoryFeed.sentence(files: ["memory/trailbook/MEMORY.md"], project: "trailbook") == "updated its notes about trailbook")
+        #expect(MemoryFeed.sentence(files: ["memory/trailbook/MEMORY.md", "memory/trailbook/feedback_tests.md"], project: "trailbook") == "updated 2 notes about trailbook")
         #expect(MemoryFeed.sentence(files: ["memory/a/x.md", "memory/b/y.md"], project: nil) == "updated 2 notes across 2 projects")
         #expect(MemoryFeed.sentence(files: ["BRAIN.md"], project: nil) == "changed the memory's instructions")
     }

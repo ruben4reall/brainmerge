@@ -208,11 +208,11 @@ import BrainmergeTestSupport
         let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
         let git = BrainGit(brain: brain)
         try write(brain.root, "memory/site/décision.md", "é\n")
-        try write(brain.root, "02 Projets/Watcholic · DA.md", "DA\n")
+        try write(brain.root, "02 Projects/Demo · DA.md", "DA\n")
         try git.commitAll(authorName: "Studio", authorEmail: "studio@brainmerge.local", message: "accents")
         let authors = try git.lastAuthors()
         #expect(authors["memory/site/décision.md"]?.name == "Studio")
-        #expect(authors["02 Projets/Watcholic · DA.md"]?.name == "Studio")
+        #expect(authors["02 Projects/Demo · DA.md"]?.name == "Studio")
     }
 
     @Test func theHeadCommitChangesOnlyWithASave() throws {
