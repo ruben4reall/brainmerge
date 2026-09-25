@@ -26,7 +26,8 @@ public struct CodeAccountNote: Equatable, Sendable {
         guard let code = account.codeAccount else { return CodeAccountNote(email: nil, suggestedName: nil, swapWith: nil) }
         let others = accounts.filter { $0.id != account.id }
         var suggested: String?
-        if let display = code.displayName.map(NameRules.clean), !display.isEmpty,
+        // An address is never offered: names end up in app names, Claude's instructions and memory commits.
+        if let display = code.displayName.map(NameRules.clean), !display.isEmpty, !display.contains("@"),
            display.caseInsensitiveCompare(NameRules.clean(typedName)) != .orderedSame {
             var form = AddAccountForm(); form.name = display
             if form.validate(existing: others.map(\.identity)) == nil { suggested = display }

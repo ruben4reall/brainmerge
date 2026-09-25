@@ -101,4 +101,13 @@ import BrainmergeCore
         #expect(texts.count >= 5)
         for text in texts { #expect(!text.contains("\u{2014}") && !text.contains("\u{2013}"), "\(text)") }
     }
+
+    /// An address is never offered as a name: names end up in app names, Claude's instructions and memory commits.
+    @Test func anAddressIsNeverOfferedAsAName() {
+        let work = account("Work", email: "alex@example.com", displayName: "alex@example.com")
+        #expect(note(work, [work])?.suggestedName == nil)
+        #expect(note(work, [work])?.useLabel == nil)
+        let named = account("Work", email: "alex@example.com", displayName: "Alex")
+        #expect(note(named, [named])?.suggestedName == "Alex")
+    }
 }

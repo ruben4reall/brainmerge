@@ -134,4 +134,11 @@ import BrainmergeCore
         #expect(digits == ["1", "2", "3", "4"])
         #expect(Set(digits).count == RootView.Section.allCases.count)
     }
+
+    /// The owner asked for a visible "Open": the word reads at rest, and an opening or updating row stays legible.
+    @Test func theActionWordIsReadableAtRest() {
+        #expect(SidebarRowHint.resting == Theme.Colors.textMuted)
+        #expect(SidebarRowHint.pointed == Theme.Colors.text)
+        #expect(SidebarRowStyle.disabledOpacity >= 0.75)
+    }
 }

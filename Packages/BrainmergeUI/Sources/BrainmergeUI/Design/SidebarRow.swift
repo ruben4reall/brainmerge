@@ -15,7 +15,7 @@ struct SidebarRowStyle: ButtonStyle {
     /// The fill's color change; none with Reduce Motion.
     static let fade: TimeInterval = 0.12
     /// A disabled row (an account opening or being updated) looks inactive instead of silently ignoring clicks.
-    static let disabledOpacity = 0.55
+    static let disabledOpacity = 0.75
 
     func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration, selected: selected) }
 
@@ -50,16 +50,18 @@ struct SidebarRowStyle: ButtonStyle {
     }
 }
 
-/// The word at the end of an account row ("Open", "Show"): faint at rest, full cream under the pointer.
-/// It never truncates: the account's name gives way first.
+/// The word at the end of an account row ("Open", "Show"): readable at rest, so a click's effect is never a guess,
+/// and full cream under the pointer. It never truncates: the account's name gives way first.
 struct SidebarRowHint: View {
+    static let resting = Theme.Colors.textMuted
+    static let pointed = Theme.Colors.text
     let text: String
     @Environment(\.sidebarRowHovered) private var hovered
 
     var body: some View {
         Text(text)
             .font(Theme.Fonts.caption)
-            .foregroundStyle(hovered ? Theme.Colors.text : Theme.Colors.textFaint)
+            .foregroundStyle(hovered ? Self.pointed : Self.resting)
             .fixedSize()
     }
 }

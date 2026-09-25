@@ -505,6 +505,16 @@ import BrainmergeTestSupport
         #expect(try e.store.load().primary?.brain == nil)
     }
 
+    /// An own app that opens Claude is for the first account only: another account already has its app.
+    @Test func anOwnAppIsForTheFirstAccountOnly() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let after = try e.manager.update(slug: "client", name: nil, tint: nil, logo: nil, ownApp: true)
+        #expect(after.ownApp == nil)
+        #expect(try e.store.load().identity(slug: "client")?.ownApp == nil)
+    }
+
     @Test func thePrimaryGetsAnOpenerAppAndClaudeIsUntouched() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
