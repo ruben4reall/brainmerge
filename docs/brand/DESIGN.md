@@ -33,6 +33,11 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.onAccent` | `#FBF7FF` | text on the accent |
 | `Colors.meter` | text at 42% | the RAM bars of the Usage screen that are not an account's (the Mac, terminal sessions, other apps); an account's bar takes its tint, every bar sits on a `field` track |
 | `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states |
+| `Colors.vaultBackground` | `#262626` | an Obsidian vault's graph, flat like Obsidian's canvas (Minimal theme, dark) |
+| `Colors.vaultNode` / `vaultLine` / `vaultText` | `#999999` / `#3F3F3F` / `#D1D1D1` | a vault's nodes without a color group, its lines (one pixel, opaque), its labels |
+| `Colors.vaultHighlight` / `vaultFocused` | `#750F0F` / `#8C1212` | the hovered node and its lines / the ring around it (the two shades Minimal draws from the accent `#8B1212`) |
+| `Colors.vaultAttachment` / `vaultUnresolved` | `#E0DE71` / `#666666` | attachments and links to no file, when the vault shows them |
+| `Theme.color(group:)` | the vault's own | a vault's color groups, from the rgb integers of its `graph.json` |
 | `Colors.creature` / `creatureEye` | `#A06BE0` / `#1E1430` | the creature |
 | `Halo.opacity` / `radius` / `size` | 0 / 110 / 520 | background halos (off; set 0.14 to bring them back) |
 | `Aura.softOpacity` / `fullOpacity` / `lineWidth` / `period` | 0.10 / 0.45 / 6 / 7 s | the spinning aura |

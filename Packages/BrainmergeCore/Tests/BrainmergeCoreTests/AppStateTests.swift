@@ -43,4 +43,16 @@ import BrainmergeTestSupport
         #expect(try JSONDecoder().decode(AppState.self, from: data).menuBarIcon == false)
         #expect(String(decoding: try JSONEncoder().encode(AppState(machineID: "m")), as: UTF8.self).contains("\"menuBarIcon\":true"))
     }
+
+    /// The Obsidian vault the graph shows is remembered by its folder; an older file, or none chosen, shows the memory.
+    @Test func theGraphsVaultRoundTrips() throws {
+        #expect(AppState().graphVault == nil)
+        let older = #"{"schemaVersion": 2, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#
+        #expect(try JSONDecoder().decode(AppState.self, from: Data(older.utf8)).graphVault == nil)
+        var state = AppState(machineID: "m")
+        state.graphVault = "/Users/x/Documents/Notes Vault"
+        let data = try JSONEncoder().encode(state)
+        #expect(try JSONDecoder().decode(AppState.self, from: data).graphVault == "/Users/x/Documents/Notes Vault")
+        #expect(!String(decoding: try JSONEncoder().encode(AppState(machineID: "m")), as: UTF8.self).contains("graphVault"))
+    }
 }

@@ -1,0 +1,58 @@
+import Foundation
+import Testing
+import BrainmergeTestSupport
+@testable import BrainmergeCore
+
+/// The vaults offered to the graph come from Obsidian's own list, of which only the folders' paths are read.
+@Suite struct ObsidianVaultsTests {
+    func folder(_ url: URL, obsidian: Bool) throws {
+        try FileManager.default.createDirectory(at: obsidian ? url.appending(path: ".obsidian") : url, withIntermediateDirectories: true)
+    }
+
+    @Test func vaultsAreReadFromObsidiansList() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let notes = home.url.appending(path: "Documents/Notes Vault", directoryHint: .isDirectory)
+        let work = home.url.appending(path: "Work", directoryHint: .isDirectory)
+        try folder(notes, obsidian: true)
+        try folder(work, obsidian: true)
+        let list = home.paths.obsidianVaultList
+        #expect(list.path.hasSuffix("Library/Application Support/obsidian/obsidian.json"))
+        try FileManager.default.createDirectory(at: list.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let json = """
+        {"vaults": {
+          "a1": {"path": "\(work.path)", "ts": 1727000000000, "open": true},
+          "b2": {"path": "\(notes.path)", "ts": 1727000000001},
+          "c3": {"path": "\(home.url.path)/Gone", "ts": 1},
+          "d4": {"path": "\(work.path)/", "ts": 2},
+          "e5": {"ts": 3}
+        }, "frame": "hidden"}
+        """
+        try Data(json.utf8).write(to: list)
+        // Folders that exist, once each, by name; a vault that was moved or deleted is not offered.
+        #expect(ObsidianVaults.known(paths: home.paths).map(\.lastPathComponent) == ["Notes Vault", "Work"])
+    }
+
+    @Test func noListOrABrokenOneMeansNoVault() throws {
+        let home = try TempHome(); defer { home.remove() }
+        #expect(ObsidianVaults.known(paths: home.paths).isEmpty)
+        let list = home.paths.obsidianVaultList
+        try FileManager.default.createDirectory(at: list.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for broken in ["", "{", #"{"vaults": 3}"#, #"{"vaults": {"a": {"path": 7}}}"#] {
+            try Data(broken.utf8).write(to: list)
+            #expect(ObsidianVaults.known(paths: home.paths).isEmpty)
+        }
+    }
+
+    /// A folder picked by hand is a vault when Obsidian keeps its settings in it.
+    @Test func aVaultHasItsObsidianFolder() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let vault = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        let plain = home.url.appending(path: "Plain", directoryHint: .isDirectory)
+        try folder(vault, obsidian: true)
+        try folder(plain, obsidian: false)
+        try Data("x".utf8).write(to: plain.appending(path: ".obsidian"))
+        #expect(ObsidianVaults.isVault(vault))
+        #expect(!ObsidianVaults.isVault(plain))
+        #expect(!ObsidianVaults.isVault(home.url.appending(path: "Nowhere")))
+    }
+}

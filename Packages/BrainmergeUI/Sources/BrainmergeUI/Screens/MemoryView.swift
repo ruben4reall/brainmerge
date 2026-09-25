@@ -49,8 +49,8 @@ public struct MemoryView: View {
             HStack(spacing: 12) {
                 Picker("View", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
                     .pickerStyle(.segmented).labelsHidden().fixedSize().tint(Theme.Colors.accent)
-                // The graph carries its own legend; the timeline keeps the counts of saves.
-                if mode == .timeline { chips }
+                // The graph carries its own legend and can show an Obsidian vault; the timeline keeps the counts of saves.
+                if mode == .graph { sourceMenu } else { chips }
             }
             switch mode {
             case .graph:
@@ -62,7 +62,45 @@ public struct MemoryView: View {
         }
         .padding(Theme.Layout.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { model.refreshMemory() }
+        .onAppear { model.refreshMemory(); model.refreshVaults() }
+    }
+
+    /// What the graph shows: each Brainmerge memory, each vault Obsidian lists, or a vault picked by hand. Vaults are
+    /// only read.
+    var sourceMenu: some View {
+        let menu = GraphSources.menu(brains: model.brains, vaults: model.obsidianVaults, chosen: model.graphVault)
+        let selection = Binding(get: { model.graphSource }, set: { model.selectGraphSource($0) })
+        return Menu {
+            Picker("Graph of", selection: selection) {
+                if menu.memories.count > 1 {
+                    Section("Brainmerge memory") { ForEach(menu.memories) { Text($0.name).tag($0.source) } }
+                } else {
+                    ForEach(menu.memories) { Text($0.name).tag($0.source) }
+                }
+                if !menu.vaults.isEmpty {
+                    Section("Obsidian vaults") {
+                        ForEach(menu.vaults) { Text($0.name).tag($0.source) }
+                    }
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button("Choose a vault…") { chooseVault() }
+        } label: {
+            Text(GraphSources.title(of: model.graphSource, brains: model.brains))
+        }
+        .menuStyle(.button).buttonStyle(.glass).fixedSize()
+        .help("Show a Brainmerge memory, or an Obsidian vault the way Obsidian shows it (read only)")
+    }
+
+    /// A folder picker for a vault Obsidian does not list: the folder must be one Obsidian opened as a vault.
+    func chooseVault() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = false
+        panel.message = "Choose a folder you open in Obsidian as a vault. Brainmerge only reads it."
+        panel.prompt = "Show this vault"
+        if panel.runModal() == .OK, let url = panel.url { model.chooseVault(url) }
     }
 
     var timeline: some View {

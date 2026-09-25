@@ -38,6 +38,19 @@ public enum Theme {
         public static let graphLink = Color(hex: "#F4EFE6").opacity(0.22)
         public static let graphLinkLit = Color(hex: "#F4EFE6").opacity(0.55)
 
+        /// An Obsidian vault's graph, in the colors Obsidian gives it under the Minimal theme in dark mode (its tokens
+        /// resolved: --graph-node is --text-muted, --graph-line is --color-base-35, --graph-text is --text-normal,
+        /// hover is --interactive-accent and the ring --text-accent, from the accent #8B1212). Flat, like Obsidian's canvas.
+        public static let vaultBackground = Color(hex: "#262626")
+        public static let vaultNode = Color(hex: "#999999")
+        public static let vaultLine = Color(hex: "#3F3F3F")
+        public static let vaultText = Color(hex: "#D1D1D1")
+        public static let vaultHighlight = Color(hex: "#750F0F")
+        public static let vaultFocused = Color(hex: "#8C1212")
+        /// Nodes a vault shows only when asked: attachments (Obsidian's yellow) and links to no file (--text-faint).
+        public static let vaultAttachment = Color(hex: "#E0DE71")
+        public static let vaultUnresolved = Color(hex: "#666666")
+
         /// The RAM bars of the Usage screen for what is not an account (the Mac, terminal sessions, other apps):
         /// neutral cream, on a `field` track. An account's bar takes its tint.
         public static let meter = Color(hex: "#F4EFE6").opacity(0.42)
@@ -100,6 +113,10 @@ public enum Theme {
         }
     }
     public static func color(for tint: Tint) -> Color { Color(hex: hex(for: tint)) }
+    /// A vault's color group: the color is the vault's own, saved by Obsidian in its graph.json.
+    public static func color(group: ObsidianGraphSettings.GroupColor) -> Color {
+        Color(.sRGB, red: Double(group.red) / 255, green: Double(group.green) / 255, blue: Double(group.blue) / 255, opacity: group.alpha)
+    }
 
     /// The tints offered in the app: one swatch per color (red, rendered as pink, is not repeated).
     public static let pickableTints: [Tint] = Tint.allCases.filter { hex(for: $0) != hex(for: .pink) || $0 == .pink }

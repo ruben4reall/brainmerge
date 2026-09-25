@@ -7,37 +7,61 @@ import BrainmergeCore
 public struct GraphCamera: Equatable, Sendable {
     public static let minScale: CGFloat = 0.15
     public static let maxScale: CGFloat = 4
+    /// Obsidian's zoom limits, for a vault.
+    public static let obsidianZoom: ClosedRange<CGFloat> = (1.0 / 128)...8
     public var center: CGPoint = .zero
     public var scale: CGFloat = 1
+    /// Points per world unit at zoom 1. A vault is laid out in Obsidian's units, the screen's pixels: half a point on
+    /// a Retina screen, so that Obsidian's saved zoom shows a vault the same size in both apps.
+    public var unit: CGFloat = 1
+    public var zoomRange: ClosedRange<CGFloat> = GraphCamera.minScale...GraphCamera.maxScale
     public init() {}
 
+    /// Points per world unit now.
+    var factor: CGFloat { scale * unit }
+
     public func toScreen(_ p: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(x: (p.x - center.x) * scale + size.width / 2, y: (p.y - center.y) * scale + size.height / 2)
+        CGPoint(x: (p.x - center.x) * factor + size.width / 2, y: (p.y - center.y) * factor + size.height / 2)
     }
     public func toWorld(_ p: CGPoint, in size: CGSize) -> CGPoint {
-        CGPoint(x: (p.x - size.width / 2) / scale + center.x, y: (p.y - size.height / 2) / scale + center.y)
+        CGPoint(x: (p.x - size.width / 2) / factor + center.x, y: (p.y - size.height / 2) / factor + center.y)
     }
+    func clamped(_ value: CGFloat) -> CGFloat { min(max(value, zoomRange.lowerBound), zoomRange.upperBound) }
     /// Frames a rectangle of the world in the view, with a margin.
     public mutating func fit(_ rect: CGRect, in size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
         center = CGPoint(x: rect.midX, y: rect.midY)
         let w = max(rect.width, 80), h = max(rect.height, 80)
-        scale = min(max(min(size.width / w, size.height / h) * 0.82, Self.minScale), Self.maxScale)
+        scale = clamped(min(size.width / w, size.height / h) * 0.82 / unit)
     }
     /// Zooms while keeping the world point under the pointer where it is.
     public mutating func zoom(by factor: CGFloat, around pointer: CGPoint, in size: CGSize) {
         let anchor = toWorld(pointer, in: size)
-        scale = min(max(scale * factor, Self.minScale), Self.maxScale)
-        center = CGPoint(x: anchor.x - (pointer.x - size.width / 2) / scale, y: anchor.y - (pointer.y - size.height / 2) / scale)
+        scale = clamped(scale * factor)
+        center = CGPoint(x: anchor.x - (pointer.x - size.width / 2) / self.factor, y: anchor.y - (pointer.y - size.height / 2) / self.factor)
     }
     public mutating func pan(by delta: CGSize) {
-        center = CGPoint(x: center.x - delta.width / scale, y: center.y - delta.height / scale)
+        center = dragged(from: center, by: delta)
     }
+    /// Where the center goes when the background is dragged by a distance on screen from where it was.
+    public func dragged(from origin: CGPoint, by translation: CGSize) -> CGPoint {
+        CGPoint(x: origin.x - translation.width / factor, y: origin.y - translation.height / factor)
+    }
+}
+
+/// What the Memory screen's graph shows: a folder, and whether it is a Brainmerge memory or an Obsidian vault.
+public struct GraphTarget: Equatable, Sendable {
+    public let root: URL?
+    public let style: MemoryGraph.Style
+    public init(root: URL?, style: MemoryGraph.Style) { self.root = root?.standardizedFileURL; self.style = style }
+    /// Changes whenever the graph must start over.
+    public var key: String { "\(style.rawValue):\(root?.path ?? "")" }
 }
 
 /// The live graph of a memory folder, for the Memory screen: rebuilt every couple of seconds from the files
 /// (only changed notes are read), laid out by a force simulation, with a pulse on every note that is being
-/// written or has just been saved by an account.
+/// written or has just been saved by an account. An Obsidian vault is drawn as Obsidian draws it instead: its own
+/// filters, groups, forces and zoom from its graph settings, no hubs, no accounts, no pulses.
 @MainActor @Observable
 public final class MemoryGraphModel {
     public struct Author: Equatable, Sendable {
@@ -52,10 +76,23 @@ public final class MemoryGraphModel {
         public let slug: String?
     }
     public static let pulseDuration: TimeInterval = 2.6
+    /// How far Obsidian fades what is unrelated to the hovered note.
+    public static let fadedAlpha = 0.2
     /// Saves read from the history to tell who saved each note last.
     nonisolated static let historyDepth = 5000
 
     public private(set) var graph = MemoryGraph()
+    public private(set) var style: MemoryGraph.Style = .memory
+    /// A vault's graph settings, read from its `.obsidian` folder and read again when they change.
+    public private(set) var settings = ObsidianGraphSettings()
+    /// A vault's color group of each node that matched one.
+    public private(set) var groupColors: [String: ObsidianGraphSettings.GroupColor] = [:]
+    /// Obsidian's weight of each node (links in and out), which sets its size in a vault.
+    public private(set) var weights: [String: Int] = [:]
+    /// The lines drawn, by layout index: one per pair of linked notes, even when a vault's link goes both ways.
+    public private(set) var lineIndices: [(Int, Int)] = []
+    /// A vault's links with their direction, by layout index, for its arrows.
+    public private(set) var arrowIndices: [(Int, Int)] = []
     /// Who saved each bubble last, by bubble id (a project's index speaks for its project).
     public private(set) var authors: [String: Author] = [:]
     public private(set) var pulses: [String: Pulse] = [:]
@@ -66,11 +103,13 @@ public final class MemoryGraphModel {
     public private(set) var frame = 0
     /// How long the last read of the folder took: the screen waits longer between reads of a very large folder.
     public private(set) var lastRefreshDuration: TimeInterval = 0
-    public var selected: String?
-    public var hovered: String?
+    public var selected: String? { didSet { if selected != oldValue { focusChanged() } } }
+    public var hovered: String? { didSet { if hovered != oldValue { focusChanged() } } }
     /// An account picked in the legend: its notes stay lit, the others fade.
-    public var highlightedAccount: String?
+    public var highlightedAccount: String? { didSet { if highlightedAccount != oldValue { focusChanged() } } }
     public var camera = GraphCamera()
+    /// The screen's pixels per point (2 on Retina): a vault is drawn in Obsidian's units, which are pixels.
+    public var backingScale: CGFloat = 2 { didSet { if style == .vault { camera.unit = 1 / max(backingScale, 1) } } }
     /// The view has framed the graph once; later changes keep the person's own zoom and position.
     public var fitted = false
     /// With Reduce Motion on, the layout settles out of sight and appears in place, and pulses do not ripple.
@@ -95,30 +134,43 @@ public final class MemoryGraphModel {
     @ObservationIgnored private var timer: Timer?
     private let animates: Bool
     @ObservationIgnored private var dragged: String?
+    /// In a vault, how visible each node is (eased toward 1, or a fifth when unrelated to the hovered one), and the lines.
+    @ObservationIgnored private var fades: [String: Double] = [:]
+    @ObservationIgnored public private(set) var lineFade = 1.0
+    @ObservationIgnored private var fading = false
+    /// The settings files as last read, to read them again only when they change.
+    @ObservationIgnored private var settingsStamp: String?
 
     public init(animates: Bool = true) { self.animates = animates }
 
     /// Reads the folder again. The first read of a folder sets the scene without pulses; the next ones pulse what changed.
     /// Switching to another memory never waits for a read of the previous one: that read is discarded when it ends.
-    public func refresh(root newRoot: URL?) async {
-        guard let newRoot else { reset(nil); return }
-        if newRoot.standardizedFileURL != root?.standardizedFileURL { reset(newRoot) }
+    public func refresh(root newRoot: URL?, style newStyle: MemoryGraph.Style = .memory) async {
+        guard let newRoot else { reset(nil, style: newStyle); return }
+        if newRoot.standardizedFileURL != root?.standardizedFileURL || newStyle != style { reset(newRoot, style: newStyle) }
         guard let builder, reading != generation else { return }
         let mine = generation
         reading = mine
         defer { if reading == mine { reading = nil } }
-        let first = graph.nodes.isEmpty && authors.isEmpty
+        let first = graph.nodes.isEmpty && authors.isEmpty && settingsStamp == nil
         let knownHead = head, knownAuthors = authors
+        let style = self.style, knownStamp = settingsStamp, knownSettings = settings
         let started = Date()
-        let (result, newHead, history, readHistory) = await Task.detached(priority: .utility) {
-            () -> (MemoryGraphBuilder.Result, String?, [String: Author], Bool) in
+        let (result, newHead, history, readHistory, vault) = await Task.detached(priority: .utility) {
+            () -> (MemoryGraphBuilder.Result, String?, [String: Author], Bool, VaultRead?) in
             let result = builder.build()
+            if style == .vault {
+                // A vault is never asked who saved what: its look comes from its own settings, read again when they change.
+                let stamp = ObsidianGraphSettings.stamp(vault: newRoot)
+                let settings = stamp == knownStamp ? knownSettings : ObsidianGraphSettings.read(vault: newRoot)
+                return (result, nil, [:], false, VaultRead(stamp: stamp, settings: settings, shown: ObsidianGraphFilter.apply(settings, to: result.graph)))
+            }
             let brain = Brain(root: newRoot)
-            guard FileManager.default.fileExists(atPath: brain.gitDir.path) else { return (result, nil, [:], false) }
+            guard FileManager.default.fileExists(atPath: brain.gitDir.path) else { return (result, nil, [:], false, nil) }
             let git = BrainGit(brain: brain)
             let head = git.head()
             // The history only moves with a save: read it again then, not every few seconds.
-            guard head != knownHead || head == nil && !knownAuthors.isEmpty else { return (result, head, knownAuthors, false) }
+            guard head != knownHead || head == nil && !knownAuthors.isEmpty else { return (result, head, knownAuthors, false, nil) }
             var history: [String: Author] = [:]
             for (path, entry) in (try? git.lastAuthors(limit: MemoryGraphModel.historyDepth)) ?? [:] {
                 let slug = entry.email.hasSuffix("@brainmerge.local") ? String(entry.email.dropLast("@brainmerge.local".count)) : nil
@@ -126,7 +178,7 @@ public final class MemoryGraphModel {
                 if let known = history[id], known.date >= entry.date { continue }
                 history[id] = Author(slug: slug, name: entry.name, date: entry.date)
             }
-            return (result, head, history, true)
+            return (result, head, history, true, nil)
         }.value
         // Another memory was picked meanwhile, or the screen went away: this read no longer matters.
         guard mine == generation, !Task.isCancelled else { return }
@@ -134,7 +186,26 @@ public final class MemoryGraphModel {
         head = newHead
         if readHistory { historyReads += 1 }
         let now = Date()
-        if !first {
+        let shown = vault?.shown.graph ?? result.graph
+        if let vault {
+            settingsStamp = vault.stamp
+            // The first read sets Obsidian's saved zoom; later ones only a new look: Obsidian saves its zoom every couple
+            // of seconds while its graph is open, which must not pull the view away from the person.
+            if first || !vault.settings.sameLook(as: settings) {
+                settings = vault.settings
+                layout.setForces(.obsidian(vault.settings))
+                layoutGeneration += 1
+            }
+            if first {
+                camera.center = .zero
+                camera.scale = camera.clamped(CGFloat(vault.settings.scale))
+                fitted = true
+            }
+            if groupColors != vault.shown.colors { groupColors = vault.shown.colors }
+            if !first, result.changed.contains(where: { shown.node($0) != nil }) || result.removed.contains(where: { graph.node($0) != nil }) {
+                lastChange = now
+            }
+        } else if !first {
             for id in result.changed { pulses[id] = Pulse(start: now, slug: nil) }
             for (id, author) in history where authors[id] != author && result.graph.node(id) != nil {
                 pulses[id] = Pulse(start: now, slug: author.slug)
@@ -143,12 +214,19 @@ public final class MemoryGraphModel {
         }
         if history != authors { authors = history }
         if truncated != result.truncated { truncated = result.truncated }
-        if result.graph != graph {
-            graph = result.graph
+        if shown != graph {
+            graph = shown
             var adjacency: [String: Set<String>] = [:]
             for edge in graph.edges { adjacency[edge.from, default: []].insert(edge.to); adjacency[edge.to, default: []].insert(edge.from) }
             self.adjacency = adjacency
-            layout.sync(nodes: graph.nodes.map(\.id), edges: graph.edges.map { ($0.from, $0.to) })
+            // A vault's springs are its links, both ways when written both ways, as in Obsidian; a memory's are its lines.
+            let springs = style == .vault ? graph.links.map { ($0.source, $0.target) } : graph.edges.map { ($0.from, $0.to) }
+            layout.sync(nodes: graph.nodes.map(\.id), edges: springs)
+            lineIndices = graph.edges.compactMap { edge in layout.indexOf(edge.from).flatMap { a in layout.indexOf(edge.to).map { (a, $0) } } }
+            arrowIndices = style == .vault
+                ? graph.links.compactMap { link in layout.indexOf(link.source).flatMap { a in layout.indexOf(link.target).map { (a, $0) } } } : []
+            weights = style == .vault ? graph.weights() : [:]
+            if !fades.isEmpty { let ids = Set(graph.nodes.map(\.id)); fades = fades.filter { ids.contains($0.key) } }
             layoutGeneration += 1
             if let selected, graph.node(selected) == nil { self.selected = nil }
             if let hovered, graph.node(hovered) == nil { self.hovered = nil }
@@ -160,11 +238,17 @@ public final class MemoryGraphModel {
         animate()
     }
 
-    private func reset(_ newRoot: URL?) {
+    private func reset(_ newRoot: URL?, style newStyle: MemoryGraph.Style) {
         generation += 1
         root = newRoot
-        builder = newRoot.map { MemoryGraphBuilder(root: $0) }
+        style = newStyle
+        builder = newRoot.map { MemoryGraphBuilder(root: $0, style: newStyle) }
         graph = MemoryGraph(); authors = [:]; pulses = [:]; layout = GraphLayout(); adjacency = [:]; head = nil
+        settings = ObsidianGraphSettings(); settingsStamp = nil; groupColors = [:]; weights = [:]; lineIndices = []; arrowIndices = []
+        fades = [:]; lineFade = 1; fading = false
+        var camera = GraphCamera()
+        if newStyle == .vault { camera.unit = 1 / max(backingScale, 1); camera.zoomRange = GraphCamera.obsidianZoom }
+        self.camera = camera
         layoutGeneration += 1
         selected = nil; hovered = nil; highlightedAccount = nil; fitted = false; lastChange = nil
     }
@@ -175,6 +259,48 @@ public final class MemoryGraphModel {
     public func pointerLeft() { pointer = nil; hovered = nil }
 
     public func neighbors(of id: String) -> Set<String> { adjacency[id] ?? [] }
+
+    /// The notes that stay lit: the hovered note and its neighbors, else an account's notes, else the selected note's.
+    public var focus: Set<String>? {
+        if let id = hovered { return neighbors(of: id).union([id]) }
+        if let slug = highlightedAccount { return notes(savedBy: slug) }
+        if let id = selected { return neighbors(of: id).union([id]) }
+        return nil
+    }
+
+    /// The note the focus is on: in a vault, the lines that touch it light up.
+    public var focusCenter: String? { hovered ?? (highlightedAccount == nil ? selected : nil) }
+
+    /// How visible a node of a vault is now, from 0.2 to 1.
+    public func fade(_ id: String) -> Double { fades[id] ?? 1 }
+
+    private func focusChanged() {
+        guard style == .vault else { return }
+        fading = true
+        if reduceMotion { stepFades() }
+        animate()
+    }
+
+    /// Obsidian's soft fade: every frame each node moves a tenth of the way toward its target. At once with Reduce Motion.
+    private func stepFades() {
+        guard fading else { return }
+        let focus = self.focus
+        func toward(_ value: Double, _ target: Double) -> Double {
+            if reduceMotion { return target }
+            let next = value * 0.9 + target * 0.1
+            return abs(next - target) < 0.005 ? target : next
+        }
+        var moving = false
+        for node in graph.nodes {
+            let target = focus.map { $0.contains(node.id) ? 1 : Self.fadedAlpha } ?? 1
+            let value = toward(fades[node.id] ?? 1, target)
+            fades[node.id] = value == 1 ? nil : value
+            if value != target { moving = true }
+        }
+        let lineTarget = focus == nil ? 1 : Self.fadedAlpha
+        lineFade = toward(lineFade, lineTarget)
+        fading = moving || lineFade != lineTarget
+    }
 
     /// The bubbles an account saved last, with the projects they belong to.
     public func notes(savedBy slug: String) -> Set<String> {
@@ -194,6 +320,9 @@ public final class MemoryGraphModel {
         let url: URL
         if let file = graph.node(id)?.file {
             url = root.appending(path: file)
+        } else if style == .vault {
+            // A link to nothing has no file, and a vault has no hubs.
+            return nil
         } else if id.hasPrefix("project:") {
             url = root.appending(path: "memory/\(id.dropFirst("project:".count))", directoryHint: .isDirectory)
         } else {
@@ -205,7 +334,8 @@ public final class MemoryGraphModel {
 
     /// The first lines of a note, without its frontmatter, for the inspector. Read off the main thread.
     public func loadPreview(_ id: String, lines: Int = 14) async -> String {
-        guard graph.node(id)?.file != nil, let url = fileURL(id) else { return "" }
+        // Notes only: a vault's canvases, bases and attachments are not text to preview.
+        guard let file = graph.node(id)?.file, file.lowercased().hasSuffix(".md"), let url = fileURL(id) else { return "" }
         return await Task.detached(priority: .userInitiated) { Self.readPreview(url, lines: lines) }.value
     }
 
@@ -233,7 +363,7 @@ public final class MemoryGraphModel {
 
     // MARK: Motion
 
-    public var isMoving: Bool { (!layout.isSettled && !reduceMotion) || !pulses.isEmpty || dragged != nil }
+    public var isMoving: Bool { (!layout.isSettled && !reduceMotion) || !pulses.isEmpty || dragged != nil || fading }
 
     public func position(of id: String) -> CGPoint? { layout.position(of: id) }
 
@@ -291,10 +421,18 @@ public final class MemoryGraphModel {
         }
         let now = Date()
         if !pulses.isEmpty { pulses = pulses.filter { now.timeIntervalSince($0.value.start) < Self.pulseDuration } }
+        stepFades()
         frame &+= 1
         if !isMoving { timer?.invalidate(); timer = nil }
     }
 
     /// Stops the animation (the screen went away). It starts again with the next change.
     public func stop() { timer?.invalidate(); timer = nil }
+}
+
+/// What a vault's read brings back from off the main thread.
+struct VaultRead: Sendable {
+    let stamp: String
+    let settings: ObsidianGraphSettings
+    let shown: ObsidianGraphFilter.Shown
 }

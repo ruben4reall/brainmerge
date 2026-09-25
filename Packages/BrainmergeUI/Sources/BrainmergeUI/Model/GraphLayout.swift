@@ -1,5 +1,34 @@
+import BrainmergeCore
 import CoreGraphics
 import Foundation
+
+/// The forces of a layout. Brainmerge's own keep a memory compact; an Obsidian vault gets Obsidian's, from its sliders.
+struct GraphForces: Equatable, Sendable {
+    /// The pull of every note toward the center.
+    var center: Double
+    /// How hard notes push each other away (negative).
+    var charge: Double
+    /// Beyond this distance notes stop pushing; nil for no limit, as in Obsidian.
+    var chargeReach: Double?
+    /// The rest length of a link, and how hard it pulls (divided by the fewer links of its two ends).
+    var linkDistance: Double
+    var linkStrength: Double
+    /// Notes closer than twice this radius are pushed apart; 0 for none.
+    var collideRadius: Double
+    var collideStrength: Double
+    /// How warm a change of the graph makes the simulation again.
+    var reheat: Double
+
+    static let brainmerge = GraphForces(center: 0.035, charge: -140, chargeReach: 900, linkDistance: 46, linkStrength: 1,
+                                        collideRadius: 0, collideStrength: 0, reheat: 0.35)
+
+    /// Obsidian's simulation, measured in its code: the four sliders converted as its force panel converts them, no
+    /// cutoff to the repulsion, a collision radius of 60 at half strength, a reheat of 0.3.
+    static func obsidian(_ settings: ObsidianGraphSettings) -> GraphForces {
+        GraphForces(center: settings.centerForce, charge: -settings.repelForce, chargeReach: nil, linkDistance: settings.linkDistance,
+                    linkStrength: settings.linkForce, collideRadius: 60, collideStrength: 0.5, reheat: 0.3)
+    }
+}
 
 /// A force-directed layout, the same family of physics as Obsidian's graph view (and d3's force simulation):
 /// every note repels the others, links pull their two notes together like springs, a light gravity keeps the
@@ -20,11 +49,17 @@ struct GraphLayout: Sendable {
     static let alphaMin = 0.001
     static let alphaDecay = 1 - pow(0.001, 1.0 / 300)
     static let velocityDecay = 0.4
-    static let charge = -140.0
-    static let chargeReach = 900.0
     static let theta = 0.9
-    static let linkDistance = 46.0
-    static let gravity = 0.035
+    private(set) var forces: GraphForces
+
+    init(forces: GraphForces = .brainmerge) { self.forces = forces }
+
+    /// New forces (a vault's settings changed) wake the simulation; the same ones leave it at rest.
+    mutating func setForces(_ new: GraphForces) {
+        guard new != forces else { return }
+        forces = new
+        reheat(new.reheat)
+    }
 
     var isSettled: Bool { alpha < Self.alphaMin && alphaTarget == 0 }
     var count: Int { ids.count }
@@ -37,6 +72,7 @@ struct GraphLayout: Sendable {
 
     /// Brings the layout in line with the graph: existing notes keep their place, new notes appear next to a note
     /// they link to (or on a spiral around the center), removed notes go. Any change wakes the simulation up.
+    /// Each pair is a spring: a vault passes a link written both ways twice, as Obsidian does.
     mutating func sync(nodes: [String], edges: [(String, String)]) {
         let old = index
         let oldX = x, oldY = y, oldVX = vx, oldVY = vy
@@ -59,17 +95,19 @@ struct GraphLayout: Sendable {
             Set(links.map { let a = names[$0.0], b = names[$0.1]; return a < b ? a + "\u{0}" + b : b + "\u{0}" + a })
         }
         var changed = nodes.count != ids.count || newLinks.count != links.count || pairs(newLinks, nodes) != pairs(links, ids)
+        // Placement scales with the rest length, so longer links do not start from a knot that bursts open.
+        let spread = forces.linkDistance / GraphForces.brainmerge.linkDistance
         for (i, id) in nodes.enumerated() where !placed[i] {
             changed = true
             let seed = Self.hash(id)
             let angle = Double(seed % 6283) / 1000
             if !wasEmpty, let anchor = neighbors[i].first(where: { placed[$0] }) {
-                let r = 18 + Double(seed % 17)
+                let r = (18 + Double(seed % 17)) * spread
                 nx[i] = nx[anchor] + cos(angle) * r; ny[i] = ny[anchor] + sin(angle) * r
             } else {
                 // A phyllotaxis spiral, like d3's initial placement: even, deterministic, no overlap.
                 let k = Double(i)
-                let radius = 12 * sqrt(0.5 + k), theta = k * Double.pi * (3 - sqrt(5))
+                let radius = 12 * spread * sqrt(0.5 + k), theta = k * Double.pi * (3 - sqrt(5))
                 nx[i] = radius * cos(theta); ny[i] = radius * sin(theta)
             }
             placed[i] = true
@@ -77,7 +115,7 @@ struct GraphLayout: Sendable {
         ids = nodes; index = newIndex; x = nx; y = ny; vx = nvx; vy = nvy; links = newLinks
         degree = neighbors.map(\.count)
         pinned = pinned.filter { newIndex[$0.key] != nil }
-        if changed { alpha = max(alpha, wasEmpty ? 1 : 0.35) }
+        if changed { alpha = max(alpha, wasEmpty ? 1 : forces.reheat) }
     }
 
     /// One tick of the simulation.
@@ -91,8 +129,8 @@ struct GraphLayout: Sendable {
             if dx == 0 && dy == 0 { dx = 0.01; dy = 0.01 }
             let l = (dx * dx + dy * dy).squareRoot()
             let ds = Double(degree[s]), dt = Double(degree[t])
-            let strength = 1 / max(1, min(ds, dt))
-            let k = (l - Self.linkDistance) / l * alpha * strength
+            let strength = forces.linkStrength / max(1, min(ds, dt))
+            let k = (l - forces.linkDistance) / l * alpha * strength
             let bias = ds / max(1, ds + dt)
             vx[t] -= dx * k * bias; vy[t] -= dy * k * bias
             vx[s] += dx * k * (1 - bias); vy[s] += dy * k * (1 - bias)
@@ -100,8 +138,8 @@ struct GraphLayout: Sendable {
         // Repulsion: every note pushes the others away. Far groups of notes act as one body (Barnes-Hut),
         // so a step costs about n log n instead of n squared.
         let tree = QuadTree(x: x, y: y)
-        let theta2 = Self.theta * Self.theta, reach2 = Self.chargeReach * Self.chargeReach
-        let chargeAlpha = Self.charge * alpha
+        let theta2 = Self.theta * Self.theta, reach2 = forces.chargeReach.map { $0 * $0 } ?? .infinity
+        let chargeAlpha = forces.charge * alpha
         x.withUnsafeBufferPointer { px in y.withUnsafeBufferPointer { py in
         vx.withUnsafeMutableBufferPointer { pvx in vy.withUnsafeMutableBufferPointer { pvy in
         tree.nodes.withUnsafeBufferPointer { nodes in tree.next.withUnsafeBufferPointer { next in
@@ -141,14 +179,56 @@ struct GraphLayout: Sendable {
         } }
         } }
         } }
+        if forces.collideRadius > 0 { collide() }
         // Gravity toward the center, then integration with friction.
         var held: [Int: CGPoint] = [:]
         for (id, point) in pinned { if let i = index[id] { held[i] = point } }
+        let gravity = forces.center
         for i in 0..<n {
-            vx[i] -= x[i] * Self.gravity * alpha; vy[i] -= y[i] * Self.gravity * alpha
+            vx[i] -= x[i] * gravity * alpha; vy[i] -= y[i] * gravity * alpha
             if let p = held[i] { x[i] = p.x; y[i] = p.y; vx[i] = 0; vy[i] = 0; continue }
             vx[i] *= 1 - Self.velocityDecay; vy[i] *= 1 - Self.velocityDecay
             x[i] += vx[i]; y[i] += vy[i]
+        }
+    }
+
+    /// d3's collision force, as Obsidian uses it: two notes whose next positions are closer than two radii are pushed
+    /// apart, each half the way, whatever the temperature. Neighbors are found in a grid of cells two radii wide, so
+    /// only the nine cells around a note are looked at.
+    private mutating func collide() {
+        let n = ids.count
+        let reach = forces.collideRadius * 2, reach2 = reach * reach, strength = forces.collideStrength
+        func key(_ cx: Int, _ cy: Int) -> Int64 { Int64(cx) << 32 | Int64(UInt32(truncatingIfNeeded: cy)) }
+        var cells: [Int64: [Int32]] = [:]
+        cells.reserveCapacity(n)
+        var cellX = [Int](repeating: 0, count: n), cellY = cellX
+        for i in 0..<n {
+            let px = x[i] + vx[i], py = y[i] + vy[i]
+            guard px.isFinite, py.isFinite else { continue }
+            cellX[i] = Int((px / reach).rounded(.down)); cellY[i] = Int((py / reach).rounded(.down))
+            cells[key(cellX[i], cellY[i]), default: []].append(Int32(i))
+        }
+        for i in 0..<n {
+            let xi = x[i] + vx[i], yi = y[i] + vy[i]
+            guard xi.isFinite, yi.isFinite else { continue }
+            for dx in -1...1 { for dy in -1...1 {
+                guard let bucket = cells[key(cellX[i] + dx, cellY[i] + dy)] else { continue }
+                for j32 in bucket {
+                    let j = Int(j32)
+                    guard j > i else { continue }
+                    var ex = xi - x[j] - vx[j], ey = yi - y[j] - vy[j]
+                    var l = ex * ex + ey * ey
+                    guard l < reach2 else { continue }
+                    // Two notes on the very same spot: a small, stable nudge instead of d3's random one.
+                    if ex == 0 { ex = Double((i * 7 + j * 13) % 5 + 1) * 1e-6; l += ex * ex }
+                    if ey == 0 { ey = Double((i * 3 + j * 11) % 5 + 1) * 1e-6; l += ey * ey }
+                    l = l.squareRoot()
+                    let k = (reach - l) / l * strength
+                    ex *= k; ey *= k
+                    vx[i] += ex * 0.5; vy[i] += ey * 0.5
+                    vx[j] -= ex * 0.5; vy[j] -= ey * 0.5
+                }
+            } }
         }
     }
 

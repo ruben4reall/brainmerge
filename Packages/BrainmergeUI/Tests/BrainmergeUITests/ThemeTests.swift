@@ -85,6 +85,20 @@ import BrainmergeCore
         #expect(Theme.Layout.meterRadius > 0 && Theme.Layout.meterRadius < Theme.Layout.rowRadius)
     }
 
+    /// A vault's graph wears Obsidian's colors under the Minimal theme in dark mode: a flat #262626 background, #999999
+    /// nodes, #3F3F3F lines, #D1D1D1 labels, the accent's two shades on hover. Group colors come from the vault's file.
+    @Test func aVaultWearsObsidiansColors() {
+        #expect(Theme.Colors.vaultBackground.rgb255 == (0x26, 0x26, 0x26))
+        #expect(Theme.Colors.vaultNode.rgb255 == (0x99, 0x99, 0x99))
+        #expect(Theme.Colors.vaultLine.rgb255 == (0x3F, 0x3F, 0x3F))
+        #expect(Theme.Colors.vaultText.rgb255 == (0xD1, 0xD1, 0xD1))
+        #expect(Theme.Colors.vaultHighlight.rgb255 == (0x75, 0x0F, 0x0F))
+        #expect(Theme.Colors.vaultFocused.rgb255 == (0x8C, 0x12, 0x12))
+        #expect(Self.contrast(Theme.Colors.vaultText, over: Theme.Colors.vaultBackground) >= 4.5)
+        let teal = Theme.color(group: ObsidianGraphSettings.GroupColor(rgb: 1419967, alpha: 1))
+        #expect(teal.rgb255 == (21, 170, 191))
+    }
+
     @Test func noHardCodedColorsOutsideTheme() throws {
         // Everything visible flows through Theme.swift: a hex or a bare white outside it is a retheming trap.
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

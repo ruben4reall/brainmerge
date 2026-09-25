@@ -739,6 +739,46 @@ import BrainmergeTestSupport
         return m
     }
 
+    /// The graph shows a vault picked from Obsidian's list, remembers it, and goes back to the memory when asked or
+    /// when the vault's folder is gone. A folder Obsidian never opened is not offered as a vault.
+    @Test func theGraphShowsAChosenVaultAndRemembersIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        #expect(m.graphTarget == GraphTarget(root: e.brain.root, style: .memory))
+        #expect(m.graphSource == .memory("shared"))
+        let vault = e.home.url.appending(path: "Notes Vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        let list = e.home.paths.obsidianVaultList
+        try FileManager.default.createDirectory(at: list.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"vaults": {"a": {"path": "\#(vault.path)"}}}"#.utf8).write(to: list)
+        m.refreshVaults()
+        #expect(m.obsidianVaults.map(\.path) == [vault.standardizedFileURL.path])
+        await m.selectGraphSource(.vault(vault.path)).value
+        #expect(m.graphTarget == GraphTarget(root: URL(fileURLWithPath: vault.path, isDirectory: true), style: .vault))
+        #expect(m.graphSource == .vault(vault.path))
+        #expect(try e.store.load().graphVault == vault.path)
+        let fresh = model(e)
+        fresh.reload()
+        #expect(fresh.graphTarget.style == .vault)
+        // Back to the memory.
+        await m.selectGraphSource(.memory("shared")).value
+        #expect(m.graphTarget.style == .memory && m.graphVault == nil)
+        #expect(try e.store.load().graphVault == nil)
+        // A folder picked by hand must be a vault; a plain one is explained, not shown.
+        let plain = e.home.url.appending(path: "Plain", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+        #expect(m.chooseVault(plain) == nil)
+        #expect(m.message?.title == "Not an Obsidian vault")
+        #expect(m.graphTarget.style == .memory)
+        await m.chooseVault(vault)?.value
+        #expect(m.graphTarget.style == .vault)
+        // The vault's folder goes away: the memory shows, and the choice waits for the folder to come back.
+        try FileManager.default.removeItem(at: vault)
+        #expect(m.graphTarget == GraphTarget(root: e.brain.root, style: .memory))
+        #expect(m.graphVault == vault.path)
+    }
+
     @Test func menuBarSettingPersists() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")

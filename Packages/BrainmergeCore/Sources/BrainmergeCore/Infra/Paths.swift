@@ -22,6 +22,8 @@ public struct Paths: Sendable, Equatable {
     public var localBin: URL { home.appending(path: ".local/bin", directoryHint: .isDirectory) }
     public var primaryCLIProfile: URL { home.appending(path: ".claude", directoryHint: .isDirectory) }
     public var primaryDesktopData: URL { home.appending(path: "Library/Application Support/Claude", directoryHint: .isDirectory) }
+    /// Obsidian's own list of vaults, read for the folders' paths only.
+    public var obsidianVaultList: URL { home.appending(path: "Library/Application Support/obsidian/obsidian.json") }
 
     public func cliProfile(slug: String, isPrimary: Bool) -> URL {
         isPrimary ? primaryCLIProfile : home.appending(path: ".claude-\(slug)", directoryHint: .isDirectory)

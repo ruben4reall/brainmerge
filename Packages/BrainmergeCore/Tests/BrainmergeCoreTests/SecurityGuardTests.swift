@@ -185,6 +185,26 @@ import Testing
         #expect(found.isEmpty, "\(found)")
     }
 
+    /// An Obsidian vault shown in the graph is only read (SECURITY.md): the code that lists vaults, reads their graph
+    /// settings, evaluates their queries and builds their graph writes nothing, starts nothing, and never turns a vault
+    /// into a Brainmerge memory. Obsidian's list of vaults is decoded for its folders' paths only.
+    @Test func obsidianVaultsAreOnlyRead() throws {
+        let names: Set<String> = ["ObsidianVaults.swift", "ObsidianGraphSettings.swift", "ObsidianQuery.swift", "ObsidianGraphFilter.swift", "MemoryGraph.swift"]
+        let files = try Self.sources().filter { names.contains($0.0.lastPathComponent) }
+        #expect(Set(files.map(\.0.lastPathComponent)) == names, "the guard must see every file of the vault graph")
+        for (url, text) in files {
+            let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            for forbidden in ["write(", "createFile", "createDirectory", "removeItem", "moveItem", "copyItem", "replaceItem", "trashItem",
+                              "setAttributes", "setResourceValues", "createSymbolicLink", "unlink", "rename(", "mkdir", "O_WRONLY", "O_RDWR",
+                              "O_CREAT", "Brain.initialize", "BrainGit", "Shell", "Process", "NSWorkspace", "UserDefaults", "fopen"] {
+                #expect(!code.contains(forbidden), "\(url.lastPathComponent) must only read: \(forbidden)")
+            }
+        }
+        let list = try #require(files.first { $0.0.lastPathComponent == "ObsidianVaults.swift" }).1
+        #expect(!list.contains("JSONSerialization") && !list.contains("[String: Any]"), "obsidian.json is decoded for paths only")
+    }
+
     @Test func noTelemetryOrAnalytics() throws {
         let hits = try offenders(["Analytics", "Telemetry", "Sentry", "Crashlytics", "Firebase", "Mixpanel"])
         #expect(hits.isEmpty, "\(hits)")

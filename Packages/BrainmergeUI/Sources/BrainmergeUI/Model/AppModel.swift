@@ -61,6 +61,11 @@ public final class AppModel {
     public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
     /// Saves of the switch still waiting on the core queue: a reload meanwhile keeps the switch, not the old file.
     private var menuBarIconSaves = 0
+    /// The Obsidian vault the Memory screen's graph shows, by its folder; nil shows the selected memory.
+    public private(set) var graphVault: String?
+    private var graphVaultSaves = 0
+    /// The vaults in Obsidian's own list whose folder exists, read when the Memory screen shows.
+    public private(set) var obsidianVaults: [URL] = []
     /// The process's environment, injectable in tests: captures and demos never show the icon.
     @ObservationIgnored public var environment = ProcessInfo.processInfo.environment { didSet { refreshSetupState() } }
     /// The guided setup is on screen (set by the window): until it is closed, the setup is not done.
@@ -292,6 +297,7 @@ public final class AppModel {
         set(\.autoRebuild, state.autoRebuild)
         set(\.notesApp, state.notesApp)
         if menuBarIconSaves == 0 { set(\.menuBarIcon, state.menuBarIcon) }
+        if graphVaultSaves == 0 { set(\.graphVault, state.graphVault) }
         set(\.brains, state.brains)
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
@@ -1011,6 +1017,71 @@ public final class AppModel {
         state.notesApp = setting
         try? store.save(state)
         reload()
+    }
+
+    // MARK: The graph's source
+
+    /// What the graph shows: the chosen vault while its folder is there (an external disk may come back), else the
+    /// selected memory.
+    public var graphTarget: GraphTarget {
+        if let path = graphVault {
+            var isFolder: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), isFolder.boolValue {
+                return GraphTarget(root: URL(fileURLWithPath: path, isDirectory: true), style: .vault)
+            }
+        }
+        return GraphTarget(root: selectedBrain?.root, style: .memory)
+    }
+
+    public var graphSource: GraphSource {
+        if graphTarget.style == .vault, let path = graphVault { return .vault(path) }
+        return .memory(selectedFolder?.id ?? "")
+    }
+
+    /// Reads Obsidian's list of vaults again (paths only).
+    public func refreshVaults() {
+        let vaults = ObsidianVaults.known(paths: paths)
+        if vaults != obsidianVaults { obsidianVaults = vaults }
+    }
+
+    /// Shows a memory (which the whole screen then shows) or a vault in the graph. The task ends once the choice is saved.
+    @discardableResult
+    public func selectGraphSource(_ source: GraphSource) -> Task<Void, Never> {
+        switch source {
+        case .memory(let id):
+            selectBrain(id)
+            return setGraphVault(nil)
+        case .vault(let path):
+            return setGraphVault(path)
+        }
+    }
+
+    /// A folder picked by hand: shown when Obsidian keeps a vault in it, explained when not. Nil when refused.
+    @discardableResult
+    public func chooseVault(_ url: URL) -> Task<Void, Never>? {
+        guard ObsidianVaults.isVault(url) else {
+            message = UserMessage(title: "Not an Obsidian vault",
+                                  detail: "Pick a folder you open in Obsidian as a vault. Obsidian keeps its settings there, in a hidden .obsidian folder.")
+            return nil
+        }
+        return setGraphVault(url.standardizedFileURL.path)
+    }
+
+    /// Like the menu bar switch: the choice moves at once, the file is saved on the core queue after the work already there.
+    @discardableResult
+    func setGraphVault(_ path: String?) -> Task<Void, Never> {
+        if graphVault != path { graphVault = path }
+        graphVaultSaves += 1
+        let store = self.store, queue = coreQueue
+        return Task {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                queue.async {
+                    if var state = try? store.load(), state.graphVault != path { state.graphVault = path; try? store.save(state) }
+                    done.resume()
+                }
+            }
+            graphVaultSaves -= 1
+        }
     }
 
     /// Shows or hides the menu bar icon. The switch moves at once; the file is saved on the core queue, after any work

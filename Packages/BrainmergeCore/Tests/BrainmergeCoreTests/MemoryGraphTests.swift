@@ -109,7 +109,8 @@ import BrainmergeTestSupport
 
     @Test func linkTargetsAreParsed() {
         let text = "See [[A note]], [[folder/B|alias]], [[C#Heading]], ![[image.png]], [x](d%20e.md#top), [web](https://x.y/z.md), [mail](mailto:a@b.c) and `[[code]]`."
-        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("A note"), .wiki("folder/B"), .wiki("C"), .markdown("d e.md")])
+        // Embeds are kept: a vault draws attachments, a memory has none to resolve them to.
+        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("A note"), .wiki("folder/B"), .wiki("C"), .wiki("image.png"), .markdown("d e.md")])
     }
 
     @Test func linkTargetsSkipCodeAndReadEveryMarkdownForm() {
@@ -124,8 +125,11 @@ import BrainmergeTestSupport
         ~~~
         [spaced](<My Note.md>) and [titled](plain.md "A title") and [x](../up/one.md)
         """
-        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("Table link"), .wiki("Node.js"), .wiki("Brainmerge 0.3.0"),
-                                                      .markdown("My Note.md"), .markdown("plain.md"), .markdown("../up/one.md")])
+        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("Table link"), .wiki("Node.js"), .wiki("Brainmerge 0.3.0"), .wiki("scan.PDF"),
+                                                      .wiki("board.canvas"), .markdown("My Note.md"), .markdown("plain.md"), .markdown("../up/one.md")])
+        // Markdown links reach canvases, bases and attachments too; a folder or a page on the web is not a file of the vault.
+        #expect(MemoryGraph.linkTargets(in: "[a](Board.canvas) [b](Tasks.base) [c](img/a%20b.png) [d](folder) [e](http://x.y/a.png)")
+                == [.markdown("Board.canvas"), .markdown("Tasks.base"), .markdown("img/a b.png")])
     }
 
     @Test func aLineFullOfUnclosedBracketsIsParsedQuickly() {
