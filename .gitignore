@@ -21,3 +21,9 @@ graphify-out/
 *.xcodeproj
 DerivedData/
 .build/xcode/
+
+# Vercel link of the website (local)
+.vercel/
+
+# Local task list (kept on the maintainer's Mac, not published)
+TASKS.md

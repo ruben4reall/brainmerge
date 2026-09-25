@@ -102,4 +102,27 @@ import BrainmergeTestSupport
         #expect(try fm.destinationOfSymbolicLink(atPath: link.path) == own.path)
         #expect(try fm.destinationOfSymbolicLink(atPath: foreign.path) == e.home.url.appending(path: "somewhere-else/brainmerge").path)
     }
+
+    /// The primary's own app is Brainmerge's and goes, even while Claude runs; Claude and an app the person made stay.
+    @Test func thePrimarysOwnAppGoesAndThePersonsAppsStay() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let fm = FileManager.default
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.update(slug: "perso", name: nil, tint: nil, logo: nil, ownApp: true)
+        let opener = e.home.paths.launcherApp(name: "Perso")
+        #expect(fm.fileExists(atPath: opener.path))
+        let personsApp = e.home.url.appending(path: "Applications/Claude Perso.app", directoryHint: .isDirectory)
+        try fm.createDirectory(at: personsApp.appending(path: "Contents"), withIntermediateDirectories: true)
+        let exe = e.claude.executable.path
+        let claudeOpen = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
+                                         claudeAppURL: e.claude.url, registerLaunchers: false,
+                                         monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe)\n" }))
+
+        #expect(try uninstaller(e, manager: claudeOpen).plan().removed.contains { $0.contains("1 account app in") })
+        let report = try uninstaller(e, manager: claudeOpen).run()
+        #expect(report.removedLaunchers == 1)
+        #expect(!fm.fileExists(atPath: opener.path))
+        #expect(fm.fileExists(atPath: personsApp.path))
+        #expect(fm.fileExists(atPath: e.claude.executable.path))
+    }
 }

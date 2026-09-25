@@ -7,9 +7,9 @@ import Testing
 @Suite struct SecurityGuardTests {
     static let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    /// The shipped code: the core, the command line, the launcher, the app. Test fakes (BrainmergeTestSupport) are not shipped.
+    /// The shipped code: the core, the command line, the launcher and its guard, the app. Test fakes (BrainmergeTestSupport) are not shipped.
     static let roots = ["Packages/BrainmergeCore/Sources/BrainmergeCore", "Packages/BrainmergeCore/Sources/brainmerge",
-                        "Packages/BrainmergeCore/Sources/launcher", "Packages/BrainmergeUI/Sources", "App"].map { repo.appending(path: $0) }
+                        "Packages/BrainmergeCore/Sources/launcher", "Packages/BrainmergeCore/Sources/LauncherGuard", "Packages/BrainmergeUI/Sources", "App"].map { repo.appending(path: $0) }
 
     static func sources() throws -> [(URL, String)] {
         var files: [(URL, String)] = []
@@ -54,6 +54,99 @@ import Testing
         for forbidden in ["Data(contentsOf", "String(contentsOf", "FileHandle", "contents(atPath", "InputStream"] {
             #expect(!session.contains(forbidden), "DesktopSession must not read file contents: \(forbidden)")
         }
+    }
+
+    @Test func claudeCodeSecretsAreNeverNamed() throws {
+        // Keys, tokens, the desktop app's token cache and account id, the keychain entry, plan and usage: no shipped file names them, not even to skip them.
+        let hits = try offenders(["primaryApiKey", "customApiKeyResponses", "accessToken", "refreshToken", "oauth:tokenCache",
+                                  "lastKnownAccountUuid", "buddy-tokens", "Claude Code-credentials", "cachedUsageUtilization", "RateLimitTier"])
+        #expect(hits.isEmpty, "\(hits)")
+    }
+
+    /// Claude Code's account entry is read in one file, for three display fields only (SECURITY.md).
+    @Test func accountEntryIsDisplayFieldsOnly() throws {
+        let elsewhere = try offenders(["oauthAccount"], except: ["ClaudeCodeAccount.swift"])
+        #expect(elsewhere.isEmpty, "only ClaudeCodeAccount.swift reads the account entry: \(elsewhere)")
+        #expect(ClaudeCodeAccount.readFields == ["emailAddress", "displayName", "organizationName"])
+
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "ClaudeCodeAccount.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        // Typed decoding of declared keys only: nothing that loads the whole entry, nothing about identifiers, tokens, plan,
+        // roles or limits, whatever the case of the word.
+        let lowered = code.lowercased()
+        for forbidden in ["jsonserialization", "[string: any]", "[string:any]", "uuid", "userid", "token", "secitem", "billing",
+                          "ratelimit", "seattier", "usage", "subscription", "role", "createdat"] {
+            #expect(!lowered.contains(forbidden), "ClaudeCodeAccount.swift must not mention \(forbidden)")
+        }
+        // Every key it can decode is a case of a CodingKey enum: together they are exactly the entry and its three fields.
+        let enums = try Regex(#"enum\s+\w+\s*:[^{]*CodingKey[^{]*\{([^}]*)\}"#)
+        let bodies = code.matches(of: enums).map { String($0.output[1].substring ?? "") }
+        #expect(bodies.count >= 2, "the scan must see the entry's key and its fields")
+        let caseLine = try Regex(#"case\s+([^\n;]+)"#)
+        let keys = Set(bodies.flatMap { body in
+            body.matches(of: caseLine).flatMap { String($0.output[1].substring ?? "").split(separator: ",") }
+                .map { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? "" }
+        })
+        #expect(keys == ["oauthAccount", "emailAddress", "displayName", "organizationName"], "decodable keys: \(keys)")
+        // Its paths come from the profile it is given, never from the process: tests and demo captures never read the owner's real file.
+        for forbidden in ["NSHomeDirectory", "homeDirectoryForCurrentUser", "ProcessInfo", "getenv", "environment", "CLAUDE_CONFIG_DIR"] {
+            #expect(!code.contains(forbidden), "ClaudeCodeAccount.swift must not resolve paths itself: \(forbidden)")
+        }
+        let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
+        let found = Set(code.matches(of: literals).map { String($0.output[1].substring ?? "") })
+        let allowed: Set<String> = ["oauthAccount", "emailAddress", "displayName", "organizationName", ".claude.json", "'s Organization"]
+        #expect(found.isSubset(of: allowed), "unexpected string literals: \(found.subtracting(allowed))")
+    }
+
+    /// Apps the person made are read, never run, changed or moved (SECURITY.md): no process, no opening, no writing, no
+    /// trash, no link followed. What it may call on the file system is a short list; everything else is refused.
+    @Test func existingAppsOnlyReadsBundles() throws {
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "ExistingApps.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        for forbidden in ["Shell", "Process", "execv", "execl", "posix_spawn", "fork(", "system(", "popen", "dlopen", "Bundle(", "NSAppleScript",
+                          "NSWorkspace", "LSOpen", "bash", "codesign", "lsregister",
+                          "FileHandle", "Data(contentsOf", "String(contentsOf", "InputStream", "Plist.read", "mmap",
+                          "trashItem", "removeItem", "moveItem", "copyItem", "replaceItem", "linkItem", "createFile", "createDirectory",
+                          "createSymbolicLink", "setAttributes", "setResourceValues", "write(", "unlink", "rename(", "truncate", "symlink(",
+                          "link(", "mkdir", "rmdir", "chmod", "chown", "utimes", "setxattr", "removexattr",
+                          "O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC", "O_APPEND"] {
+            #expect(!code.contains(forbidden), "ExistingApps.swift must only read: \(forbidden)")
+        }
+        // The file manager: listing a folder, nothing else.
+        let members = try Regex(#"(?:FileManager\.default|\bfm)\s*\.\s*(\w+)"#)
+        let used = Set(code.matches(of: members).map { String($0.output[1].substring ?? "") })
+        #expect(used.isSubset(of: ["contentsOfDirectory", "homeDirectoryForCurrentUser"]), "file manager calls: \(used.subtracting(["contentsOfDirectory", "homeDirectoryForCurrentUser"]))")
+        // Files are opened read only, never through a link, never waiting on a pipe.
+        let opens = try Regex(#"\bopen\(([^)]*)\)"#)
+        let flags = code.matches(of: opens).map { String($0.output[1].substring ?? "") }
+        #expect(!flags.isEmpty)
+        for call in flags { #expect(call.contains("O_RDONLY") && call.contains("O_NOFOLLOW") && call.contains("O_NONBLOCK"), "open(\(call))") }
+    }
+
+    /// The repository is public: no real person's email address in it, not even in a test. Examples use example.com.
+    @Test func noRealEmailAddressInTheRepository() throws {
+        let skipped: Set<String> = [".git", ".build", ".swiftpm", "graphify-out", "DerivedData", "dist", "node_modules"]
+        let text: Set<String> = ["swift", "md", "sh", "html", "css", "js", "json", "yml", "yaml", "txt", "plist", "entitlements", "pbxproj"]
+        let address = try Regex(#"[A-Za-z0-9._%+-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})"#)
+        let allowed: Set<String> = ["example.com", "example.org", "example.net", "brainmerge.local"]
+        var found: [String] = []
+        var scanned = 0
+        let walk = try #require(FileManager.default.enumerator(at: Self.repo, includingPropertiesForKeys: [.isDirectoryKey]))
+        for case let url as URL in walk {
+            if skipped.contains(url.lastPathComponent) { walk.skipDescendants(); continue }
+            guard text.contains(url.pathExtension.lowercased()), let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            scanned += 1
+            for match in content.matches(of: address) {
+                let domain = String(match.output[1].substring ?? "").lowercased()
+                // Retina image names ("icon_16x16@2x.png") are not addresses.
+                if allowed.contains(domain) || domain.range(of: #"^\d+x\."#, options: .regularExpression) != nil { continue }
+                found.append("\(url.path.replacingOccurrences(of: Self.repo.path + "/", with: "")): \(match.output[0].substring ?? "")")
+            }
+        }
+        #expect(scanned > 100, "the scan must see the tests and the docs too")
+        #expect(found.isEmpty, "\(found)")
     }
 
     @Test func noTelemetryOrAnalytics() throws {

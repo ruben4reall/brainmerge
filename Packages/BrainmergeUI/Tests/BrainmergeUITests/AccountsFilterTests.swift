@@ -15,6 +15,14 @@ import BrainmergeCore
         #expect(AccountsFilter.apply(list, query: "  ").count == 3)
     }
 
+    @Test func searchFindsTheClaudeCodeEmail() {
+        var ruben = account("Ruben"); ruben.codeAccount = ClaudeCodeAccount(email: "Agency@Example.com")
+        let list = [ruben, account("Work")]
+        #expect(AccountsFilter.apply(list, query: "example").map(\.identity.name) == ["Ruben"])
+        #expect(AccountsFilter.apply(list, query: "agency@").map(\.identity.name) == ["Ruben"])
+        #expect(AccountsFilter.apply(list, query: "work").map(\.identity.name) == ["Work"])
+    }
+
     @Test func runningFirstThenMostRecent() {
         let list = [account("A", created: 1), account("B", running: true, created: 2), account("C", created: 3)]
         #expect(AccountsFilter.apply(list, query: "", sort: .lastUsed).map(\.identity.name) == ["B", "C", "A"])

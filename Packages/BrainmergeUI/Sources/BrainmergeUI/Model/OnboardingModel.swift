@@ -30,7 +30,14 @@ public final class OnboardingModel {
         let full = NSFullUserName().trimmingCharacters(in: .whitespaces)
         primaryName = full.split(separator: " ").first.map(String.init) ?? "Me"
         if primaryName.isEmpty { primaryName = "Me" }
-        // Everything already in place: no guide. BRAINMERGE_ONBOARDING_STEP forces it (captures, demos).
+        decide()
+        // Built during the launch splash (every window open at launch): the model is still empty, so decide again
+        // once it is loaded, right before the first screen appears, or a set-up owner would land in the guide.
+        app.runBeforeReady { [weak self] in self?.decide() }
+    }
+
+    /// Everything already in place: no guide. BRAINMERGE_ONBOARDING_STEP forces it (captures, demos).
+    public func decide() {
         finished = !app.needsOnboarding && ProcessInfo.processInfo.environment["BRAINMERGE_ONBOARDING_STEP"] == nil
     }
 

@@ -58,4 +58,20 @@ import BrainmergeTestSupport
         }
         #expect(!FileManager.default.fileExists(atPath: home.paths.tintedClone(name: "Client").path))
     }
+
+    @Test func aClaudeWhoseBundleWasNeverSignedIsNotCalledTampered() throws {
+        // A compiled executable is signed by the linker, but the bundle around it has no signature at all:
+        // that is not a broken signature, and the copy goes ahead (the demo's fake Claude is exactly this).
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        let source = home.url.appending(path: "main.c")
+        try Data("int main(void) { return 0; }\n".utf8).write(to: source)
+        try FileManager.default.removeItem(at: claude.executable)
+        try Shell().check("/usr/bin/cc", ["-o", claude.executable.path, source.path])
+        let icon = home.url.appending(path: "blue.icns")
+        try IconGenerator.tintedICNS(from: claude.icon, tint: .blue, output: icon)
+        let app = try TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .build(for: Identity(slug: "client", name: "Client", iconMode: .tintedClone), claude: claude, icon: icon, register: false)
+        #expect(FileManager.default.fileExists(atPath: app.path))
+    }
 }

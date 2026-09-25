@@ -21,6 +21,22 @@ import BrainmergeCore
         let (r, g, b) = Theme.Colors.accent.rgb255
         #expect((r, g, b) == (160, 107, 224))
         #expect(Theme.Colors.creature.rgb255 == Theme.Colors.accent.rgb255)
+        // Sidebar rows: hover and press are neutral cream, fainter than the purple selection, which keeps meaning "selected".
+        func alpha(_ c: Color) -> CGFloat { NSColor(c).usingColorSpace(.sRGB)?.alphaComponent ?? 1 }
+        #expect(Theme.Colors.rowHover.rgb255 == Theme.Colors.text.rgb255)
+        #expect(Theme.Colors.rowPressed.rgb255 == Theme.Colors.text.rgb255)
+        #expect(Theme.Colors.rowHover.rgb255 != Theme.Colors.accent.rgb255)
+        #expect(alpha(Theme.Colors.rowHover) > 0 && alpha(Theme.Colors.rowHover) <= 0.08)
+        #expect(alpha(Theme.Colors.rowHover) < alpha(Theme.Colors.rowPressed))
+        #expect(alpha(Theme.Colors.rowPressed) < alpha(Theme.Colors.selection))
+        #expect(Theme.Layout.rowRadius == 10)
+        // The launch: a short splash that never holds a fast launch back, a calm stepped walk, a quick crossfade.
+        #expect(Theme.Launch.minimumVisible <= .milliseconds(500))
+        #expect((0.08...0.2).contains(Theme.Launch.frameDuration))
+        #expect(Theme.Launch.fade <= 0.3)
+        #expect(Theme.Launch.reducedFade < Theme.Launch.fade)
+        #expect(Theme.Launch.slowCaptionAfter >= 1)
+        #expect(Theme.Launch.unit == Theme.Launch.unit.rounded())
     }
 
     @Test func pickableTintsShowEachColorOnce() {
@@ -73,5 +89,17 @@ import BrainmergeCore
             }
         }
         #expect(offenders.isEmpty, "\(offenders)")
+    }
+
+    /// One purple button per screen: a tint on a whole window or sheet turns every secondary glass button purple too
+    /// (it happened in 0.4.0). Controls that want the accent carry their own tint.
+    @Test func noWindowWideTint() throws {
+        let screens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens")
+        for name in ["RootView.swift", "OnboardingView.swift", "EditAccountSheet.swift", "AddAccountSheet.swift"] {
+            let source = try String(contentsOf: screens.appending(path: name), encoding: .utf8)
+            let lines = source.split(separator: "\n").filter { $0.hasPrefix("        .tint(") }
+            #expect(lines.isEmpty, "\(name) tints a whole view: \(lines)")
+        }
     }
 }

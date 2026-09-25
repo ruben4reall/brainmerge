@@ -25,6 +25,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case brainFolderInUse(String)
     case nameInvalid
     case claudeAppTampered(String)
+    case primaryIsClaude
 
     public var description: String {
         switch self {
@@ -52,6 +53,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .brainFolderInUse(let p): return "The folder \(p) is already one of your memories."
         case .nameInvalid: return "Give it a name: one line, letters and numbers, up to \(NameRules.maxLength) characters."
         case .claudeAppTampered(let p): return "The signature of \(p) does not match its files. Reinstall Claude before making a copy of it."
+        case .primaryIsClaude: return "The primary account is the Claude app itself: Brainmerge never makes a copy of it. For an app with its color, use --own-app on."
         }
     }
 }

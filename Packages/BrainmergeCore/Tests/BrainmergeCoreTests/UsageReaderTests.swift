@@ -115,12 +115,12 @@ import BrainmergeTestSupport
             UsageSample(date: now.addingTimeInterval(-daysAgo * 86_400), project: project, model: model, input: 10, cacheCreation: 0, cacheRead: 100, output: output)
         }
         let samples = [s(0, "atelier", "claude-fable-5-1", output: 500), s(0.5, "atelier", "claude-opus-5-5", output: 100),
-                       s(3, "bivouak", "claude-fable-5-1", output: 200), s(12, "bivouak", "claude-fable-5-1", output: 1000), s(40, "x", "y", output: 9999)]
+                       s(3, "trailbook", "claude-fable-5-1", output: 200), s(12, "trailbook", "claude-fable-5-1", output: 1000), s(40, "x", "y", output: 9999)]
         let summary = UsageSummary.make(samples, now: now)
         #expect(summary.todayOutput == 600 || summary.todayOutput == 500)     // depending on the time: the second sample might be yesterday
         #expect(summary.weekOutput == 800)
         #expect(summary.monthOutput == 1800)
-        #expect(summary.byProject.first?.key == "bivouak" && summary.byProject.first?.output == 1200)
+        #expect(summary.byProject.first?.key == "trailbook" && summary.byProject.first?.output == 1200)
         #expect(summary.byModel.first?.key == "claude-fable-5-1" && summary.byModel.first?.output == 1700)
         #expect(summary.byDay.count == 14 && summary.byDay.last?.output == summary.todayOutput)
     }

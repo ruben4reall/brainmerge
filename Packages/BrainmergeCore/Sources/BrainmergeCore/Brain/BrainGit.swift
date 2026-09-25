@@ -36,9 +36,18 @@ public struct BrainGit: Sendable {
         return true
     }
 
+    /// The commit the memory is at, nil before the first save. Cheap: the graph asks it every few seconds and reads
+    /// the history again only when it moved.
+    public func head() -> String? {
+        guard let result = try? shell.run("/usr/bin/git", ["rev-parse", "--verify", "-q", "HEAD"], cwd: brain.root), result.status == 0 else { return nil }
+        let hash = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return hash.isEmpty ? nil : hash
+    }
+
     public func log(limit: Int = 50) throws -> [Entry] {
         guard try shell.run("/usr/bin/git", ["rev-parse", "--verify", "HEAD"], cwd: brain.root).status == 0 else { return [] }
-        let out = try shell.check("/usr/bin/git", ["log", "-n", "\(limit)", "--name-only",
+        // core.quotePath=false: "décision.md" comes out as it is written, not as "d\303\251cision.md" in quotes.
+        let out = try shell.check("/usr/bin/git", ["-c", "core.quotePath=false", "log", "-n", "\(limit)", "--name-only",
                                                    "--pretty=format:%x1e%H%x1f%aI%x1f%an%x1f%ae%x1f%s"], cwd: brain.root)
         let iso = ISO8601DateFormatter()
         return out.split(separator: "\u{1e}").compactMap { record -> Entry? in
@@ -49,6 +58,15 @@ public struct BrainGit: Sendable {
             let files = lines.dropFirst().map(String.init).filter { !$0.isEmpty }
             return Entry(hash: fields[0], date: date, authorName: fields[2], authorEmail: fields[3], message: fields[4], files: files)
         }
+    }
+
+    /// Who last saved each file, from the most recent commits: path to author name, email and date.
+    public func lastAuthors(limit: Int = 2000) throws -> [String: (name: String, email: String, date: Date)] {
+        var authors: [String: (name: String, email: String, date: Date)] = [:]
+        for entry in try log(limit: limit) {
+            for file in entry.files where authors[file] == nil { authors[file] = (entry.authorName, entry.authorEmail, entry.date) }
+        }
+        return authors
     }
 
     /// Exclusive lock on `.brainmerge/lock`: two hooks never commit at the same time.

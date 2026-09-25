@@ -83,7 +83,7 @@ public enum Installer {
         NSWorkspace.shared.openApplication(at: target, configuration: configuration) { _, error in
             DispatchQueue.main.async {
                 if let error {
-                    onFailure(Failure(description: "The copy is in Applications but macOS did not open it (\(error.localizedDescription)). Open it from there: right-click, Open."))
+                    onFailure(Failure(description: "The copy is in Applications but macOS did not open it (\(error.localizedDescription)). Open it from there; if macOS stops it, click Open Anyway in System Settings, Privacy & Security."))
                 } else {
                     NSApp.terminate(nil)
                 }

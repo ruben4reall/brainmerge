@@ -234,7 +234,7 @@ import BrainmergeTestSupport
         m.reload()
         m.open("client")
         // No second launch on the same data folder: no opening aura, no message.
-        #expect(m.openingSlug == nil)
+        #expect(m.opening.isEmpty)
         #expect(m.message == nil)
         #expect(m.lastShownProcess == 900)
     }
@@ -249,7 +249,7 @@ import BrainmergeTestSupport
         #expect(await m.add(form))
         #expect(m.accounts.map(\.identity.slug).contains("work"))
         // The login link would open in the window that's already running: no launch, a sentence and a button.
-        #expect(m.openingSlug == nil)
+        #expect(m.opening.isEmpty)
         #expect(m.message?.title == "Close your other Claude windows first")
         #expect(m.message?.action == .quitOthersThenOpen(slug: "work"))
         #expect(m.working == nil)
@@ -263,7 +263,7 @@ import BrainmergeTestSupport
         var form = AddAccountForm(); form.name = "Work"
         #expect(await m.add(form, open: false))
         #expect(m.accounts.map(\.identity.slug) == ["ruben", "work"])
-        #expect(m.openingSlug == nil && m.message == nil)
+        #expect(m.opening.isEmpty && m.message == nil)
     }
 
     @Test func reloadReportsWhetherSomethingChanged() throws {
@@ -350,6 +350,321 @@ import BrainmergeTestSupport
         let m = model(e)
         m.reload()
         m.markOpening("ruben")
-        #expect(m.openingSlug == "ruben")
+        #expect(m.opening == ["ruben"])
+    }
+
+    // MARK: The sidebar's labels
+
+    @Test func severalAccountsCanBeOpeningAtOnceAndEachClearsWhenItsWindowRuns() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let data = client.desktopData(in: e.home.paths).path
+        let exe = e.claude.executable.path
+        let ps = PSOutput()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps.text }))
+        m.reload()
+        // Opening Ruben then Client: Ruben does not turn back to "Open" while its window is still on its way.
+        m.markOpening("ruben")
+        m.markOpening("client")
+        #expect(m.opening == ["ruben", "client"])
+        // Client's window appears: it is no longer "opening", without waiting for the timer.
+        ps.text = "  900 1 120000 \(exe) --user-data-dir=\(data)\n"
+        m.reload()
+        #expect(m.opening == ["ruben"])
+        ps.text = "  800 1 90000 \(exe)\n  900 1 120000 \(exe) --user-data-dir=\(data)\n"
+        m.reload()
+        #expect(m.opening.isEmpty)
+    }
+
+    @Test func openingAClaudeCodeOnlyAccountExplainsInsteadOfFailing() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        var request = IdentityManager.AddRequest(name: "Terminal"); request.surfaces = Surfaces(desktop: false)
+        _ = try e.manager.add(request)
+        // Claude is removed, so that nothing here could ever reach /usr/bin/open: without the check,
+        // the click would end in "Claude isn't installed" instead of saying what this account is.
+        try FileManager.default.removeItem(at: e.claude.url)
+        let m = model(e)
+        m.reload()
+        m.open("terminal")
+        #expect(m.message?.title == "Terminal is Claude Code only")
+        #expect(m.message?.detail == "This account has no Claude window. Use it with Claude Code in the terminal.")
+        #expect(m.message?.action == nil)
+        #expect(m.opening.isEmpty)
+    }
+
+    @Test func aRebuildMarksOnlyItsAccountBusyAndLeavesNoneBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let m = model(e)
+        m.reload()
+        let task = Task { _ = await m.rebuild("client") }
+        for _ in 0..<1000 where m.working == nil { await Task.yield() }
+        #expect(m.working != nil)
+        #expect(m.busy == ["client"])
+        #expect(m.accountsBusy == ["client"])
+        await task.value
+        #expect(m.busy.isEmpty && m.accountsBusy.isEmpty)
+        #expect(m.message == nil)
+    }
+
+    @Test func attachingAnotherMemoryDoesNotMarkTheAccountBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let m = model(e)
+        m.reload()
+        _ = await m.addBrain(name: "Work", path: nil)
+        // The app bundle is not touched: opening it stays possible.
+        let task = Task { _ = await m.setBrain(of: "client", to: "work") }
+        for _ in 0..<1000 where m.working == nil { await Task.yield() }
+        #expect(m.working != nil)
+        #expect(m.busy.isEmpty)
+        await task.value
+        #expect(try e.store.load().identity(slug: "client")?.brain == "work")
+    }
+
+    @Test func editingThePrimaryNeverMarksItBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        // Opening the primary opens Claude itself, which no edit touches: its row keeps saying "Open".
+        let task = Task { await m.changeNote("ruben", to: "Personal") }
+        for _ in 0..<1000 where m.working == nil { await Task.yield() }
+        #expect(m.working != nil)
+        #expect(m.busy.isEmpty)
+        await task.value
+        #expect(try e.store.load().identity(slug: "ruben")?.note == "Personal")
+    }
+
+    // MARK: The primary while Claude runs
+
+    /// The real Claude's command line, with no --user-data-dir: the primary account is open.
+    func withClaudeOpen(_ e: ManagerEnv) -> AppModel {
+        let exe = e.claude.executable.path
+        return model(e, monitor: ProcessMonitor(psOutput: { "  800 1 90000 \(exe)\n" }))
+    }
+
+    @Test func editingThePrimaryWhileOpenSavesWithoutAskingToQuit() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = withClaudeOpen(e)
+        m.reload()
+        let ruben = try #require(m.accounts.first { $0.id == "ruben" })
+        #expect(ruben.isRunning)
+        var edit = AccountEdit(account: ruben, memory: "shared")
+        #expect(!edit.ownApp)
+        edit.name = "Ruben C"; edit.tint = .green; edit.note = "Personal"; edit.ownApp = true
+        await m.apply(edit, to: "ruben")
+        #expect(m.message == nil)
+        let saved = try #require(try e.store.load().primary)
+        #expect(saved.name == "Ruben C" && saved.tint == .green && saved.note == "Personal" && saved.ownApp == true)
+        #expect(m.appURL(of: "ruben") == e.home.paths.launcherApp(name: "Ruben C"))
+        #expect(m.accounts.first { $0.id == "ruben" }?.isRunning == true)
+        #expect(m.busy.isEmpty)
+        // Its own app can be rebuilt with Claude open too, and switched off again.
+        try FileManager.default.removeItem(at: e.home.paths.launcherApp(name: "Ruben C"))
+        await m.rebuild("ruben")
+        #expect(m.message == nil && m.appURL(of: "ruben") != nil)
+        var off = AccountEdit(account: try #require(m.accounts.first { $0.id == "ruben" }), memory: "shared")
+        #expect(off.ownApp)
+        off.ownApp = false
+        await m.apply(off, to: "ruben")
+        #expect(m.message == nil && m.appURL(of: "ruben") == nil)
+    }
+
+    /// Moving the memory links is not atomic: that one change still waits for Claude to quit, and it is said before
+    /// anything is saved, so an edit is never half applied.
+    @Test func thePrimarysMemoryStillWaitsForClaudeToQuit() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        let m = withClaudeOpen(e)
+        m.reload()
+        var edit = AccountEdit(account: try #require(m.accounts.first { $0.id == "ruben" }), memory: "work")
+        edit.note = "Personal"; edit.name = "Ruben C"
+        let failure = await m.apply(edit, to: "ruben")
+        #expect(failure?.title == "Ruben is open")
+        #expect(m.message == failure)
+        #expect(try e.store.load().primary?.note == nil)
+        #expect(try e.store.load().primary?.name == "Ruben")
+        #expect(try e.store.load().primary?.brain == nil)
+    }
+
+    /// A secondary's app is rebuilt when it is saved: it still has to be closed first.
+    @Test func editingAnOpenSecondaryStillAsksToQuitIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let exe = e.claude.executable.path, data = client.desktopData(in: e.home.paths).path
+        let m = model(e, monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe) --user-data-dir=\(data)\n" }))
+        m.reload()
+        var edit = AccountEdit(account: try #require(m.accounts.first { $0.id == "client" }), memory: "shared")
+        edit.note = "Work"
+        edit.ownApp = true   // the primary's switch: ignored for a secondary
+        await m.apply(edit, to: "client")
+        #expect(m.message?.title == "Client is open")
+        #expect(try e.store.load().identity(slug: "client")?.note == nil)
+        #expect(try e.store.load().identity(slug: "client")?.ownApp == nil)
+    }
+
+    @Test func theSidebarSeesAnUpdateUnderWayAsBusy() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        m.rebuilding.insert("client")   // updateAccount or the automatic check at work
+        #expect(m.accountsBusy == ["client"])
+        #expect(m.busy.isEmpty)          // two sets: the update's marker is never cleared by a nested change
+    }
+
+    // MARK: Apps the person made
+
+    /// The owner's "Claude Second" copies open Agency's adopted folders: the edit sheet of Agency lists
+    /// both, the primary's lists none, and the copies are left exactly as they were.
+    @Test func appsMadeByHandAreFoundForTheAccountTheyOpen() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let data = e.home.url.appending(path: "Library/Application Support/Claude-Second")
+        let profile = e.home.url.appending(path: ".claude-second")
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        _ = try CLIProfile.create(at: profile, inheritingFrom: nil)
+        var request = IdentityManager.AddRequest(name: "Agency")
+        request.adoptDesktopData = data; request.adoptCLIProfile = profile
+        _ = try e.manager.add(request)
+        let apps = e.home.url.appending(path: "Applications")
+        try FileManager.default.createDirectory(at: apps, withIntermediateDirectories: true)
+        let copy = try HandMadeApp.make("Claude Second", in: apps, script: HandMadeApp.ownersScript, version: "2.2553.13")
+        try HandMadeApp.make("Claude Second (ancienne 1.49585)", in: apps, script: HandMadeApp.ownersScript, version: "1.49585.0")
+        let m = model(e)
+        m.reload()
+
+        let found = await m.otherApps(opening: "agency")
+        #expect(found.map(\.name) == ["Claude Second", "Claude Second (ancienne 1.49585)"])
+        #expect(found.first?.url.path == copy.path)
+        #expect(await m.otherApps(opening: "ruben").isEmpty)
+        #expect(await m.otherApps(opening: "nobody").isEmpty)
+        #expect(FileManager.default.fileExists(atPath: copy.path))
+        #expect(m.message == nil)
+    }
+
+    // MARK: The launch splash
+
+    @Test func capturesAndDemosSkipTheSplash() {
+        for key in ["BRAINMERGE_CAPTURE", "BRAINMERGE_SCREEN", "BRAINMERGE_ONBOARDING_STEP"] {
+            #expect(AppModel.skipsSplash(environment: [key: "1"]), "\(key)")
+        }
+        #expect(!AppModel.skipsSplash(environment: [:]))
+        #expect(!AppModel.skipsSplash(environment: ["BRAINMERGE_HOME": "/tmp/demo"]))
+        #expect(!AppModel.skipsSplash(environment: ["BRAINMERGE_MEMORY_PRESSURE": "warning"]))
+    }
+
+    @Test func theSplashHoldsOnlyWhatRemainsOfTheMinimum() {
+        let minimum = Duration.milliseconds(480)
+        #expect(AppModel.splashHold(loaded: .milliseconds(70), minimum: minimum) == .milliseconds(410))
+        #expect(AppModel.splashHold(loaded: .milliseconds(480), minimum: minimum) == .zero)
+        #expect(AppModel.splashHold(loaded: .seconds(2), minimum: minimum) == .zero)
+        #expect(AppModel.splashHold(loaded: .zero, minimum: .zero) == .zero)
+    }
+
+    @Test func theFirstLoadRunsBehindTheSplashThenTheWindowIsReady() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let m = model(e)
+        #expect(m.launchPhase == .loading)
+        #expect(m.accounts.isEmpty)
+        var seenBeforeReady: (LaunchPhase, [String])?
+        await m.launch(minimum: .zero) { seenBeforeReady = (m.launchPhase, m.accounts.map(\.id)) }
+        #expect(m.launchPhase == .ready)
+        #expect(m.accounts.map(\.identity.slug) == ["ruben", "client"])
+        // The work before the first screen sees the loaded accounts, while the splash is still up.
+        #expect(seenBeforeReady?.0 == .loading)
+        #expect(seenBeforeReady?.1 == ["ruben", "client"])
+        // Loaded like any reload: the memory's history too.
+        let reference = model(e)
+        reference.reload()
+        #expect(m.brain?.root == reference.brain?.root)
+        #expect(m.lastMemorySave == reference.lastMemorySave && m.memoryCounts == reference.memoryCounts)
+    }
+
+    @Test func theSplashStaysAtLeastTheMinimum() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        let clock = ContinuousClock()
+        let start = clock.now
+        await m.launch(minimum: .milliseconds(300))
+        #expect(start.duration(to: clock.now) >= .milliseconds(300))
+        #expect(m.launchPhase == .ready)
+    }
+
+    @Test func theFirstLoadListsProcessesOffTheMainThread() async throws {
+        // The splash keeps walking while `ps` runs: only the main thread draws it.
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let threads = MainThreadLog()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { threads.record(); return "" }))
+        await m.launch(minimum: .zero)
+        #expect(threads.onMain == [false])
+    }
+
+    @Test func theLaunchRunsOnceEvenWhenTwoWindowsAsk() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let ps = PSCounter()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps.bump(); return "" }))
+        let first = Tally(), second = Tally(), late = Tally()
+        async let a: Void = m.launch(minimum: .milliseconds(50)) { first.count += 1 }
+        async let b: Void = m.launch(minimum: .milliseconds(50)) { second.count += 1 }
+        _ = await (a, b)
+        // One load for both windows, and each window's work before the first screen ran once.
+        #expect(ps.value == 1)
+        #expect(first.count == 1 && second.count == 1)
+        // Once ready, asking again changes nothing.
+        await m.launch(minimum: .zero) { late.count += 1 }
+        #expect(late.count == 0)
+        #expect(ps.value == 1)
+        #expect(m.launchPhase == .ready)
+    }
+
+    @Test func watchingStartsOnceWhoeverAsks() async throws {
+        // The launch and the onboarding switch can both ask right after the splash: one Claude check, not two.
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let ps = PSCounter()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps.bump(); return "" }))
+        m.startWatching()
+        m.startWatching()
+        #expect(m.isWatching)
+        m.stopWatching()   // no clock ticks from here: only the Claude checks the starts queued are left to run
+        #expect(!m.isWatching)
+        var waited = 0
+        while ps.value == 0, waited < 500 { try await Task.sleep(for: .milliseconds(20)); waited += 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(ps.value == 1)
+    }
+}
+
+/// Whether each `ps` ran on the main thread.
+final class MainThreadLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls: [Bool] = []
+    func record() { let main = Thread.isMainThread; lock.lock(); calls.append(main); lock.unlock() }
+    var onMain: [Bool] { lock.lock(); defer { lock.unlock() }; return calls }
+}
+
+@MainActor final class Tally { var count = 0 }
+
+/// A `ps` output a test can change between two reloads.
+final class PSOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = ""
+    var text: String {
+        get { lock.lock(); defer { lock.unlock() }; return value }
+        set { lock.lock(); value = newValue; lock.unlock() }
     }
 }

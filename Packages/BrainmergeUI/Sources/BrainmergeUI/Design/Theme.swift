@@ -30,6 +30,13 @@ public enum Theme {
         public static let field = Color.white.opacity(0.07)
         public static let selection = accent.opacity(0.18)
         public static let accentSoft = accent.opacity(0.35)
+        /// Sidebar rows under the pointer and while pressed: neutral cream, fainter than `selection`,
+        /// so the purple keeps meaning "selected".
+        public static let rowHover = text.opacity(0.06)
+        public static let rowPressed = text.opacity(0.10)
+        /// The threads of the memory graph, at rest and lit by a hovered or selected note.
+        public static let graphLink = Color(hex: "#F4EFE6").opacity(0.22)
+        public static let graphLinkLit = Color(hex: "#F4EFE6").opacity(0.55)
 
         // States: open, saved.
         public static let sage = Color(hex: "#8FC7A6")
@@ -58,6 +65,23 @@ public enum Theme {
         public static let glowOpacity = 0.0      // no glow behind the creature
     }
 
+    /// The launch: the creature walks on the splash while the first load runs, then the window crossfades to its screen.
+    public enum Launch {
+        /// One pixel of the creature, in points: a whole number keeps its edges crisp.
+        public static let unit: CGFloat = 7
+        /// One frame of the four-frame walk (a 0.48 s step cycle, stepped like pixel art).
+        public static let frameDuration: TimeInterval = 0.12
+        /// The shortest the splash stays, counted from its first frame; the load's own time counts toward it.
+        public static let minimumVisible: Duration = .milliseconds(480)
+        /// The crossfade to the first screen, and its plain dissolve with Reduce Motion.
+        public static let fade: TimeInterval = 0.25
+        public static let reducedFade: TimeInterval = 0.15
+        /// "Waking up…" appears only when the load takes longer than this.
+        public static let slowCaptionAfter: TimeInterval = 1.5
+        /// The creature sits this much above the window's center.
+        public static let lift: CGFloat = 20
+    }
+
     /// Account tints, soft and legible on the dark background. The core's red tint is rendered as pink.
     public static func hex(for tint: Tint) -> String {
         switch tint {
@@ -83,6 +107,8 @@ public enum Theme {
     public enum Layout {
         public static let padding: CGFloat = 20
         public static let cardRadius: CGFloat = 12
+        /// The rows of the sidebar: screens and accounts, their hover, press and selection fills.
+        public static let rowRadius: CGFloat = 10
         /// Reading column of the Memory and Usage screens: cards never stretch beyond it.
         public static let readingWidth: CGFloat = 880
         /// The settings form.

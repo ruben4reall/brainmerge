@@ -310,4 +310,299 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.brainNameEmpty) { try e.manager.renameBrain(id: "shared", name: "") }
         #expect(try e.store.load().brains.count == 1)
     }
+
+    // MARK: Swapping two names
+
+    func launcherConfig(_ app: URL) throws -> LauncherConfig {
+        try JSONDecoder().decode(LauncherConfig.self, from: Data(contentsOf: app.appending(path: "Contents/Resources/brainmerge.json")))
+    }
+
+    func appsInLaunchersDir(_ e: ManagerEnv) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: e.home.paths.launchersDir.path)) ?? []).filter { $0.hasSuffix(".app") }.sorted()
+    }
+
+    @Test func swappingNamesRenamesBothAccountsAndTheirApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let agency = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
+        try e.manager.swapNames("ruben", with: "agency")
+        let state = try e.store.load()
+        #expect(state.identity(slug: "ruben")?.name == "Agency")
+        #expect(state.identity(slug: "agency")?.name == "Ruben")
+        // The secondary's app carries its new name and still opens its own folders; no temporary app is left behind.
+        #expect(appsInLaunchersDir(e) == ["Ruben.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Ruben")).dataDir == agency.desktopData(in: e.home.paths).path)
+        // Claude's instructions and the memory's list of accounts follow.
+        let primaryMD = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        #expect(primaryMD.contains("identity \"Agency\""))
+        let agencyMD = try String(contentsOf: CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD, encoding: .utf8)
+        #expect(agencyMD.contains("identity \"Ruben\""))
+        let registry = try IdentityRegistry.load(e.brain.identitiesFile).identities
+        #expect(registry["ruben"]?.name == "Agency" && registry["agency"]?.name == "Ruben")
+    }
+
+    @Test func swappingTheNamesOfTwoSecondariesKeepsEachAppOnItsOwnFolders() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let work = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try e.manager.swapNames("work", with: "client")
+        #expect(try e.store.load().identity(slug: "work")?.name == "Client")
+        #expect(try e.store.load().identity(slug: "client")?.name == "Work")
+        #expect(appsInLaunchersDir(e) == ["Client.app", "Work.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Client")).dataDir == work.desktopData(in: e.home.paths).path)
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Work")).dataDir == client.desktopData(in: e.home.paths).path)
+    }
+
+    @Test func swappingNamesWithAnOpenSecondaryChangesNothing() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let agency = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
+        let exe = e.claude.executable.path, data = agency.desktopData(in: e.home.paths).path
+        let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath, claudeAppURL: e.claude.url,
+                                      registerLaunchers: false, monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe) --user-data-dir=\(data)\n" }))
+        #expect(throws: BrainmergeError.identityRunning("agency")) { try manager.swapNames("ruben", with: "agency") }
+        #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
+        #expect(appsInLaunchersDir(e) == ["Agency.app"])
+    }
+
+    @Test func swappingNamesWithoutClaudeChangesNothing() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
+        try FileManager.default.removeItem(at: e.claude.url)
+        #expect(throws: BrainmergeError.self) { try e.manager.swapNames("ruben", with: "agency") }
+        #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
+        #expect(appsInLaunchersDir(e) == ["Agency.app"])
+    }
+
+    /// Files the swap or a rename must not touch when it fails, with a date in the past: a write would change it.
+    func pinDates(_ urls: [URL]) throws {
+        for url in urls {
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)], ofItemAtPath: url.path)
+        }
+    }
+
+    func dates(_ urls: [URL]) throws -> [Date?] {
+        try urls.map { try FileManager.default.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date }
+    }
+
+    /// The secondary's photo went missing, so its app cannot be built: the swap fails before anything is written.
+    /// Both accounts keep their names everywhere (state, Claude's instructions, the memory's list), and the Dock app
+    /// that was there still opens its account.
+    @Test func aSwapThatCannotBuildAnAppLeavesBothAccountsAsTheyWere() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        var request = IdentityManager.AddRequest(name: "Agency")
+        request.logo = try FakeIcon.orangePNG(in: e.home.url)
+        let agency = try e.manager.add(request)
+        try FileManager.default.removeItem(at: try #require(request.logo))
+        let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
+        let untouched = [e.home.paths.stateFile, e.primaryProfile.claudeMD, agencyMD, e.brain.identitiesFile]
+        try pinDates(untouched)
+
+        #expect(throws: (any Error).self) { try e.manager.swapNames("ruben", with: "agency") }
+
+        #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))
+        #expect(try String(contentsOf: agencyMD, encoding: .utf8).contains("identity \"Agency\""))
+        let registry = try IdentityRegistry.load(e.brain.identitiesFile).identities
+        #expect(registry["ruben"]?.name == "Ruben" && registry["agency"]?.name == "Agency")
+        // Nothing was written before the apps were ready: no temporary name ever reached a file.
+        #expect(try dates(untouched) == Array(repeating: Date(timeIntervalSince1970: 1_700_000_000), count: untouched.count))
+        #expect(appsInLaunchersDir(e) == ["Agency.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Agency")).dataDir == agency.desktopData(in: e.home.paths).path)
+    }
+
+    /// A rename whose new app cannot be built keeps the old name everywhere, and the old app in the Dock.
+    @Test func aRenameThatCannotBuildItsAppChangesNothing() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        var request = IdentityManager.AddRequest(name: "Agency")
+        request.logo = try FakeIcon.orangePNG(in: e.home.url)
+        let agency = try e.manager.add(request)
+        try FileManager.default.removeItem(at: try #require(request.logo))
+        let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
+
+        #expect(throws: (any Error).self) { try e.manager.update(slug: "agency", name: "Agency", tint: nil, logo: nil) }
+
+        #expect(try e.store.load().identity(slug: "agency")?.name == "Agency")
+        #expect(try String(contentsOf: agencyMD, encoding: .utf8).contains("identity \"Agency\""))
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["agency"]?.name == "Agency")
+        #expect(appsInLaunchersDir(e) == ["Agency.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Agency")).dataDir == agency.desktopData(in: e.home.paths).path)
+    }
+
+    /// Without Claude installed, a secondary's app cannot be rebuilt: the old one stays where it is.
+    @Test func aRenameWithoutClaudeKeepsTheOldApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try FileManager.default.removeItem(at: e.claude.url)
+        #expect(throws: (any Error).self) { try e.manager.update(slug: "client", name: "Studio", tint: nil, logo: nil) }
+        #expect(try e.store.load().identity(slug: "client")?.name == "Client")
+        #expect(appsInLaunchersDir(e) == ["Client.app"])
+    }
+
+    /// The primary's own app follows the same order: a rename that cannot build the new app keeps the old one.
+    @Test func thePrimarysOwnAppSurvivesARenameThatCannotBuild() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let photo = try FakeIcon.orangePNG(in: e.home.url)
+        _ = try e.manager.update(slug: "ruben", name: nil, tint: nil, logo: photo, ownApp: true)
+        try FileManager.default.removeItem(at: photo)
+        #expect(throws: (any Error).self) { try e.manager.update(slug: "ruben", name: "Ruben C", tint: nil, logo: nil) }
+        #expect(try e.store.load().primary?.name == "Ruben")
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))
+        #expect(appsInLaunchersDir(e) == ["Ruben.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Ruben")).openApp == e.claude.url.path)
+    }
+
+    /// Two tinted copies (or launchers) each take the other's name: no temporary app, no orphan copy.
+    @Test func swappingLeavesNoTemporaryAppBehind() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        var work = IdentityManager.AddRequest(name: "Work"); work.iconMode = .tintedClone
+        _ = try e.manager.add(work)
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try e.manager.swapNames("work", with: "client")
+        #expect(appsInLaunchersDir(e) == ["Client (Claude).app", "Work.app"])
+        #expect(try e.store.load().identity(slug: "work")?.builtForClaudeVersion == e.claude.version)
+    }
+
+    // MARK: The primary: Claude itself
+
+    /// A manager that sees the primary Claude running (the real Claude's command line: no --user-data-dir).
+    func withClaudeOpen(_ e: ManagerEnv) -> IdentityManager {
+        let exe = e.claude.executable.path
+        return IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath, claudeAppURL: e.claude.url,
+                               registerLaunchers: false, monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe)\n" }))
+    }
+
+    /// Every file of an app bundle, byte for byte.
+    func files(of app: URL) throws -> [String: Data] {
+        var files: [String: Data] = [:]
+        let walk = try #require(FileManager.default.enumerator(at: app, includingPropertiesForKeys: [.isRegularFileKey]))
+        for case let url as URL in walk where (try url.resourceValues(forKeys: [.isRegularFileKey])).isRegularFile == true {
+            files[url.path] = try Data(contentsOf: url)
+        }
+        return files
+    }
+
+    @Test func editingThePrimaryWhileClaudeRunsSucceeds() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let manager = withClaudeOpen(e)
+        #expect(try manager.isRunning(try #require(try e.store.load().primary)))
+        let updated = try manager.update(slug: "ruben", name: "Ruben C", tint: .green, logo: nil, note: "Personal")
+        #expect(updated.name == "Ruben C" && updated.tint == .green && updated.note == "Personal")
+        #expect(try e.store.load().primary == updated)
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben C\""))
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["ruben"] == IdentityRegistry.Entry(name: "Ruben C", tint: "green"))
+        // Its memory still waits for Claude to quit: moving the memory links is not atomic.
+        _ = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        #expect(throws: BrainmergeError.identityRunning("ruben")) { try manager.setBrain(of: "ruben", to: "work") }
+        #expect(try e.store.load().primary?.brain == nil)
+    }
+
+    /// An own app that opens Claude is for the first account only: another account already has its app.
+    @Test func anOwnAppIsForTheFirstAccountOnly() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let after = try e.manager.update(slug: "client", name: nil, tint: nil, logo: nil, ownApp: true)
+        #expect(after.ownApp == nil)
+        #expect(try e.store.load().identity(slug: "client")?.ownApp == nil)
+    }
+
+    @Test func thePrimaryGetsAnOpenerAppAndClaudeIsUntouched() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let claudeBefore = try files(of: e.claude.url)
+        let manager = withClaudeOpen(e)
+
+        let on = try manager.update(slug: "ruben", name: nil, tint: nil, logo: nil, ownApp: true)
+        let app = e.home.paths.launcherApp(name: "Ruben")
+        #expect(on.ownApp == true)
+        #expect(try e.store.load().primary?.ownApp == true)
+        #expect(on.appURL(in: e.home.paths) == app)
+        #expect(appsInLaunchersDir(e) == ["Ruben.app"])
+        #expect(try launcherConfig(app) == LauncherConfig(openApp: e.claude.url.path))
+        #expect(FileManager.default.fileExists(atPath: app.appending(path: "Contents/Resources/icon.icns").path))
+
+        // It follows the name; switched off, it goes.
+        _ = try manager.update(slug: "ruben", name: "Ruben C", tint: .green, logo: nil)
+        #expect(appsInLaunchersDir(e) == ["Ruben C.app"])
+        let off = try manager.update(slug: "ruben", name: nil, tint: nil, logo: nil, ownApp: false)
+        #expect(off.ownApp == false && off.appURL(in: e.home.paths) == nil)
+        #expect(appsInLaunchersDir(e).isEmpty)
+
+        // Claude itself: not a byte changed, and never a copy of it.
+        #expect(try files(of: e.claude.url) == claudeBefore)
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.tintedClone(name: "Ruben").path))
+    }
+
+    @Test func thePrimaryNeverGetsATintedCopy() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let claudeBefore = try files(of: e.claude.url)
+        #expect(throws: BrainmergeError.primaryIsClaude) { try e.manager.update(slug: "ruben", name: nil, tint: nil, logo: nil, iconMode: .tintedClone) }
+        #expect(try e.store.load().primary?.iconMode == .launcher)
+        #expect(appsInLaunchersDir(e).isEmpty)
+        // Even a state that asks for one (edited by hand) only ever gets the opener.
+        var state = try e.store.load()
+        state.identities[0].iconMode = .tintedClone
+        state.identities[0].ownApp = true
+        try e.store.save(state)
+        try e.manager.rebuild(slug: "ruben")
+        #expect(appsInLaunchersDir(e) == ["Ruben.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Ruben")).openApp == e.claude.url.path)
+        #expect(try files(of: e.claude.url) == claudeBefore)
+    }
+
+    @Test func thePrimarysOwnAppIsRebuiltAndRemovedWhileClaudeRuns() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let manager = withClaudeOpen(e)
+        try manager.rebuild(slug: "ruben")   // switched off: nothing to build
+        #expect(appsInLaunchersDir(e).isEmpty)
+        _ = try manager.update(slug: "ruben", name: nil, tint: nil, logo: nil, ownApp: true)
+        try FileManager.default.removeItem(at: e.home.paths.launcherApp(name: "Ruben"))
+        try manager.rebuild(slug: "ruben")
+        #expect(appsInLaunchersDir(e) == ["Ruben.app"])
+        try manager.remove(slug: "ruben", deleteData: false)
+        #expect(appsInLaunchersDir(e).isEmpty)
+        #expect(FileManager.default.fileExists(atPath: e.claude.url.path))
+    }
+
+    /// The opener is only rebuilt when what it shows changes: a note needs no Claude app.
+    @Test func aNoteOnThePrimaryNeedsNoClaudeApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.update(slug: "ruben", name: nil, tint: nil, logo: nil, ownApp: true)
+        try FileManager.default.removeItem(at: e.claude.url)
+        #expect(try e.manager.update(slug: "ruben", name: nil, tint: nil, logo: nil, note: "Personal").note == "Personal")
+        #expect(appsInLaunchersDir(e) == ["Ruben.app"])
+    }
+
+    @Test func swappingNamesWhileThePrimaryRunsRenamesBothApps() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let agency = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
+        let manager = withClaudeOpen(e)
+        _ = try manager.update(slug: "ruben", name: nil, tint: nil, logo: nil, ownApp: true)
+        try manager.swapNames("ruben", with: "agency")
+        #expect(try e.store.load().identities.map(\.name) == ["Agency", "Ruben"])
+        #expect(appsInLaunchersDir(e) == ["Agency.app", "Ruben.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Agency")).openApp == e.claude.url.path)
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Ruben")).dataDir == agency.desktopData(in: e.home.paths).path)
+    }
+
+    @Test func swappingNamesNeedsTwoKnownAccounts() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        #expect(throws: BrainmergeError.identityNotFound("nobody")) { try e.manager.swapNames("ruben", with: "nobody") }
+        try e.manager.swapNames("ruben", with: "ruben")   // with itself: nothing to do
+        #expect(try e.store.load().identities.map(\.name) == ["Ruben"])
+    }
 }

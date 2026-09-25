@@ -139,9 +139,45 @@ import BrainmergeTestSupport
         #expect(FileManager.default.fileExists(atPath: e.brain.brainMD.path))
     }
 
+    /// The email Claude Code records is shown in the window only: the command line never prints it.
+    @Test func theCommandLineNeverPrintsTheClaudeCodeEmail() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let email = "ruben.sentinel@example.com"
+        let file = e.home.url.appending(path: ".claude.json")
+        try Data(#"{"projects":{"\#(e.atelier)":{}},"oauthAccount":{"emailAddress":"\#(email)","displayName":"Ruben"}}"#.utf8).write(to: file)
+        #expect(try run(e, ["adopt-primary", "--name", "Perso"]).status == 0)
+        // Only its Claude Code folder matters here: no app is built, so nothing is registered with Launch Services.
+        #expect(try run(e, ["identity", "add", "--name", "Client", "--no-desktop"]).status == 0)
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.launcherApp(name: "Client").path))
+        let client = CLIProfile(directory: e.home.paths.cliProfile(slug: "client", isPrimary: false))
+        try Data(#"{"oauthAccount":{"emailAddress":"client.sentinel@example.com"}}"#.utf8).write(to: client.accountFile)
+        for arguments in [["doctor"], ["doctor", "--json"], ["identity", "list"], ["identity", "list", "--json"], ["brain", "status"]] {
+            let result = try run(e, arguments)
+            let output = result.stdout + result.stderr
+            #expect(!output.contains("sentinel@example.com"), "\(arguments)")
+        }
+        #expect(!(try String(contentsOf: e.home.paths.stateFile, encoding: .utf8)).contains("sentinel"))
+    }
+
+    /// The primary is Claude itself: never a tinted copy, only its own app, and only the primary has one.
+    @Test func thePrimaryGetsItsOwnAppNeverACopy() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        #expect(try run(e, ["adopt-primary", "--name", "Perso"]).status == 0)
+        let copy = try run(e, ["identity", "edit", "perso", "--icon", "distinct"])
+        #expect(copy.status != 0)
+        #expect(copy.stderr.contains("never makes a copy") && copy.stderr.contains("--own-app on"))
+        #expect(try run(e, ["identity", "edit", "perso", "--own-app", "maybe"]).status != 0)
+        #expect(try run(e, ["identity", "add", "--name", "Client", "--no-desktop"]).status == 0)
+        let secondary = try run(e, ["identity", "edit", "client", "--own-app", "on"])
+        #expect(secondary.status != 0 && secondary.stderr.contains("primary"))
+        #expect(try run(e, ["identity", "edit", "perso", "--own-app", "off"]).status == 0)
+        #expect(try e.store.load().primary?.ownApp == false)
+        #expect(try e.store.load().identity(slug: "client")?.ownApp == nil)
+    }
+
     @Test func versionMatchesTheApp() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         #expect(try run(e, ["--version"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines) == BrainmergeInfo.version)
-        #expect(BrainmergeInfo.version == "0.3.0")
+        #expect(BrainmergeInfo.version == "0.5.0")
     }
 }

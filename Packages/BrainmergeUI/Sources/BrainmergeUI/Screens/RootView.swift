@@ -9,6 +9,8 @@ public struct RootView: View {
         case accounts, memory, usage, settings
         public var id: String { rawValue }
         var title: String { rawValue.capitalized }
+        /// Cmd-1 to Cmd-4, in the sidebar's order.
+        var digit: Character { Character(String((Self.allCases.firstIndex(of: self) ?? 0) + 1)) }
         var symbol: String {
             switch self { case .accounts: "person.2"; case .memory: "brain"; case .usage: "chart.bar"; case .settings: "slider.horizontal.3" }
         }
@@ -16,6 +18,7 @@ public struct RootView: View {
 
     @Bindable var model: AppModel
     @State private var onboarding: OnboardingModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var section: Section = Section(rawValue: ProcessInfo.processInfo.environment["BRAINMERGE_SCREEN"] ?? "") ?? .accounts   // add opens accounts with the sheet
 
     public init(model: AppModel) {
@@ -24,34 +27,62 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        Group {
-            if model.needsOnboarding || !onboarding.finished {
-                OnboardingView(model: onboarding)
-            } else {
-                ZStack {
-                    WarmBackground(accents: model.openAccounts.map(\.identity.tint))
-                    HStack(spacing: 0) {
-                        sidebar.padding(12)
-                        detail
-                    }
-                }
+        // The splash while the first load runs, then a crossfade to the screens (a plain, shorter dissolve with Reduce Motion).
+        ZStack {
+            switch model.launchPhase {
+            case .loading: LaunchView().transition(.opacity)
+            case .ready: screens.transition(.opacity)
             }
         }
+        .animation(reduceMotion ? .linear(duration: Theme.Launch.reducedFade) : .easeOut(duration: Theme.Launch.fade), value: model.launchPhase)
         .frame(minWidth: 960, minHeight: 640)
         .font(Theme.Fonts.body)
         .preferredColorScheme(.dark)
-        .task { model.offerMoveIfNeeded(); if !model.needsOnboarding { model.startWatching() } }
-        // Back in front: Claude may have updated itself in the meantime.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            if !model.needsOnboarding { Task { await model.checkClaudeUpdate() } }
+        .task {
+            // The first load runs behind the splash once per process; a window opened later finds it done and no splash.
+            // The onboarding models built meanwhile decide on their own right before the switch (OnboardingModel.init).
+            await model.launch()
+            guard !Task.isCancelled else { return }
+            model.offerMoveIfNeeded()
+            if !model.needsOnboarding { model.startWatching() }
         }
-        .onChange(of: model.needsOnboarding) { _, needs in if needs { model.stopWatching() } else { model.startWatching() } }
+        // Back in front: Claude may have updated itself in the meantime.
+        // And a login may have changed in Claude Code: the emails on the accounts are read again.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.windowBecameActive()
+        }
+        // The first load changes it behind the splash: the launch above starts watching then, not this.
+        .onChange(of: model.needsOnboarding) { _, needs in
+            guard model.launchPhase == .ready else { return }
+            if needs { model.stopWatching() } else { model.startWatching() }
+        }
         .onDisappear { model.stopWatching() }
+        // The splash's only element goes away: VoiceOver hears that the accounts are there.
+        .onChange(of: model.launchPhase) { _, phase in
+            if phase == .ready { AccessibilityNotification.Announcement(LaunchView.readyAnnouncement).post() }
+        }
+        // The menu bar switches screens (Cmd-1 to Cmd-4, Cmd-comma), once the screens are there.
+        .focusedSceneValue(\.brainmergeSection, model.launchPhase == .ready && !model.needsOnboarding && onboarding.finished ? $section : nil)
         .alert(model.message?.title ?? "", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } }), presenting: model.message) { m in
             if m.action != nil { Button(m.actionLabel ?? "OK") { perform(m) } }
             Button(m.action == .moveToApplications ? "Not now" : "OK", role: .cancel) { if m.action == .moveToApplications { Installer.remember(declined: Installer.bundlePath) } }
         } message: { m in
             Text(m.detail)
+        }
+    }
+
+    /// The guided setup, or the main window once everything is in place.
+    @ViewBuilder var screens: some View {
+        if model.needsOnboarding || !onboarding.finished {
+            OnboardingView(model: onboarding)
+        } else {
+            ZStack {
+                WarmBackground(accents: model.openAccounts.map(\.identity.tint))
+                HStack(spacing: 0) {
+                    sidebar.padding(12)
+                    detail
+                }
+            }
         }
     }
 
@@ -80,34 +111,47 @@ public struct RootView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
+    /// A screen: the whole row switches to it; the View menu too, with Cmd-1 to Cmd-4 (BrainmergeCommands).
     func navRow(_ s: Section) -> some View {
-        Button { section = s } label: {
+        let selected = section == s
+        return Button { section = s } label: {
             Label(s.title, systemImage: s.symbol)
-                .font(.system(size: 13.5, weight: section == s ? .semibold : .regular))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.system(size: 13.5, weight: selected ? .semibold : .regular))
                 .padding(.horizontal, 10).padding(.vertical, 7)
-                .background(section == s ? Theme.Colors.selection : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarRowStyle(selected: selected))
+        .help("\(s.title) (Command-\(String(s.digit)))")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
+    /// An account: the word on the right says what a click does (see SidebarAccountAction).
     func accountRow(_ account: Account) -> some View {
-        Button { model.open(account.id) } label: {
+        let othersOpen = model.openAccounts.contains { $0.id != account.id }
+        let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
+                                             othersOpen: othersOpen, appExists: model.appURL(of: account.id) != nil)
+        let help = action.help(for: account, othersOpen: othersOpen)
+        return Button { Task { await model.perform(action, on: account.id) } } label: {
             HStack(spacing: 9) {
                 OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 22)
                 Text(account.identity.name).font(.system(size: 13)).lineLimit(1)
-                Spacer()
-                if account.isRunning { Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4) }
+                Spacer(minLength: 4)
+                HStack(spacing: 6) {
+                    if let label = action.label { SidebarRowHint(text: label) }
+                    if account.isRunning { Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4) }
+                }
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(SidebarRowStyle())
+        .disabled(!action.isEnabled)
+        .help(help)
+        .accessibilityLabel(action.accessibilityLabel(for: account))
+        .accessibilityHint(help)
     }
 
     var creatureState: CreatureState {
         if let last = model.lastMemorySave, Date().timeIntervalSince(last) < 10 { return .glowing }
-        if model.openingSlug != nil || !model.openAccounts.isEmpty { return .awake }
+        if !model.opening.isEmpty || !model.openAccounts.isEmpty { return .awake }
         return .asleep
     }
 
@@ -115,7 +159,7 @@ public struct RootView: View {
         switch creatureState {
         case .glowing: return "Memory saved just now"
         case .awake:
-            if model.openingSlug != nil { return "Opening…" }
+            if !model.opening.isEmpty { return "Opening…" }
             let n = model.openAccounts.count
             return n == 1 ? "1 account open" : "\(n) accounts open"
         case .asleep: return "No account open"

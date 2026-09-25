@@ -16,11 +16,17 @@ public struct Account: Identifiable, Equatable, Sendable {
     /// Its Claude data folder holds a logged-in session (names of files only, see DesktopSession).
     public var hasSession: Bool = false
     public var claudeVersion: ClaudeVersionState = .notApplicable
+    /// The account Claude Code last recorded in this account's folder, for display only (never stored, see ClaudeCodeAccount).
+    /// Nil when Claude Code is off for this account, has not logged in, or logged out.
+    public var codeAccount: ClaudeCodeAccount? = nil
     public var id: String { identity.slug }
     /// A desktop account that has not logged in yet.
     public var needsLogin: Bool { identity.surfaces.desktop && !hasSession }
     public var isOutdated: Bool { if case .outdated = claudeVersion { return true }; return false }
 }
+
+/// Whether the window still shows the launch splash (the first load is running) or its screens.
+public enum LaunchPhase: Equatable, Sendable { case loading, ready }
 
 public struct UserMessage: Identifiable, Equatable, Sendable {
     /// What a message's button does: typed, so it never depends on a label.
@@ -52,9 +58,22 @@ public final class AppModel {
     /// What opens the memory folder (see NotesApps.target).
     public private(set) var notesApp: String?
     public var message: UserMessage?
-    public private(set) var openingSlug: String?
-    /// A waiting sentence while heavy core work runs off the main thread.
-    public private(set) var working: String?
+    /// Accounts launched and not seen running yet: cleared as soon as `reload()` sees their process,
+    /// or after a few seconds if it never shows up.
+    public private(set) var opening: Set<String> = []
+    private var openingMarks: [String: Int] = [:]
+    /// Accounts whose app bundle is being rebuilt, updated or removed right now: opening one would open a half-built app.
+    /// Kept apart from `rebuilding`, whose marker must outlive the nested rebuild of an update.
+    public private(set) var busy: Set<String> = []
+    private var busyCount: [String: Int] = [:]
+    /// A waiting sentence while heavy core work runs off the main thread: the work running now, while any remains.
+    public var working: String? { workLabels.first?.label }
+    private struct WorkLabel { let id: Int; let label: String }
+    /// Every core work started and not finished yet, in the order it runs.
+    private var workLabels: [WorkLabel] = []
+    private var lastWorkID = 0
+    /// Core work runs here, one at a time and in order: two changes never read and save the state at the same time.
+    private let coreQueue = DispatchQueue(label: "ch.rubencatalao.brainmerge.core", qos: .userInitiated)
     /// The last process brought to the front by "Show" (observable in tests).
     public private(set) var lastShownProcess: Int32?
     public private(set) var lastMemorySave: Date?
@@ -76,15 +95,37 @@ public final class AppModel {
     private var logos: [String: NSImage] = [:]
     /// Automatic rebuilds already reported (slug and Claude version): one sentence, not one every five minutes.
     private var reportedRebuildFailures: Set<String> = []
+    /// The Claude Code account of each account, kept apart from `accounts` (rebuilt from the state on every reload) and read
+    /// again only by `refreshCodeAccounts()`. In memory only: the email is never written anywhere.
+    private var codeAccounts: [String: ClaudeCodeAccount] = [:]
+    /// Accounts whose Claude Code account was read at least once: a reload reads only the ones it has never seen.
+    private var codeAccountsRead: Set<String> = []
+    private var codeAccountCache = ClaudeCodeAccountCache()
+
+    /// The live graph of the memory shown on the Memory screen; kept here so its layout survives switching screens.
+    public let memoryGraph = MemoryGraphModel()
 
     public let paths: Paths
     public let store: StateStore
     public let manager: IdentityManager
     public let claudeAppURL: URL
+    /// Where apps the person made are looked for: ~/Applications, and /Applications for the real home only.
+    public var appFolders: [URL]
     private let watchers = Watchers()
+    /// The clocks run: several windows, the launch and the onboarding switch can all ask, the clocks start once.
+    public private(set) var isWatching = false
+
+    /// `.loading` from the process start until the first load is done: the window shows the splash meanwhile.
+    public private(set) var launchPhase: LaunchPhase = .loading
+    private var launchTask: Task<Void, Never>?
+    private var beforeReady: [@MainActor () -> Void] = []
+    /// Read off the main thread by the first load, then used once by `reload()` and `refreshMemory()`.
+    private var prefetchedSnapshot: ProcessMonitor.Snapshot?
+    private var prefetchedLog: (root: URL, entries: [BrainGit.Entry])?
 
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
+        appFolders = ExistingApps.folders(for: paths)
     }
 
     /// The installed app's model: engine embedded in the bundle. The command line link is only set up
@@ -100,8 +141,69 @@ public final class AppModel {
             let level: MemoryPressure.Level = forced == "critical" ? .critical : forced == "warning" ? .warning : .normal
             model.memoryPressure = { level }
         }
-        model.reload()
+        // Captures and demos photograph the final screen: they load at once, as before. Otherwise the load runs behind the splash.
+        if skipsSplash(environment: ProcessInfo.processInfo.environment) {
+            model.reload()
+            model.launchPhase = .ready
+        }
         return model
+    }
+
+    // MARK: Launch
+
+    /// Captures, README pictures and demos never show the splash (BRAINMERGE_CAPTURE, BRAINMERGE_SCREEN, BRAINMERGE_ONBOARDING_STEP).
+    static func skipsSplash(environment: [String: String]) -> Bool {
+        ["BRAINMERGE_CAPTURE", "BRAINMERGE_SCREEN", "BRAINMERGE_ONBOARDING_STEP"].contains { environment[$0] != nil }
+    }
+
+    /// What the splash still waits once the load is done: a fast launch shows one step of the walk, a slow one waits no more.
+    static func splashHold(loaded: Duration, minimum: Duration) -> Duration { max(.zero, minimum - loaded) }
+
+    /// Runs `work` once the first load is done, right before the first screen appears (in the same main-actor turn as
+    /// the switch to `.ready`, so nothing decided from an empty model ever shows). Nothing once ready: whatever is built
+    /// after that sees loaded data already.
+    public func runBeforeReady(_ work: @escaping @MainActor () -> Void) {
+        if launchPhase == .loading { beforeReady.append(work) }
+    }
+
+    /// The first load, behind the splash, once per process however many windows ask: lets the splash draw its first frame,
+    /// loads (`ps` and the memory's history off the main thread, so the walk keeps drawing), holds the splash for what
+    /// remains of `minimum`, runs the work waiting for the first screen, then switches to `.ready`. Once ready, it does nothing.
+    /// The load is an unstructured task: a window closed during the splash does not cancel it.
+    public func launch(minimum: Duration = Theme.Launch.minimumVisible, beforeReady work: @escaping @MainActor () -> Void = {}) async {
+        guard launchPhase == .loading else { return }
+        runBeforeReady(work)
+        let task = launchTask ?? Task { await loadBehindSplash(minimum: minimum) }
+        launchTask = task
+        await task.value
+    }
+
+    private func loadBehindSplash(minimum: Duration) async {
+        let clock = ContinuousClock()
+        let start = clock.now
+        try? await Task.sleep(for: .milliseconds(16))   // the splash's first frame is on screen before any work; counts toward the minimum
+        await loadFirstTime()
+        let hold = Self.splashHold(loaded: start.duration(to: clock.now), minimum: minimum)
+        if hold > .zero { try? await Task.sleep(for: hold) }
+        let waiting = beforeReady
+        beforeReady = []
+        for work in waiting { work() }
+        launchPhase = .ready
+    }
+
+    /// `reload()` with its two subprocesses (`ps`, and `git log` of the default memory) run off the main thread first.
+    private func loadFirstTime() async {
+        let monitor = manager.monitor, store = self.store
+        let (snapshot, log) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?) in
+            let snapshot = (try? monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+            let brain = (try? store.load())?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
+            return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) })
+        }.value
+        prefetchedSnapshot = snapshot
+        prefetchedLog = log
+        reload()
+        prefetchedSnapshot = nil
+        prefetchedLog = nil
     }
 
     /// The command line embedded in the app (task 8), looked up by its exact name.
@@ -130,14 +232,17 @@ public final class AppModel {
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
         else if selectedBrainID == nil, let first = state.defaultBrain { selectedBrainID = first.id }
-        let snapshot = (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+        let snapshot = prefetchedSnapshot ?? (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
         let claudeApp = claude
         var memory: [String: Int64] = [:]
+        codeAccountsRead.formIntersection(state.identities.map(\.slug))
+        readCodeAccounts(of: state.identities.filter { !codeAccountsRead.contains($0.slug) })
         set(\.accounts, state.identities.map { identity in
             let main = claudeApp.flatMap { app in snapshot.mains.first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: app) } }
             if let main { memory[identity.slug] = snapshot.residentBytes(of: main.pid) }
             let session = identity.surfaces.desktop && DesktopSession.hasSession(dataDir: identity.desktopData(in: paths))
-            return Account(identity: identity, isRunning: main != nil, hasSession: session, claudeVersion: Self.versionState(of: identity, claude: claudeApp))
+            return Account(identity: identity, isRunning: main != nil, hasSession: session, claudeVersion: Self.versionState(of: identity, claude: claudeApp),
+                           codeAccount: codeAccounts[identity.slug])
         })
         let step: Int64 = 16 * 1024 * 1024
         func coarse(_ m: [String: Int64]) -> [String: Int64] { m.mapValues { ($0 + step / 2) / step } }
@@ -147,10 +252,45 @@ public final class AppModel {
             changed = true
         }
         set(\.memoryWarning, Self.memoryWarning(level: memoryPressure(), open: openAccounts.count, bytes: totalResidentBytes))
+        // A window that showed up is no longer "opening".
+        set(\.opening, opening.subtracting(openAccounts.map(\.id)))
         return changed
     }
 
     public func residentBytes(of slug: String) -> Int64 { memoryBySlug[slug] ?? 0 }
+
+    // MARK: Which account Claude Code uses
+
+    /// Reads again the account Claude Code recorded for every account (only the files that changed are parsed):
+    /// at launch, on the minute clock and when the window comes back to the front. Never on the 3-second reload.
+    public func refreshCodeAccounts() {
+        let identities = accounts.map(\.identity)
+        codeAccountsRead = []
+        codeAccounts = codeAccounts.filter { slug, _ in identities.contains { $0.slug == slug } }
+        readCodeAccounts(of: identities)
+        let updated = accounts.map { account -> Account in
+            var account = account
+            account.codeAccount = codeAccounts[account.id]
+            return account
+        }
+        if updated != accounts { accounts = updated }
+    }
+
+    /// An account with Claude Code off shows nothing, even if its folder holds an entry (the Claude app's Code tab can write one).
+    private func readCodeAccounts(of identities: [Identity]) {
+        for identity in identities {
+            codeAccountsRead.insert(identity.slug)
+            codeAccounts[identity.slug] = identity.surfaces.cli
+                ? codeAccountCache.account(profile: CLIProfile(directory: identity.cliProfile(in: paths)))
+                : nil
+        }
+    }
+
+    /// Another account whose Claude Code uses the same email: one person twice, said as information.
+    public func duplicateCodeAccount(of slug: String) -> Account? {
+        guard let email = accounts.first(where: { $0.id == slug })?.codeAccount?.email else { return nil }
+        return accounts.first { $0.id != slug && $0.codeAccount?.email.caseInsensitiveCompare(email) == .orderedSame }
+    }
 
     /// Only a tinted copy can lag behind the installed Claude.
     static func versionState(of identity: Identity, claude: ClaudeApp?) -> ClaudeVersionState {
@@ -170,9 +310,22 @@ public final class AppModel {
 
     // MARK: A real app per account
 
-    /// The app that opens this account from the Dock (nil for the primary).
+    /// The app that opens this account from the Dock: a secondary's launcher or copy, the primary's own app when it has one.
     public func appURL(of slug: String) -> URL? {
         accounts.first { $0.id == slug }?.identity.appURL(in: paths).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+    }
+
+    /// Apps the person made that also open this account (read off the main thread, never run). Nothing is stored:
+    /// the edit sheet asks each time it opens.
+    public func otherApps(opening slug: String) async -> [ExistingApp] {
+        guard let identity = accounts.first(where: { $0.id == slug })?.identity else { return [] }
+        let scanner = ExistingApps(paths: paths, claudeAppURL: claudeAppURL, folders: appFolders)
+        return await Task.detached(priority: .userInitiated) { scanner.apps(opening: identity) }.value
+    }
+
+    /// Shows an app the person made in Finder, selected: the only thing Brainmerge does with it.
+    public func revealInFinder(_ url: URL) {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     public func revealApp(_ slug: String) {
@@ -180,11 +333,15 @@ public final class AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    /// Applies the edit sheet: name, color, photo, note and Dock icon in one core call, then the memory if it changed.
-    public func apply(_ edit: AccountEdit, to slug: String) async {
-        guard let account = accounts.first(where: { $0.id == slug }) else { return }
+    /// Applies the edit sheet: name, color, photo, note and Dock icon (or the primary's own app) in one core call, then
+    /// the memory if it changed. The primary may stay open for all of it but the memory: Claude itself is never rebuilt.
+    /// Returns the problem it reported (also set as `message`), nil when everything was saved: the caller shows its own
+    /// problem, never one another part of the app reported meanwhile. Everything that can refuse the edit is checked first.
+    @discardableResult
+    public func apply(_ edit: AccountEdit, to slug: String) async -> UserMessage? {
+        guard let account = accounts.first(where: { $0.id == slug }) else { return nil }
         if let problem = edit.validate(existing: accounts.map(\.identity).filter { $0.slug != slug }) {
-            message = UserMessage(title: "Check the form", detail: problem); return
+            return say(UserMessage(title: "Check the form", detail: problem))
         }
         let identity = account.identity
         let name = edit.trimmedName == identity.name ? nil : edit.trimmedName
@@ -192,16 +349,20 @@ public final class AppModel {
         let logo = edit.logo?.path == identity.logoPath ? nil : edit.logo
         let clearLogo = edit.logo == nil && identity.logoPath != nil
         let note = edit.trimmedNote == (identity.note ?? "") ? nil : edit.trimmedNote
-        let iconMode: IconMode? = edit.distinctIcon == (identity.iconMode == .tintedClone) ? nil : (edit.distinctIcon ? .tintedClone : .launcher)
+        let iconMode: IconMode? = identity.isPrimary || edit.distinctIcon == (identity.iconMode == .tintedClone) ? nil : (edit.distinctIcon ? .tintedClone : .launcher)
+        let ownApp: Bool? = identity.isPrimary && edit.ownApp != (identity.ownApp == true) ? edit.ownApp : nil
+        let movesMemory = brain(of: identity)?.id != edit.memory
+        // Moving the memory needs the account closed, the primary too: said before anything is saved, never half applied.
+        if movesMemory, let open = runningSentence(slug) { return say(open) }
         if let old = identity.logoPath, logo != nil || clearLogo { logos[old] = nil }
-        if name != nil || tint != nil || logo != nil || clearLogo || note != nil || iconMode != nil {
+        if name != nil || tint != nil || logo != nil || clearLogo || note != nil || iconMode != nil || ownApp != nil {
             let manager = self.manager
-            await change(slug, "Saving \(edit.trimmedName)…") { _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo) }
-            if message != nil { return }
+            if let failure = await change(slug, "Saving \(edit.trimmedName)…", touchesApp: true, primaryStaysOpen: true, {
+                _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo, ownApp: ownApp)
+            }) { return failure }
         }
-        if brain(of: identity)?.id != edit.memory {
-            await setBrain(of: slug, to: edit.memory)
-        }
+        if movesMemory { return await setBrain(of: slug, to: edit.memory) }
+        return nil
     }
 
     // MARK: Live updates of the tinted copies
@@ -209,9 +370,12 @@ public final class AppModel {
     /// The accounts whose copy is being rebuilt right now: the automatic check leaves them alone.
     var rebuilding: Set<String> = []
 
+    /// Every account whose app is being worked on, whatever the reason: the sidebar does not offer to open them.
+    var accountsBusy: Set<String> { busy.union(rebuilding) }
+
     /// Quits the account if it is open, rebuilds its copy for the installed Claude, then reopens it.
     public func updateAccount(_ slug: String) async {
-        guard let account = accounts.first(where: { $0.id == slug }), !rebuilding.contains(slug) else { return }
+        guard let account = accounts.first(where: { $0.id == slug }), !accountsBusy.contains(slug) else { return }
         rebuilding.insert(slug)
         defer { rebuilding.remove(slug) }
         let wasRunning = account.isRunning
@@ -223,8 +387,9 @@ public final class AppModel {
                 if accounts.first(where: { $0.id == slug })?.isRunning == false { break }
             }
         }
-        await rebuild(slug)
-        if wasRunning, message == nil { open(slug) }
+        let failure = await rebuild(slug)
+        rebuilding.remove(slug)
+        if wasRunning, failure == nil { open(slug) }
     }
 
     public func updateAll() async {
@@ -261,7 +426,7 @@ public final class AppModel {
     /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects.
     public func refreshMemory() {
         guard let brain = selectedBrain, let folder = selectedFolder else { memoryEvents = []; memoryCounts = [:]; projectCount = 0; return }
-        let entries = (try? BrainGit(brain: brain).log(limit: 200)) ?? []
+        let entries = prefetchedLog.flatMap { $0.root == brain.root ? $0.entries : nil } ?? (try? BrainGit(brain: brain).log(limit: 200)) ?? []
         memoryEvents = MemoryFeed.events(from: Array(entries.prefix(50)), identities: accounts.map(\.identity))
         memoryCounts = MemoryFeed.counts(entries)
         lastMemorySave = entries.first?.date
@@ -293,11 +458,13 @@ public final class AppModel {
         _ = await perform("Renaming the memory…") { try manager.renameBrain(id: id, name: name) }
     }
     /// Attaches an account to a memory: its notes stay where they were written.
-    public func setBrain(of slug: String, to id: String) async {
+    @discardableResult
+    public func setBrain(of slug: String, to id: String) async -> UserMessage? {
         let manager = self.manager
         let target = brains.first { $0.id == id }?.name ?? id
-        await change(slug, "Attaching \(name(of: slug)) to \(target)…") { try manager.setBrain(of: slug, to: id) }
+        let failure = await change(slug, "Attaching \(name(of: slug)) to \(target)…") { try manager.setBrain(of: slug, to: id) }
         refreshMemory()
+        return failure
     }
 
     // MARK: Usage
@@ -348,14 +515,34 @@ public final class AppModel {
 
     // MARK: Open, show, close
 
-    public func markOpening(_ slug: String) {
-        openingSlug = slug
-        Task { try? await Task.sleep(for: .seconds(4)); if self.openingSlug == slug { self.openingSlug = nil } }
+    /// Marks an account as opening until its window runs; the timer is only a fallback for a launch that never shows up,
+    /// and an older click's timer never clears a newer mark.
+    public func markOpening(_ slug: String, fallback: Duration = .seconds(4)) {
+        opening.insert(slug)
+        let mark = (openingMarks[slug] ?? 0) + 1
+        openingMarks[slug] = mark
+        Task {
+            try? await Task.sleep(for: fallback)
+            guard self.openingMarks[slug] == mark else { return }
+            self.openingMarks[slug] = nil
+            if self.opening.contains(slug) { self.opening.remove(slug) }
+        }
     }
 
     /// Opens the account; if it's already running, brings its window to the front: never two instances on the same data folder.
     public func open(_ slug: String) {
+        if let account = accounts.first(where: { $0.id == slug }), !account.identity.surfaces.desktop {
+            message = UserMessage(title: "\(account.identity.name) is Claude Code only",
+                                  detail: "This account has no Claude window. Use it with Claude Code in the terminal.")
+            return
+        }
         if let pid = runningProcess(for: slug) { show(pid); return }
+        // Its app is being rebuilt, renamed or removed: opening it now would open a half-built app.
+        if accountsBusy.contains(slug) {
+            let name = name(of: slug)
+            message = UserMessage(title: "\(name) is being updated", detail: "Brainmerge is working on \(name)'s app. Try again in a moment.")
+            return
+        }
         do { try manager.launch(slug: slug); markOpening(slug) } catch { present(error) }
         reload()
     }
@@ -367,11 +554,22 @@ public final class AppModel {
         return processes.first { ProcessMonitor.matches($0, identity: account.identity, paths: paths, claude: claude) }?.pid
     }
 
+    /// Brings an account's Claude forward with its window. Claude keeps running once its window is closed, and bringing
+    /// the process forward shows no window: when its app is the only one of its kind running, it is opened again, as a
+    /// Dock click does, and Claude shows its window (see WindowReveal). Only a Claude process is ever touched, never
+    /// whatever else took the number `ps` gave since.
     func show(_ pid: Int32) {
         lastShownProcess = pid
-        if let app = NSRunningApplication(processIdentifier: pid) {
-            NSApp.yieldActivation(to: app)
-            app.activate()
+        guard let app = NSRunningApplication(processIdentifier: pid), WindowReveal.isClaude(bundleIdentifier: app.bundleIdentifier) else { return }
+        NSApp?.yieldActivation(to: app)
+        app.activate()
+        let running = NSWorkspace.shared.runningApplications.map { (pid: $0.processIdentifier, bundle: $0.bundleURL) }
+        // Reopening an app that has just quit would start it again, possibly as another account: only a live process.
+        if case .reopen(let bundle) = WindowReveal.of(pid: pid, bundle: app.bundleURL, running: running), !app.isTerminated {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            configuration.addsToRecentItems = false
+            NSWorkspace.shared.openApplication(at: bundle, configuration: configuration)
         }
     }
 
@@ -408,33 +606,74 @@ public final class AppModel {
 
     // MARK: Heavy core work, off the main thread
 
-    /// Launchers, tinted copies, deletions: run separately, with a waiting sentence; nil and a message on failure.
+    /// Launchers, tinted copies, deletions: run off the main thread, with a waiting sentence; nil and a message on failure.
     func perform<T: Sendable>(_ label: String, _ work: @escaping @Sendable () throws -> T) async -> T? {
-        working = label
-        defer { working = nil }
-        let outcome = await Task.detached(priority: .userInitiated) { Result { try work() } }.value
-        switch outcome {
-        case .success(let value): reload(); return value
-        case .failure(let error): present(error); reload(); return nil
+        switch await outcome(label, work) {
+        case .success(let value): return value
+        case .failure(let error): present(error); return nil
         }
     }
 
+    /// Runs core work on the core queue, after any work already there, with its waiting sentence, then reloads.
+    /// The outcome is returned as it is: the caller decides what to say.
+    func outcome<T: Sendable>(_ label: String, _ work: @escaping @Sendable () throws -> T) async -> Result<T, Error> {
+        lastWorkID += 1
+        let id = lastWorkID
+        workLabels.append(WorkLabel(id: id, label: label))
+        defer { workLabels.removeAll { $0.id == id } }
+        let queue = coreQueue
+        let result: Result<T, Error> = await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: Result { try work() }) }
+        }
+        reload()
+        return result
+    }
+
+    /// Shows a message and returns it, for callers that report their own problem.
+    @discardableResult
+    func say(_ sentence: UserMessage) -> UserMessage {
+        message = sentence
+        return sentence
+    }
+
     /// Any change to an open account is refused, with its real name, before calling the engine.
-    func change(_ slug: String, _ label: String, _ work: @escaping @Sendable () throws -> Void) async {
-        if let open = runningSentence(slug) { message = open; return }
-        _ = await perform(label, work)
+    /// `touchesApp`: the work deletes and rebuilds (or removes) the account's app, so the account is busy meanwhile.
+    /// Only a secondary account with a Claude window opens through its own app: the primary opens Claude itself.
+    /// `primaryStaysOpen`: the work never touches Claude (names, colors, notes, the primary's own app), so an open
+    /// primary is changed as it is, without asking to quit it.
+    /// Returns the problem it reported, nil when the work was done.
+    @discardableResult
+    func change(_ slug: String, _ label: String, touchesApp: Bool = false, primaryStaysOpen: Bool = false,
+                _ work: @escaping @Sendable () throws -> Void) async -> UserMessage? {
+        let identity = accounts.first { $0.id == slug }?.identity
+        let mayStayOpen = primaryStaysOpen && identity?.isPrimary == true
+        if !mayStayOpen, let open = runningSentence(slug) { return say(open) }
+        let marks = touchesApp && identity.map { !$0.isPrimary && $0.surfaces.desktop } == true
+        if marks { markBusy(slug, true) }
+        defer { if marks { markBusy(slug, false) } }
+        if case .failure(let error) = await outcome(label, work) { return say(Self.sentence(for: error)) }
+        return nil
+    }
+
+    /// Counted, so that two overlapping changes of one account do not clear each other's mark.
+    func markBusy(_ slug: String, _ on: Bool) {
+        let count = max(0, (busyCount[slug] ?? 0) + (on ? 1 : -1))
+        busyCount[slug] = count == 0 ? nil : count
+        if count > 0, !busy.contains(slug) { busy.insert(slug) }
+        if count == 0, busy.contains(slug) { busy.remove(slug) }
     }
 
     func name(of slug: String) -> String { accounts.first { $0.id == slug }?.identity.name ?? slug }
 
     public func remove(_ slug: String, deleteData: Bool) async {
         let manager = self.manager
-        await change(slug, "Removing \(name(of: slug))…") { try manager.remove(slug: slug, deleteData: deleteData) }
+        await change(slug, "Removing \(name(of: slug))…", touchesApp: true) { try manager.remove(slug: slug, deleteData: deleteData) }
     }
 
-    public func rebuild(_ slug: String) async {
+    @discardableResult
+    public func rebuild(_ slug: String) async -> UserMessage? {
         let manager = self.manager
-        await change(slug, "Rebuilding \(name(of: slug))…") { try manager.rebuild(slug: slug) }
+        return await change(slug, "Rebuilding \(name(of: slug))…", touchesApp: true, primaryStaysOpen: true) { try manager.rebuild(slug: slug) }
     }
 
     /// Adds an account from the form; returns true if it's done, otherwise sets the message.
@@ -457,20 +696,40 @@ public final class AppModel {
             message = UserMessage(title: "Check the form", detail: problem); return
         }
         let manager = self.manager; let clean = form.trimmedName
-        await change(slug, "Renaming to \(clean)…") { _ = try manager.update(slug: slug, name: clean, tint: nil, logo: nil) }
+        await change(slug, "Renaming to \(clean)…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: clean, tint: nil, logo: nil) }
     }
+    /// Swaps two accounts' names in one step (the edit sheet offers it when the names look swapped against the emails
+    /// Claude Code uses). A rename rebuilds a secondary's app, so an open secondary is said and nothing changes; whether
+    /// the primary may stay open is the core's rule for any edit (`IdentityManager.ensureEditable`).
+    /// Returns the problem it reported, nil when both accounts were renamed.
+    @discardableResult
+    public func swapNames(_ slug: String, with other: String) async -> UserMessage? {
+        guard let one = accounts.first(where: { $0.id == slug }), let two = accounts.first(where: { $0.id == other }), slug != other else { return nil }
+        for account in [one, two] where !account.identity.isPrimary {
+            if let open = runningSentence(account.id) { return say(open) }
+        }
+        let marked = [one, two].filter { !$0.identity.isPrimary && $0.identity.surfaces.desktop }.map(\.id)
+        for id in marked { markBusy(id, true) }
+        defer { for id in marked { markBusy(id, false) } }
+        let manager = self.manager
+        if case .failure(let error) = await outcome("Swapping the names of \(one.identity.name) and \(two.identity.name)…", { try manager.swapNames(slug, with: other) }) {
+            return say(Self.sentence(for: error))
+        }
+        return nil
+    }
+
     public func changeTint(_ slug: String, to tint: Tint) async {
         let manager = self.manager
-        await change(slug, "Recoloring \(name(of: slug))…") { _ = try manager.update(slug: slug, name: nil, tint: tint, logo: nil) }
+        await change(slug, "Recoloring \(name(of: slug))…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: nil, tint: tint, logo: nil) }
     }
     public func changeLogo(_ slug: String, to url: URL?) async {
         let manager = self.manager
         if let old = accounts.first(where: { $0.id == slug })?.identity.logoPath { logos[old] = nil }
-        await change(slug, "Updating the photo of \(name(of: slug))…") { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: url) }
+        await change(slug, "Updating the photo of \(name(of: slug))…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: url) }
     }
     public func changeNote(_ slug: String, to note: String) async {
         let manager = self.manager
-        await change(slug, "Saving…") { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: nil, note: note) }
+        await change(slug, "Saving…", touchesApp: true, primaryStaysOpen: true) { _ = try manager.update(slug: slug, name: nil, tint: nil, logo: nil, note: note) }
     }
 
     // MARK: Repair, command line
@@ -510,6 +769,33 @@ public final class AppModel {
 
     public func present(_ error: Error) { message = Self.sentence(for: error) }
 
+    /// Clears a message once its caller showed it elsewhere (the edit sheet), only if it is still the one shown.
+    public func dismiss(_ shown: UserMessage) { if message?.id == shown.id { message = nil } }
+
+    /// What a click on an account in the sidebar does (see SidebarAccountAction). A Claude Code only account: open()
+    /// says why there is no window.
+    public func perform(_ action: SidebarAccountAction, on slug: String) async {
+        switch action {
+        case .rebuild: await rebuild(slug)
+        case .opening, .updating: break
+        case .open, .show, .none: open(slug)
+        }
+    }
+
+    /// The minute clock: new projects get their memory link, the emails and the usage are read again.
+    public func onProjectsTick() {
+        wireNewProjects()
+        refreshCodeAccounts()
+        Task { await refreshUsage() }
+    }
+
+    /// Back in front: a login may have changed in Claude Code, and Claude may have updated itself meanwhile.
+    public func windowBecameActive() {
+        guard launchPhase == .ready else { return }
+        refreshCodeAccounts()
+        if !needsOnboarding { Task { await checkClaudeUpdate() } }
+    }
+
     // MARK: Uninstall
 
     /// What removing Brainmerge would take away and what it leaves, for the confirmation.
@@ -537,14 +823,17 @@ public final class AppModel {
 
     // MARK: Monitoring
 
+    /// Starts the clocks and checks Claude once; asking again while they run changes nothing.
     public func startWatching() {
+        guard !isWatching else { return }
+        isWatching = true
         watchers.start(running: { [weak self] in self?.reload() },
                        memory: { [weak self] in self?.refreshMemory() },
-                       projects: { [weak self] in self?.wireNewProjects(); Task { await self?.refreshUsage() } },
+                       projects: { [weak self] in self?.onProjectsTick() },
                        claude: { [weak self] in Task { await self?.checkClaudeUpdate() } })
         Task { await checkClaudeUpdate() }
     }
-    public func stopWatching() { watchers.stop() }
+    public func stopWatching() { isWatching = false; watchers.stop() }
 
     /// Projects that appeared since the last pass get their memory link, in each account's memory (idempotent, without a message).
     func wireNewProjects() {
@@ -562,23 +851,26 @@ public final class AppModel {
     /// One check at a time: the launch and the window coming to the front can both ask, a copy is never rebuilt twice at once.
     private var checkingClaudeUpdate = false
 
+    /// An account whose app is being worked on (an update, a rename, a swap, a removal) is left alone: its change
+    /// rebuilds it anyway. Each account is looked at again when its turn comes, as an earlier step may have changed it.
+    /// A failure is said once per Claude version, so the same failure never comes back every few minutes.
     public func checkClaudeUpdate() async {
         reload()
         guard let claude, !checkingClaudeUpdate else { return }
         checkingClaudeUpdate = true
         defer { checkingClaudeUpdate = false }
         let manager = self.manager
-        for account in accounts where !rebuilding.contains(account.id) && UpdatePolicy.shouldRebuild(identity: account.identity, installedVersion: claude.version, running: account.isRunning, autoRebuild: autoRebuild) {
-            let slug = account.id
+        for slug in accounts.map(\.id) {
+            guard !accountsBusy.contains(slug), let account = accounts.first(where: { $0.id == slug }),
+                  UpdatePolicy.shouldRebuild(identity: account.identity, installedVersion: claude.version, running: account.isRunning, autoRebuild: autoRebuild)
+            else { continue }
             rebuilding.insert(slug)
             defer { rebuilding.remove(slug) }
             let key = "\(slug)@\(claude.version)"
-            let alreadyReported = reportedRebuildFailures.contains(key)
-            let before = message
-            if alreadyReported { message = nil }
-            let done: Void? = await perform("Updating \(account.identity.name) for Claude \(claude.version)…") { try manager.rebuild(slug: slug) }
-            if done == nil {
-                if alreadyReported { message = before } else { reportedRebuildFailures.insert(key) }
+            if case .failure(let error) = await outcome("Updating \(account.identity.name) for Claude \(claude.version)…", { try manager.rebuild(slug: slug) }),
+               !reportedRebuildFailures.contains(key) {
+                reportedRebuildFailures.insert(key)
+                present(error)
             }
         }
     }

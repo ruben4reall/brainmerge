@@ -14,13 +14,15 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [
-        .target(name: "BrainmergeCore"),
+        .target(name: "BrainmergeCore", dependencies: ["LauncherGuard"]),
+        // What the launcher checks before opening Claude for the primary account: tiny, Foundation and Security only.
+        .target(name: "LauncherGuard"),
         .executableTarget(name: "brainmerge", dependencies: [
             "BrainmergeCore",
             .product(name: "ArgumentParser", package: "swift-argument-parser"),
         ]),
-        .executableTarget(name: "launcher"),
+        .executableTarget(name: "launcher", dependencies: ["LauncherGuard"]),
         .target(name: "BrainmergeTestSupport", dependencies: ["BrainmergeCore"]),
-        .testTarget(name: "BrainmergeCoreTests", dependencies: ["BrainmergeCore", "BrainmergeTestSupport"]),
+        .testTarget(name: "BrainmergeCoreTests", dependencies: ["BrainmergeCore", "BrainmergeTestSupport", "LauncherGuard"]),
     ]
 )

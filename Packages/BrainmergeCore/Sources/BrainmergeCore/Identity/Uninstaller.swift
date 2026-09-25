@@ -31,7 +31,7 @@ public struct Uninstaller: Sendable {
         var removed: [String] = []
         let profiles = state.identities.filter { CLIProfile(directory: $0.cliProfile(in: paths)).exists }.count
         if profiles > 0 { removed.append("The memory hook and the Brainmerge block in \(profiles) Claude Code profile\(profiles > 1 ? "s" : "")") }
-        let launchers = state.identities.filter { !$0.isPrimary && $0.surfaces.desktop }.count
+        let launchers = state.identities.filter { $0.appURL(in: paths) != nil }.count
         if launchers > 0 { removed.append("\(launchers) account app\(launchers > 1 ? "s" : "") in \(paths.launchersDir.path)") }
         if Self.isOurCommandLineLink(paths.localBin.appending(path: "brainmerge")) {
             removed.append("The command line link \(paths.localBin.appending(path: "brainmerge").path)")
@@ -48,7 +48,8 @@ public struct Uninstaller: Sendable {
         return Plan(removed: removed, kept: kept)
     }
 
-    /// Refuses while a secondary account is open (its files are in use). Then detaches, copies, removes.
+    /// Refuses while a secondary account is open (its files are in use). Then detaches, copies, removes. The primary's own
+    /// app goes even while Claude runs: it only opens Claude, which stays as it is.
     @discardableResult
     public func run() throws -> Report {
         let state = try store.load()
@@ -65,13 +66,10 @@ public struct Uninstaller: Sendable {
                 report.copiedMemories += try Self.materializeLinks(in: profile, knownRoots: knownRoots)
                 report.detachedAccounts += 1
             }
-            if !identity.isPrimary {
-                for app in [paths.launcherApp(name: identity.bundleDisplayName), paths.tintedClone(name: identity.bundleDisplayName)]
-                where fm.fileExists(atPath: app.path) {
-                    if manager.registerLaunchers { _ = try? manager.shell.run(LauncherBuilder.lsregister, ["-u", app.path]) }
-                    try fm.removeItem(at: app)
-                    report.removedLaunchers += 1
-                }
+            for app in manager.apps(of: identity) where fm.fileExists(atPath: app.path) {
+                if manager.registerLaunchers { _ = try? manager.shell.run(LauncherBuilder.lsregister, ["-u", app.path]) }
+                try fm.removeItem(at: app)
+                report.removedLaunchers += 1
             }
         }
         let link = paths.localBin.appending(path: "brainmerge")

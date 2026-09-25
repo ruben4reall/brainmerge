@@ -7,8 +7,10 @@ Brainmerge runs only on your Mac. This page says what it touches, what it never 
 | Where | What Brainmerge does there |
 | --- | --- |
 | `~/Library/Application Support/Brainmerge` | Its own state (the list of accounts and memories), icons, usage cache. No secrets. |
-| `~/Applications/Brainmerge/<Name>.app` | One small launcher app per account (ad hoc signed), or a local tinted copy of Claude when you ask for a distinct Dock icon. |
+| `~/Applications/Brainmerge/<Name>.app` | One small launcher app per account (ad hoc signed), or a local tinted copy of Claude when you ask for a distinct Dock icon. For your first account, which is Claude itself, only when you switch on its own app: the same small app with its color or photo, which asks macOS to open Claude and does nothing else. |
 | `~/.claude-<slug>` and `~/.claude` | Claude Code profiles. Brainmerge adds one hook (`brainmerge sync`) to `settings.json`, one marked block to `CLAUDE.md`, and links `projects/<slug>/memory` into the memory. Everything else in them is yours and untouched. |
+| `.claude.json` (`~/.claude.json` for `~/.claude`, inside the folder for the others) | Claude Code's own file, read and never written. Brainmerge keeps two things from it: the paths of your projects (the keys of `projects`), and the three display fields Claude Code records for the account it last used (`oauthAccount`: email, display name, organization name). Never the rest of that entry, its identifiers, plan or limits, never any other value of the file. The login itself stays in the keychain, untouched. The email is shown in the window to tell accounts apart, and never stored, logged, written to a memory, printed by the command line or sent anywhere. |
+| `~/Applications` and `/Applications` (top level only) | Read, never run or changed. To find apps you made yourself for an account (for instance a copy of Claude whose executable is a launch script), Brainmerge reads each app's `Info.plist` (under 1 MB) and the first two bytes of its executable; only when they are `#!` and the file is under 64 KB, the rest of that script, for the two folders it passes to Claude (`--user-data-dir=` and `CLAUDE_CONFIG_DIR=`). No link inside an app is followed, so nothing outside it is read, and nothing inside those folders either; Brainmerge's own apps and Claude itself are skipped, and `/Applications` is read only for your real home folder. The edit sheet and `brainmerge doctor` say which account such an app opens; Brainmerge never opens, adopts, re-signs, moves or trashes it: you retire it yourself. |
 | `~/Library/Application Support/Claude-<slug>` | Claude's own data folder for each account, created empty; Claude fills it when you log in. Brainmerge only checks whether Claude's storage files exist there, never what is inside. |
 | Your memories (`~/Brain` by default) | Markdown notes and a git repository. The hook commits under the account's name. |
 | `~/.local/bin/brainmerge` | A symbolic link to the command line inside the app. |
@@ -16,18 +18,19 @@ Brainmerge runs only on your Mac. This page says what it touches, what it never 
 ## What it never does
 
 - **No network.** No call to Anthropic, to us, or to anyone: no server, no telemetry, no crash reports, no update check that connects. "Check for updates" opens the releases page in your browser.
-- **No credentials.** It never reads, stores or transmits a login, a session cookie, a token or a keychain item. "Connected" is decided from the names of files in Claude's data folder, never from their contents.
+- **No credentials.** It never reads, stores or transmits a password, a session cookie, a token or a keychain item. "Connected" is decided from the names of files in Claude's data folder, never from their contents. The email a card shows is the one Claude Code records for display, read as described above.
 - **No account tricks.** No rotation, no switching when a limit is reached, no pooled usage, no automation of the login. Each account logs in by itself, in the official Claude app.
-- **No modified Claude by default.** Accounts start the installed Claude through a launcher that only sets two folders. The optional distinct icon copies Claude on your own Mac, after checking that its signature is intact, and is never distributed.
+- **No modified Claude by default.** Accounts start the installed Claude through a launcher that only sets two folders. The optional distinct icon copies Claude on your own Mac, after checking that its signature is intact, and is never distributed. Your first account is never copied: its optional own app only opens Claude, which is why the Dock still shows Claude's icon while it runs.
 - **No shell.** Programs (git, codesign, cp, iconutil, open) are started with argument lists, never through a shell, so an account name can never become a command.
 
 ## How the promises are enforced
 
-- `SecurityGuardTests` scan the whole source tree at every test run: no networking API, no shell interpreter, a single place that starts processes, Claude's storage files named only in one file that may not read contents, no analytics library.
+- `SecurityGuardTests` scan the whole source tree at every test run: no networking API, no shell interpreter, a single place that starts processes, Claude's storage files named only in one file that may not read contents, no analytics library. Claude Code's account entry is read in one file only, by typed decoding of its three display fields (its decodable keys are checked to be exactly those, with no identifiers, tokens, plan, roles or limits, no path taken from the process), and no shipped file names an API key, a token cache, the keychain entry or usage fields. The file that looks for apps you made only reads: no process, no opening, no writing, no moving, no trash, a short list of file calls, and every file opened read only without following a link.
 - `NameRules` keep every name to one line without control characters, so names are safe in file names, plists, git authors and Claude's instructions.
 - The launcher refuses any configuration that would start something other than a Claude binary inside an app bundle, or use relative folders.
+- The first account's own app opens one app only: the Claude pinned in its Info.plist when it was built, at an absolute path, whose Info.plist says it is Claude and whose code is signed by Anthropic's Developer ID (team `Q6L2SF6YDW`), checked with the Security framework, never a subprocess. A hand-made or tinted copy of Claude carries Claude's bundle identifier but not Anthropic's signature, and is refused. It passes no folder and no environment, so Claude opens on its own folders, exactly as from Finder.
 - Dependencies are pinned in `Package.resolved` and watched by Dependabot; CI runs with read-only permissions.
-- The app is built with the hardened runtime. Releases are signed ad hoc until a Developer ID is available, which is why macOS asks you to confirm the first opening.
+- The app is built with the hardened runtime. Releases are signed with a Developer ID and notarized by Apple, and the disk image carries Apple's ticket.
 
 ## What to keep in mind
 

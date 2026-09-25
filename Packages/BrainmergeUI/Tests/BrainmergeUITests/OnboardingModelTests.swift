@@ -126,4 +126,45 @@ import BrainmergeTestSupport
         for _ in 0..<5 { onboarding.back() }
         #expect(onboarding.step == .welcome)
     }
+
+    // MARK: After the launch splash
+
+    /// An app model as the window gets it at launch: nothing loaded yet, the splash on screen.
+    func unloadedApp(_ e: ManagerEnv) -> AppModel {
+        let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
+                                      claudeAppURL: e.claude.url, registerLaunchers: false)
+        return AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+    }
+
+    @Test func aSetUpOwnerNeverLandsInTheGuidedSetupAfterTheSplash() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let app = unloadedApp(e)
+        // Built with the window, before the first load: an empty model looks like a fresh Mac.
+        let onboarding = OnboardingModel(app: app)
+        #expect(!onboarding.finished)
+        await app.launch(minimum: .zero)
+        #expect(app.launchPhase == .ready)
+        #expect(onboarding.finished)
+    }
+
+    @Test func everyWindowBuiltDuringTheSplashIsDecided() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let app = unloadedApp(e)
+        let first = OnboardingModel(app: app), second = OnboardingModel(app: app)
+        await app.launch(minimum: .zero)
+        #expect(first.finished && second.finished)
+        // A window opened later decides from the loaded model on its own.
+        #expect(OnboardingModel(app: app).finished)
+    }
+
+    @Test func aFreshMacStillGetsTheGuidedSetupAfterTheSplash() async throws {
+        let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
+        let app = unloadedApp(e)
+        let onboarding = OnboardingModel(app: app)
+        await app.launch(minimum: .zero) { onboarding.decide() }
+        #expect(app.launchPhase == .ready)
+        #expect(!onboarding.finished)
+    }
 }
