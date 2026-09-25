@@ -67,7 +67,7 @@ public struct RootView: View {
         }
     }
 
-    var showsGuide: Bool { model.needsOnboarding || !onboarding.finished }
+    var showsGuide: Bool { model.stateProblem == nil && (model.needsOnboarding || !onboarding.finished) }
 
     /// A screen the menu bar asked for, once the screens are there; never over the splash or the guide.
     static func screenToShow(requested: Section?, phase: LaunchPhase, showsGuide: Bool) -> Section? {
@@ -83,7 +83,9 @@ public struct RootView: View {
 
     /// The guided setup, or the main window once everything is in place.
     @ViewBuilder var screens: some View {
-        if showsGuide {
+        if let problem = model.stateProblem {
+            StateProblemView(model: model, problem: problem)
+        } else if showsGuide {
             OnboardingView(model: onboarding)
         } else {
             ZStack {

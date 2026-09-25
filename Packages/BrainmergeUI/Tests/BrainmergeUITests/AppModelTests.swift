@@ -15,6 +15,47 @@ import BrainmergeTestSupport
         return model
     }
 
+    @Test func aDamagedStateShowsItsOwnScreenNeverTheSetup() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try Data("{ broken".utf8).write(to: e.home.paths.stateFile)
+        let m = model(e)
+        m.reload()
+        #expect(m.stateProblem == .damaged)
+        #expect(!m.needsOnboarding)
+        #expect(StateProblem.damaged.detail == "The file is damaged. A copy from before your last change is available.")
+        #expect(m.canRestorePreviousState)
+        m.restorePreviousState()
+        #expect(m.stateProblem == nil)
+        #expect(m.accounts.map(\.identity.slug) == ["ruben"])
+    }
+
+    @Test func aStateFromANewerVersionSaysSo() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        try Data(#"{"schemaVersion": 3, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#.utf8)
+            .write(to: e.home.paths.stateFile)
+        let m = model(e)
+        m.reload()
+        #expect(m.stateProblem == .tooNew(3))
+        #expect(!m.needsOnboarding)
+        #expect(StateProblem.tooNew(3).detail == "It was written by a newer Brainmerge (version 3 of the file). Your accounts, memories and logins are untouched.")
+        #expect(StateProblem.title == "Brainmerge can't read its list of accounts")
+    }
+
+    @Test func settingsAreSavedUnderTheStateLock() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let held = try e.store.lock()
+        let task = m.setAutoRebuild(false)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(try e.store.load().autoRebuild == true)
+        held.release()
+        await task.value
+        #expect(try e.store.load().autoRebuild == false)
+    }
+
     @Test func listsAccountsWithRunningFlags() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")

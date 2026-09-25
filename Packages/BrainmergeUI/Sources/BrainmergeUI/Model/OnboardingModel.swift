@@ -82,11 +82,12 @@ public final class OnboardingModel {
         case .existing(let url): root = url
         }
         let brain = try Brain.initialize(at: root, language: language)
-        var state = try app.store.load()
-        state.brainPath = brain.root.path
-        state.brainLanguage = language
-        state.notesApp = notesApp
-        try app.store.save(state)
+        let notesApp = self.notesApp
+        try app.store.update { state in
+            state.brainPath = brain.root.path
+            state.brainLanguage = language
+            state.notesApp = notesApp
+        }
         // A brain recreated or moved: every existing account is reattached to it (managed block, hook, memory links).
         let saved = try app.store.load()
         for identity in saved.identities { try app.manager.attachBrain(to: identity, state: saved) }

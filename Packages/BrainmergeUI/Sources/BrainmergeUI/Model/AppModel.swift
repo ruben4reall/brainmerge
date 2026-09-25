@@ -305,7 +305,20 @@ public final class AppModel {
         return CLIInstaller.embeddedCLI(besideExecutable: exe)
     }
 
-    public var needsOnboarding: Bool { brain == nil || accounts.first(where: { $0.identity.isPrimary }) == nil }
+    /// An unreadable state is never a fresh install: it has its own screen, and the setup stays away.
+    public var needsOnboarding: Bool { stateProblem == nil && (brain == nil || accounts.first(where: { $0.identity.isPrimary }) == nil) }
+
+    /// Why state.json cannot be read, nil when it can (or does not exist yet).
+    public private(set) var stateProblem: StateProblem?
+    public var canRestorePreviousState: Bool { store.hasPrevious }
+
+    /// Puts back the copy saved before the last change. The unreadable file is kept beside it.
+    public func restorePreviousState() {
+        do { try store.restorePrevious() } catch { message = UserMessage(title: "Nothing was restored", detail: String(describing: error)) }
+        reload()
+    }
+
+    public func showStateFileInFinder() { revealInFinder(paths.stateFile) }
     public var openAccounts: [Account] { accounts.filter(\.isRunning) }
 
     /// The window's screens are there: past the splash, a memory and a first account, the guided setup closed.
@@ -339,7 +352,15 @@ public final class AppModel {
             if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value; changed = true }
         }
         set(\.claude, try? ClaudeApp.detect(at: claudeAppURL))
-        guard let state = try? store.load() else { set(\.accounts, []); set(\.brain, nil); return changed }
+        let state: AppState
+        do {
+            state = try store.load()
+            set(\.stateProblem, nil)
+        } catch {
+            set(\.stateProblem, StateProblem(error))
+            set(\.accounts, []); set(\.brain, nil)
+            return changed
+        }
         if !isSaving(.language) { set(\.language, state.brainLanguage) }
         if !isSaving(.autoRebuild) { set(\.autoRebuild, state.autoRebuild) }
         if !isSaving(.notesApp) { set(\.notesApp, state.notesApp) }
@@ -1260,11 +1281,8 @@ public final class AppModel {
         return Task {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 queue.async {
-                    if var state = try? store.load() {
-                        let before = state
-                        change(&state)
-                        if state != before { try? store.save(state) }
-                    }
+                    // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
+                    try? store.update { change(&$0) }
                     done.resume()
                 }
             }
