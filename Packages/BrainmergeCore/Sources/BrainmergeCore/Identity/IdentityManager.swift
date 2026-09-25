@@ -108,9 +108,7 @@ public final class IdentityManager: @unchecked Sendable {
         }
         if identity.isPrimary, iconMode == .tintedClone { throw BrainmergeError.primaryIsClaude }
         try ensureEditable(identity)
-        let fm = FileManager.default
         let before = identity
-        let oldName = identity.bundleDisplayName
         if let name { identity.name = name }
         if let tint { identity.tint = tint }
         if let logo { identity.logoPath = logo.path }
@@ -118,52 +116,113 @@ public final class IdentityManager: @unchecked Sendable {
         if let note { identity.note = NameRules.clean(note) }
         if let iconMode { identity.iconMode = iconMode }
         if let ownApp, identity.isPrimary { identity.ownApp = ownApp }
-        try attachBrain(to: identity, state: state)
-        if identity.isPrimary {
-            try updateOwnApp(from: before, to: identity)
-        } else if identity.surfaces.desktop {
-            for app in [paths.launcherApp(name: oldName), paths.tintedClone(name: oldName)] where fm.fileExists(atPath: app.path) {
-                try fm.removeItem(at: app)
-            }
-            let claude = try ClaudeApp.detect(at: claudeAppURL)
-            try buildApp(for: identity, claude: claude)
-            identity.builtForClaudeVersion = claude.version
-        }
-        state.identities = state.identities.map { $0.slug == slug ? identity : $0 }
-        try store.save(state)
-        return identity
+        return try commit([(before, identity)], in: &state)[0]
     }
 
-    /// Swaps the names of two accounts in one operation, for names that ended up on each other's account. It goes
-    /// through a temporary name, so neither rename meets the other's name and no app is built over the other's.
-    /// Everything a rename needs is checked first (both accounts, both stopped, Claude installed when an app is rebuilt);
-    /// if a later step still fails, the first rename is undone. Swapping an account with itself does nothing.
+    /// Swaps the names of two accounts in one operation, for names that ended up on each other's account. Both apps are
+    /// built under their new names first (the old ones set aside meanwhile), then both names are written at once: no
+    /// temporary name ever reaches the state, Claude's instructions or the memory, and a failure changes nothing.
+    /// Swapping an account with itself does nothing.
     public func swapNames(_ slug: String, with otherSlug: String) throws {
         guard slug != otherSlug else { return }
-        let state = try store.load()
+        var state = try store.load()
         guard let one = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         guard let other = state.identity(slug: otherSlug) else { throw BrainmergeError.identityNotFound(otherSlug) }
         try ensureEditable(one)
         try ensureEditable(other)
-        let rebuildsApp = { (identity: Identity) in identity.appURL(in: self.paths) != nil }
-        if rebuildsApp(one) || rebuildsApp(other) { _ = try ClaudeApp.detect(at: claudeAppURL) }
-        // The account without an app of its own takes the temporary name: nothing is built under it.
-        let (first, second) = rebuildsApp(one) && !rebuildsApp(other) ? (other, one) : (one, other)
-        var temporary = "Swapping names"
-        var n = 2
-        while state.identities.contains(where: { $0.bundleDisplayName.caseInsensitiveCompare(temporary) == .orderedSame })
-                || FileManager.default.fileExists(atPath: paths.launcherApp(name: temporary).path)
-                || FileManager.default.fileExists(atPath: paths.tintedClone(name: temporary).path) {
-            temporary = "Swapping names \(n)"; n += 1
+        var newOne = one, newOther = other
+        newOne.name = other.name
+        newOther.name = one.name
+        _ = try commit([(one, newOne), (other, newOther)], in: &state)
+    }
+
+    /// Applies changes to accounts in the order that keeps them usable whatever fails: the new apps are built while the
+    /// old ones are set aside, then Claude's instructions, the memory's list of accounts and the state are written with the
+    /// final values, and only then are the old apps deleted. On a failure, the old apps are put back, the unchanged
+    /// accounts are attached again, and the error is thrown.
+    @discardableResult
+    func commit(_ changes: [(before: Identity, after: Identity)], in state: inout AppState) throws -> [Identity] {
+        let replacement = try replaceApps(changes)
+        var updated = changes.map(\.after)
+        if let version = replacement.claude?.version {
+            for index in updated.indices where replacement.rebuilt.contains(updated[index].slug) && !updated[index].isPrimary {
+                updated[index].builtForClaudeVersion = version
+            }
         }
-        try update(slug: first.slug, name: temporary, tint: nil, logo: nil)
+        var next = state
+        next.identities = next.identities.map { identity in updated.first { $0.slug == identity.slug } ?? identity }
         do {
-            try update(slug: second.slug, name: first.name, tint: nil, logo: nil)
+            for identity in updated { try attachBrain(to: identity, state: next) }
+            try store.save(next)
         } catch {
-            _ = try? update(slug: first.slug, name: first.name, tint: nil, logo: nil)
+            replacement.restore()
+            for change in changes { try? attachBrain(to: change.before, state: state) }
             throw error
         }
-        try update(slug: first.slug, name: second.name, tint: nil, logo: nil)
+        replacement.discard()
+        state = next
+        return updated
+    }
+
+    /// Old apps moved out of the way while the new ones are built: put back on a failure, deleted once the change is saved.
+    struct AppReplacement {
+        var claude: ClaudeApp?
+        /// Accounts whose app was built.
+        var rebuilt: Set<String> = []
+        var setAside: [(original: URL, parked: URL)] = []
+        var built: [URL] = []
+        var folder: URL?
+
+        func restore() {
+            let fm = FileManager.default
+            for url in built where fm.fileExists(atPath: url.path) { try? fm.removeItem(at: url) }
+            for app in setAside.reversed() where !fm.fileExists(atPath: app.original.path) { try? fm.moveItem(at: app.parked, to: app.original) }
+            if let folder { try? fm.removeItem(at: folder) }
+        }
+
+        func discard() {
+            if let folder { try? FileManager.default.removeItem(at: folder) }
+        }
+    }
+
+    /// Sets aside the apps each change replaces, then builds the new ones; a failure puts everything back as it was.
+    /// A secondary with a Claude window always gets its app built again (it carries the name, color and photo). The
+    /// primary's own app only when what it shows changed, or it is missing; switched off, it goes.
+    func replaceApps(_ changes: [(before: Identity, after: Identity)]) throws -> AppReplacement {
+        let fm = FileManager.default
+        var plan: [(old: [URL], build: Identity?)] = []
+        for (before, after) in changes {
+            if after.isPrimary {
+                guard let app = after.appURL(in: paths) else { plan.append((apps(of: before), nil)); continue }
+                let looksTheSame = before.appURL(in: paths) == app && before.tint == after.tint && before.logoPath == after.logoPath
+                if looksTheSame, fm.fileExists(atPath: app.path) { continue }
+                plan.append((apps(of: before), after))
+            } else if after.surfaces.desktop {
+                plan.append((apps(of: before), after))
+            }
+        }
+        var replacement = AppReplacement()
+        if plan.contains(where: { $0.build != nil }) { replacement.claude = try ClaudeApp.detect(at: claudeAppURL) }
+        do {
+            for old in plan.flatMap(\.old) where fm.fileExists(atPath: old.path) {
+                let folder = try replacement.folder ?? fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: old, create: true)
+                replacement.folder = folder
+                let parked = folder.appending(path: "\(replacement.setAside.count)-\(old.lastPathComponent)", directoryHint: .isDirectory)
+                try fm.moveItem(at: old, to: parked)
+                replacement.setAside.append((old, parked))
+            }
+            if let claude = replacement.claude {
+                for identity in plan.compactMap(\.build) {
+                    if let url = identity.appURL(in: paths) { replacement.built.append(url) }
+                    try buildApp(for: identity, claude: claude)
+                    replacement.rebuilt.insert(identity.slug)
+                }
+            }
+        } catch {
+            replacement.restore()
+            throw error
+        }
+        return replacement
     }
 
     public func remove(slug: String, deleteData: Bool) throws {
@@ -363,21 +422,6 @@ public final class IdentityManager: @unchecked Sendable {
     func apps(of identity: Identity) -> [URL] {
         if identity.isPrimary { return identity.appURL(in: paths).map { [$0] } ?? [] }
         return [paths.launcherApp(name: identity.bundleDisplayName), paths.tintedClone(name: identity.bundleDisplayName)]
-    }
-
-    /// The primary's own app follows its name, color and photo, and goes when switched off. It is only rebuilt when what it
-    /// shows changed (or it went missing), so a note or an unrelated edit never needs the Claude app.
-    func updateOwnApp(from before: Identity, to identity: Identity) throws {
-        let fm = FileManager.default
-        guard let app = identity.appURL(in: paths) else {
-            for old in apps(of: before) where fm.fileExists(atPath: old.path) { try fm.removeItem(at: old) }
-            return
-        }
-        let looksTheSame = before.appURL(in: paths) == app && before.tint == identity.tint && before.logoPath == identity.logoPath
-        if looksTheSame, fm.fileExists(atPath: app.path) { return }
-        let claude = try ClaudeApp.detect(at: claudeAppURL)
-        for old in apps(of: before) where fm.fileExists(atPath: old.path) { try fm.removeItem(at: old) }
-        try buildApp(for: identity, claude: claude)
     }
 
     /// The primary only ever gets its own app, which opens Claude: never a tinted copy, whatever the state says.

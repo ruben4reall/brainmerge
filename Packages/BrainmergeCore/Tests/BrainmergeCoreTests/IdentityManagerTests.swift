@@ -376,17 +376,98 @@ import BrainmergeTestSupport
         #expect(appsInLaunchersDir(e) == ["Agency.app"])
     }
 
-    @Test func aSwapThatFailsHalfwayPutsTheFirstNameBack() throws {
+    /// Files the swap or a rename must not touch when it fails, with a date in the past: a write would change it.
+    func pinDates(_ urls: [URL]) throws {
+        for url in urls {
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)], ofItemAtPath: url.path)
+        }
+    }
+
+    func dates(_ urls: [URL]) throws -> [Date?] {
+        try urls.map { try FileManager.default.attributesOfItem(atPath: $0.path)[.modificationDate] as? Date }
+    }
+
+    /// The secondary's photo went missing, so its app cannot be built: the swap fails before anything is written.
+    /// Both accounts keep their names everywhere (state, Claude's instructions, the memory's list), and the Dock app
+    /// that was there still opens its account.
+    @Test func aSwapThatCannotBuildAnAppLeavesBothAccountsAsTheyWere() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
-        _ = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
-        // The secondary's app cannot be replaced: the primary's rename, done first, is undone.
-        let dir = e.home.paths.launchersDir.path
-        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir)
-        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir) }
+        var request = IdentityManager.AddRequest(name: "Agency")
+        request.logo = try FakeIcon.orangePNG(in: e.home.url)
+        let agency = try e.manager.add(request)
+        try FileManager.default.removeItem(at: try #require(request.logo))
+        let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
+        let untouched = [e.home.paths.stateFile, e.primaryProfile.claudeMD, agencyMD, e.brain.identitiesFile]
+        try pinDates(untouched)
+
         #expect(throws: (any Error).self) { try e.manager.swapNames("ruben", with: "agency") }
+
         #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
         #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))
+        #expect(try String(contentsOf: agencyMD, encoding: .utf8).contains("identity \"Agency\""))
+        let registry = try IdentityRegistry.load(e.brain.identitiesFile).identities
+        #expect(registry["ruben"]?.name == "Ruben" && registry["agency"]?.name == "Agency")
+        // Nothing was written before the apps were ready: no temporary name ever reached a file.
+        #expect(try dates(untouched) == Array(repeating: Date(timeIntervalSince1970: 1_700_000_000), count: untouched.count))
+        #expect(appsInLaunchersDir(e) == ["Agency.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Agency")).dataDir == agency.desktopData(in: e.home.paths).path)
+    }
+
+    /// A rename whose new app cannot be built keeps the old name everywhere, and the old app in the Dock.
+    @Test func aRenameThatCannotBuildItsAppChangesNothing() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        var request = IdentityManager.AddRequest(name: "Agency")
+        request.logo = try FakeIcon.orangePNG(in: e.home.url)
+        let agency = try e.manager.add(request)
+        try FileManager.default.removeItem(at: try #require(request.logo))
+        let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
+
+        #expect(throws: (any Error).self) { try e.manager.update(slug: "agency", name: "Agency", tint: nil, logo: nil) }
+
+        #expect(try e.store.load().identity(slug: "agency")?.name == "Agency")
+        #expect(try String(contentsOf: agencyMD, encoding: .utf8).contains("identity \"Agency\""))
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["agency"]?.name == "Agency")
+        #expect(appsInLaunchersDir(e) == ["Agency.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Agency")).dataDir == agency.desktopData(in: e.home.paths).path)
+    }
+
+    /// Without Claude installed, a secondary's app cannot be rebuilt: the old one stays where it is.
+    @Test func aRenameWithoutClaudeKeepsTheOldApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try FileManager.default.removeItem(at: e.claude.url)
+        #expect(throws: (any Error).self) { try e.manager.update(slug: "client", name: "Studio", tint: nil, logo: nil) }
+        #expect(try e.store.load().identity(slug: "client")?.name == "Client")
+        #expect(appsInLaunchersDir(e) == ["Client.app"])
+    }
+
+    /// The primary's own app follows the same order: a rename that cannot build the new app keeps the old one.
+    @Test func thePrimarysOwnAppSurvivesARenameThatCannotBuild() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let photo = try FakeIcon.orangePNG(in: e.home.url)
+        _ = try e.manager.update(slug: "ruben", name: nil, tint: nil, logo: photo, ownApp: true)
+        try FileManager.default.removeItem(at: photo)
+        #expect(throws: (any Error).self) { try e.manager.update(slug: "ruben", name: "Ruben C", tint: nil, logo: nil) }
+        #expect(try e.store.load().primary?.name == "Ruben")
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))
+        #expect(appsInLaunchersDir(e) == ["Ruben.app"])
+        #expect(try launcherConfig(e.home.paths.launcherApp(name: "Ruben")).openApp == e.claude.url.path)
+    }
+
+    /// Two tinted copies (or launchers) each take the other's name: no temporary app, no orphan copy.
+    @Test func swappingLeavesNoTemporaryAppBehind() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        var work = IdentityManager.AddRequest(name: "Work"); work.iconMode = .tintedClone
+        _ = try e.manager.add(work)
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try e.manager.swapNames("work", with: "client")
+        #expect(appsInLaunchersDir(e) == ["Client (Claude).app", "Work.app"])
+        #expect(try e.store.load().identity(slug: "work")?.builtForClaudeVersion == e.claude.version)
     }
 
     // MARK: The primary: Claude itself
