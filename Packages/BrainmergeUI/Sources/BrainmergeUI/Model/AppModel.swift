@@ -331,7 +331,7 @@ public final class AppModel {
         codeAccountsRead.formIntersection(state.identities.map(\.slug))
         readCodeAccounts(of: state.identities.filter { !codeAccountsRead.contains($0.slug) })
         // Accounts changed outside the app (`brainmerge add` in a terminal) count like a change made here: walked again.
-        if accounts.map(\.identity) != state.identities { diskChanged() }
+        if accounts.map(\.identity) != state.identities { diskChanged(); forgetLimits(outliving: state.identities) }
         set(\.accounts, state.identities.map { identity in
             let main = claudeApp.flatMap { app in snapshot.mains.first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: app) } }
             if let main { memory[identity.slug] = snapshot.memoryBytes(of: main.pid) }
@@ -631,11 +631,28 @@ public final class AppModel {
         let outcome = await Task.detached(priority: .userInitiated) {
             ClaudeCodeLimits.check(home: home, configDir: configDir, binary: binary(home), run: run)
         }.value
+        // The account may have gone, or become another login, while Claude Code answered.
+        guard let now = accounts.first(where: { $0.id == slug })?.identity, isSameLogin(identity, now) else { return }
         if case .limits(let lines) = outcome {
             limits[slug] = .checked(lines, at: Date())
         } else {
             limits[slug] = .refused(outcome.sentence ?? "")
         }
+    }
+
+    /// Limits belong to one login: an account removed, added again under the same name, or moved to another Claude
+    /// Code folder is another person, so what was found for the old one goes. A new name or color keeps it.
+    private func forgetLimits(outliving identities: [Identity]) {
+        let kept = limits.filter { slug, _ in
+            guard let before = accounts.first(where: { $0.id == slug })?.identity,
+                  let now = identities.first(where: { $0.slug == slug }) else { return false }
+            return isSameLogin(before, now)
+        }
+        if kept.count != limits.count { limits = kept }
+    }
+
+    private func isSameLogin(_ before: Identity, _ now: Identity) -> Bool {
+        before.id == now.id && now.surfaces.cli && before.cliProfile(in: paths) == now.cliProfile(in: paths)
     }
 
     // MARK: Disk

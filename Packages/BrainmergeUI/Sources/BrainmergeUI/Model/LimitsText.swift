@@ -5,6 +5,11 @@ import BrainmergeCore
 enum LimitsText {
     static let caption = "Limits come from Claude Code for this account, the same as typing /usage. Brainmerge asks only when you click."
     static let checking = "Asking Claude Code…"
+    /// No count of starts: a click asks Claude Code its version, then /usage.
+    static let buttonHelp = "Asks this account's Claude Code, like typing /usage"
+
+    /// A shared card has one button per account: VoiceOver says whose each is.
+    static func buttonLabel(name: String) -> String { "Check limits for \(name)" }
 
     /// A card with two accounts (a shared history) names whose limits each block shows.
     static func title(name: String, shared: Bool) -> String { shared ? "Limits for \(name)" : "Limits" }

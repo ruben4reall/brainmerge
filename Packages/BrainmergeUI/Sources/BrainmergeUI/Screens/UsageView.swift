@@ -114,7 +114,8 @@ public struct UsageView: View {
                 Button("Check limits") { Task { await model.checkLimits(slug) } }
                     .buttonStyle(.glass).controlSize(.small)
                     .disabled(state == .checking)
-                    .help("Runs this account's Claude Code once, like typing /usage")
+                    .accessibilityLabel(LimitsText.buttonLabel(name: name))
+                    .help(LimitsText.buttonHelp)
             }
             switch state {
             case .checked(let lines, _):

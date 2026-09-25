@@ -183,6 +183,58 @@ import BrainmergeTestSupport
         if case .checked = m.limits["client"] {} else { Issue.record("\(String(describing: m.limits["client"]))") }
     }
 
+    /// Limits belong to one login. An account removed, added again under the same name, or moved to another Claude Code
+    /// folder is another person: its card starts empty. The other accounts keep theirs.
+    @Test(arguments: ["removed", "added again", "another folder"])
+    func anotherLoginUnderTheSameCardStartsEmpty(_ change: String) async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        await m.checkLimits("client")
+        await m.checkLimits("ruben")
+        var state = try e.store.load()
+        let index = try #require(state.identities.firstIndex { $0.slug == "client" })
+        switch change {
+        case "removed": state.identities.remove(at: index)
+        case "added again": state.identities[index] = Identity(slug: "client", name: "Client", tint: state.identities[index].tint)
+        default: state.identities[index].cliProfilePath = e.home.url.appending(path: ".claude-elsewhere").path
+        }
+        try e.store.save(state)
+        m.reload()
+        #expect(m.limits["client"] == nil, "\(change)")
+        if case .checked = m.limits["ruben"] {} else { Issue.record("\(change): \(String(describing: m.limits["ruben"]))") }
+    }
+
+    /// A new name or color is the same person: what was found stays.
+    @Test func aRenameKeepsTheLimits() async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        await m.checkLimits("client")
+        var state = try e.store.load()
+        let index = try #require(state.identities.firstIndex { $0.slug == "client" })
+        state.identities[index].name = "Studio"
+        state.identities[index].tint = .green
+        try e.store.save(state)
+        m.reload()
+        if case .checked = m.limits["client"] {} else { Issue.record("\(String(describing: m.limits["client"]))") }
+    }
+
+    /// An answer that comes back after its account was replaced is not shown on the new one's card.
+    @Test(.timeLimit(.minutes(5))) func anAnswerForAReplacedAccountIsDropped() async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        let gate = Gate()
+        let fake = FakeClaudeCode(gate: gate)
+        fake.install(in: m)
+        let click = Task { await m.checkLimits("client") }
+        for _ in 0..<1000 where m.limits["client"] != .checking { await Task.yield() }
+        #expect(m.limits["client"] == .checking)
+        var state = try e.store.load()
+        let index = try #require(state.identities.firstIndex { $0.slug == "client" })
+        state.identities[index] = Identity(slug: "client", name: "Client", tint: state.identities[index].tint)
+        try e.store.save(state)
+        m.reload()
+        gate.open()
+        await click.value
+        #expect(m.limits["client"] == nil, "\(String(describing: m.limits["client"]))")
+    }
+
     /// Never on a timer: the clocks' work and the screen's own refreshes never ask.
     @Test func onlyAClickAsks() async throws {
         let (e, m, fake) = try setUp(); defer { e.home.remove() }
@@ -233,6 +285,17 @@ import BrainmergeTestSupport
         #expect(LimitsText.checkedAt(date, timeZone: try #require(TimeZone(identifier: "UTC"))) == "Checked at 21:05")
         #expect(LimitsText.checkedAt(date, timeZone: try #require(TimeZone(identifier: "Europe/Zurich"))) == "Checked at 23:05")
         #expect(LimitsText.checkedAt(date.addingTimeInterval(-12 * 3600), timeZone: try #require(TimeZone(identifier: "UTC"))) == "Checked at 09:05")
+    }
+
+    /// VoiceOver tells apart the two buttons of a shared card, and the tooltip promises no count of starts (a click
+    /// starts Claude Code twice: its version, then /usage).
+    @Test func eachButtonNamesItsAccount() throws {
+        #expect(LimitsText.buttonLabel(name: "Client") == "Check limits for Client")
+        #expect(LimitsText.buttonHelp == "Asks this account's Claude Code, like typing /usage")
+        let view = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appending(path: "Sources/BrainmergeUI/Screens/UsageView.swift"), encoding: .utf8)
+        #expect(view.contains(#/Button\("Check limits"\)[^\n]*\n(\s*\.[^\n]*\n)*?\s*\.accessibilityLabel\(LimitsText\.buttonLabel\(name: name\)\)/#))
+        #expect(view.contains(".help(LimitsText.buttonHelp)"))
     }
 
     @Test func aSharedCardNamesWhoseLimitsTheyAre() {

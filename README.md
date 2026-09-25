@@ -92,7 +92,7 @@ The screen opens on RAM and disk. First your Mac: the RAM in use (apps, wired an
 
 Below, what each account spent: each card is one account, or two accounts that share their history (they write the same transcripts, so their usage is one number). Numbers are output tokens (what Claude wrote) and context (what it read, cache included), from the transcripts Claude Code keeps locally.
 
-Each account with Claude Code has a "Check limits" button on its card, Claude Code only accounts included. Brainmerge never reads limits by itself: on your click, and only then, it runs that account's official Claude Code (`claude -p "/usage"`, the same as typing /usage) and shows each limit it prints as a thin bar with its percentage and reset time, and when it asked. The answer stays in memory until Brainmerge quits. "See limits in Claude" opens Claude's own usage page in your browser.
+Each account with Claude Code has a "Check limits" button on its card, Claude Code only accounts included. Brainmerge never reads limits by itself: on your click, and only then, it runs that account's official Claude Code (`claude -p "/usage"`, the same as typing /usage) and shows each limit it prints as a thin bar with its percentage and reset time, and when it asked. The answer stays in memory until Brainmerge quits; Claude Code itself handles the run like any session it starts, and may keep its own record of it, as when you type /usage. "See limits in Claude" opens Claude's own usage page in your browser.
 
 ### Under the hood
 
