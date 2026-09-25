@@ -5,7 +5,9 @@ import BrainmergeCore
 /// What every command shares: paths (BRAINMERGE_HOME), Claude.app (BRAINMERGE_CLAUDE_APP), state.
 struct Context {
     let paths = Paths.current()
-    let claudeAppURL = ClaudeApp.defaultURL()
+    /// Found once, and only by the commands that use Claude: the hooks never pay for the search.
+    private static let foundClaude = ClaudeLocator.resolvedURL(paths: Paths.current())
+    var claudeAppURL: URL { Self.foundClaude }
 
     var store: StateStore { StateStore(paths: paths) }
     var cliLink: URL { paths.localBin.appending(path: "brainmerge") }

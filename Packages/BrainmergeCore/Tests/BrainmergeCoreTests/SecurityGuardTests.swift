@@ -34,6 +34,17 @@ import Testing
         return found
     }
 
+    /// Apple's installer is the one outside program started for setup: only to ask where the tools are, or to install them.
+    @Test func xcodeSelectOnlyLooksOrInstalls() throws {
+        for (url, text) in try Self.sources() {
+            for line in text.split(separator: "\n") where line.contains("/usr/bin/xcode-select") && !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                let allowed = line.contains("[\"-p\"]") || line.contains("[\"--install\"]")
+                #expect(allowed, "\(url.lastPathComponent): \(line)")
+                #expect(url.lastPathComponent == "GitAvailability.swift", "\(url.lastPathComponent): \(line)")
+            }
+        }
+    }
+
     @Test func noNetworkCode() throws {
         let hits = try offenders(["URLSession", "NWConnection", "import Network", "CFNetwork", "NSURLConnection", "URLProtocol", "WebSocket"])
         #expect(hits.isEmpty, "\(hits)")

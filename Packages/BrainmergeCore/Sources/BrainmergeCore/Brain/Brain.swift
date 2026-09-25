@@ -25,9 +25,12 @@ public struct Brain: Equatable, Sendable {
     }
 
     @discardableResult
-    public static func initialize(at root: URL, language: BrainLanguage, shell: Shell = Shell()) throws -> Brain {
+    public static func initialize(at root: URL, language: BrainLanguage, shell: Shell = Shell(),
+                                  availability: GitAvailability = .shared) throws -> Brain {
         let brain = Brain(root: root)
         let fm = FileManager.default
+        // Nothing is created half way: without git the memory could not keep its history.
+        if !fm.fileExists(atPath: brain.gitDir.path), !availability.isAvailable { throw BrainmergeError.gitUnavailable }
         try fm.createDirectory(at: brain.memoryDir, withIntermediateDirectories: true)
         try fm.createDirectory(at: brain.metaDir, withIntermediateDirectories: true)
         if !fm.fileExists(atPath: brain.brainMD.path) {
@@ -39,7 +42,7 @@ public struct Brain: Equatable, Sendable {
         for file in [brain.projectsFile, brain.identitiesFile] where !fm.fileExists(atPath: file.path) {
             try Data("{}\n".utf8).write(to: file, options: .atomic)
         }
-        try BrainGit(brain: brain, shell: shell).initIfNeeded()
+        try BrainGit(brain: brain, shell: shell, availability: availability).initIfNeeded()
         return brain
     }
 }

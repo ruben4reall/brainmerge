@@ -8,9 +8,10 @@ public struct Doctor: Sendable {
     public let cliPath: String
     /// Where apps the person made are looked for (see ExistingApps.folders).
     public let appFolders: [URL]
+    public let git: GitAvailability
 
-    public init(paths: Paths, store: StateStore, claudeAppURL: URL, cliPath: String, appFolders: [URL]? = nil) {
-        self.paths = paths; self.store = store; self.claudeAppURL = claudeAppURL; self.cliPath = cliPath
+    public init(paths: Paths, store: StateStore, claudeAppURL: URL, cliPath: String, appFolders: [URL]? = nil, git: GitAvailability = .shared) {
+        self.paths = paths; self.store = store; self.claudeAppURL = claudeAppURL; self.cliPath = cliPath; self.git = git
         self.appFolders = appFolders ?? ExistingApps.folders(for: paths)
     }
 
@@ -36,6 +37,10 @@ public struct Doctor: Sendable {
             findings.append(Finding(level: .error, title: "Claude.app", detail: "\(error)"))
         }
 
+        findings.append(git.isAvailable
+            ? Finding(level: .ok, title: "git", detail: "Apple's Command Line Tools are installed")
+            : Finding(level: .error, title: "git", detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install"))
+
         let state: AppState
         do { state = try store.load() } catch {
             findings.append(Finding(level: .error, title: "State", detail: "\(error)"))
@@ -51,7 +56,7 @@ public struct Doctor: Sendable {
             let candidate = Brain(root: folder.url)
             if candidate.isInitialized {
                 ready[folder.id] = candidate
-                let git = (try? BrainGit(brain: candidate).log(limit: 1)) != nil
+                let git = (try? BrainGit(brain: candidate, availability: self.git).log(limit: 1)) != nil
                 findings.append(Finding(level: git ? .ok : .error, title: "Memory: \(folder.name)",
                                         detail: git ? "\(folder.path), git ready" : "\(folder.path): git repository unreadable"))
             } else {

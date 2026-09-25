@@ -3,7 +3,13 @@ import Foundation
 public struct BrainGit: Sendable {
     public let brain: Brain
     public let shell: Shell
-    public init(brain: Brain, shell: Shell = Shell()) { self.brain = brain; self.shell = shell }
+    public let availability: GitAvailability
+    public init(brain: Brain, shell: Shell = Shell(), availability: GitAvailability = .shared) {
+        self.brain = brain; self.shell = shell; self.availability = availability
+    }
+
+    /// Every entry point that would start git checks first: without Apple's tools, /usr/bin/git pops a dialog.
+    private func requireGit() throws { guard availability.isAvailable else { throw BrainmergeError.gitUnavailable } }
 
     public struct Entry: Equatable, Sendable {
         public let hash: String
@@ -19,16 +25,19 @@ public struct BrainGit: Sendable {
 
     public func initIfNeeded() throws {
         guard !FileManager.default.fileExists(atPath: brain.gitDir.path) else { return }
+        try requireGit()
         try shell.check("/usr/bin/git", ["init", "-q", "-b", "main"], cwd: brain.root)
     }
 
     public func hasChanges() throws -> Bool {
-        !(try shell.check("/usr/bin/git", ["status", "--porcelain"], cwd: brain.root)).isEmpty
+        try requireGit()
+        return !(try shell.check("/usr/bin/git", ["status", "--porcelain"], cwd: brain.root)).isEmpty
     }
 
     /// Adds everything and commits under the identity's name. Returns false if there was nothing to commit.
     @discardableResult
     public func commitAll(authorName: String, authorEmail: String, message: String) throws -> Bool {
+        try requireGit()
         try shell.check("/usr/bin/git", ["add", "-A"], cwd: brain.root)
         guard try hasChanges() else { return false }
         try shell.check("/usr/bin/git", ["-c", "user.name=\(authorName)", "-c", "user.email=\(authorEmail)",
@@ -39,12 +48,14 @@ public struct BrainGit: Sendable {
     /// The commit the memory is at, nil before the first save. Cheap: the graph asks it every few seconds and reads
     /// the history again only when it moved.
     public func head() -> String? {
+        guard availability.isAvailable else { return nil }
         guard let result = try? shell.run("/usr/bin/git", ["rev-parse", "--verify", "-q", "HEAD"], cwd: brain.root), result.status == 0 else { return nil }
         let hash = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         return hash.isEmpty ? nil : hash
     }
 
     public func log(limit: Int = 50) throws -> [Entry] {
+        try requireGit()
         guard try shell.run("/usr/bin/git", ["rev-parse", "--verify", "HEAD"], cwd: brain.root).status == 0 else { return [] }
         // core.quotePath=false: "décision.md" comes out as it is written, not as "d\303\251cision.md" in quotes.
         let out = try shell.check("/usr/bin/git", ["-c", "core.quotePath=false", "log", "-n", "\(limit)", "--name-only",

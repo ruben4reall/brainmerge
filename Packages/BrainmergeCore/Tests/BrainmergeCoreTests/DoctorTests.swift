@@ -8,6 +8,15 @@ import BrainmergeTestSupport
         Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath)
     }
 
+    @Test func missingGitIsNamedWithAppleInstaller() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let missing = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
+        let findings = Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath, git: missing).run()
+        #expect(findings.contains(Doctor.Finding(level: .error, title: "git",
+                                                 detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install")))
+        #expect(doctor(e).run().contains { $0.title == "git" && $0.level == .ok })
+    }
+
     @Test func healthySetupHasNoErrors() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")

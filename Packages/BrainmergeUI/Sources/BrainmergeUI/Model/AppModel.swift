@@ -213,9 +213,11 @@ public final class AppModel {
     public static func live() -> AppModel {
         let paths = Paths.current()
         let launcher = Bundle.main.url(forAuxiliaryExecutable: "launcher") ?? LauncherBuilder.siblingLauncher()
+        // Claude wherever it is installed, or where the person pointed Settings (read once per launch).
+        let claude = ClaudeLocator.resolvedURL(paths: paths)
         let manager = IdentityManager(paths: paths, store: StateStore(paths: paths), launcherBinary: launcher,
-                                      cliPath: CLIInstaller.link(in: paths).path, claudeAppURL: ClaudeApp.defaultURL())
-        let model = AppModel(paths: paths, store: StateStore(paths: paths), manager: manager, claudeAppURL: ClaudeApp.defaultURL())
+                                      cliPath: CLIInstaller.link(in: paths).path, claudeAppURL: claude)
+        let model = AppModel(paths: paths, store: StateStore(paths: paths), manager: manager, claudeAppURL: claude)
         // BRAINMERGE_MEMORY_PRESSURE=normal|warning|critical: for demos and screenshots.
         if let forced = ProcessInfo.processInfo.environment["BRAINMERGE_MEMORY_PRESSURE"] {
             let level: MemoryPressure.Level = forced == "critical" ? .critical : forced == "warning" ? .warning : .normal
