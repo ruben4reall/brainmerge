@@ -5,7 +5,7 @@
 
 ## À faire
 
-- [ ] Ruben : dans Brainmerge, ouvrir Edit sur un compte et cliquer « Swap names » (les noms sont inversés par rapport aux e-mails de Claude Code) ; puis ne plus ouvrir le compte secondaire avec les « Claude Secondaire » faites main (Claude plus ancien sur les mêmes données), les mettre à la corbeille une fois le compte fermé
+- [ ] Ruben : dans Brainmerge, ouvrir Edit sur un compte et cliquer « Swap names » (les noms sont inversés par rapport aux e-mails de Claude Code) ; puis ne plus ouvrir le compte secondaire avec les copies de Claude faites main (Claude plus ancien sur les mêmes données), les mettre à la corbeille une fois le compte fermé
 - [ ] Vérifier à la main dans l'app installée : survol et clic sur toute la ligne, Cmd-1 à Cmd-4, « Show » qui ramène une fenêtre fermée
 - [ ] Rejouer S2 et S3 (vraies sessions Claude Code des deux comptes) quand les profils CLI sont reconnectés
 - [ ] Réglages GitHub à faire par Ruben : protéger main (fusion par PR, CI verte), téléverser l'aperçu social (docs/brand/banner-1280x640.png), description et sujets du dépôt, activer « Report a vulnerability »
