@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 (unreleased)
+
+- RAM and disk at the top of the Usage screen. Your Mac's RAM in use, counted like Activity Monitor (apps, wired and compressed), out of its total, with the pressure word when macOS says it is short. Then one row per account: the RAM its Claude uses with everything it runs, as a share of the Mac and a thin bar, and the disk space of its Claude data folder, its Claude Code profile and its app (the parts on hover). A closed account shows its disk only. Claude Code sessions started in a terminal are one row for all accounts together, since which account a session uses is only in its environment, which Brainmerge never reads; everything else is "Other apps".
+- The RAM of an account is now the figure Activity Monitor shows (each process's footprint), on its card, in the Accounts subtitle and in the low RAM warning alike. It includes GPU memory the resident size missed and counts memory shared between Claude's processes once, so an account can read noticeably less than in 0.5.0. Sizes read with a point whatever the Mac's language ("1.2 GB", never "1,2 GB").
+- Disk sizes are added up from file metadata, never file contents: no link followed, no other disk entered, a shared history or shared skills counted once with your first account, a tinted copy counted by the blocks it does not share with Claude. Folders in places macOS guards with a consent prompt (Documents, iCloud Drive and the like) are not measured, so macOS never asks. The walk runs off the main thread when the screen opens, at most every five minutes or right after a change to your accounts, stops when you leave the screen, and says "More than" when it stopped early to stay fast. "Measure again" redoes it.
+- `ps` output is trimmed as it is read: only Claude's own command lines are kept.
+
 ## 0.5.0
 
 - Sidebar: every row is clickable across its whole width, not only on its text or icon, and lights up softly under the pointer (a neutral fill; the purple still marks the current screen). Cmd-1 to Cmd-4 switch screens, listed in the View menu, Cmd-comma opens Settings, and VoiceOver says which screen is selected and when the splash hands over.

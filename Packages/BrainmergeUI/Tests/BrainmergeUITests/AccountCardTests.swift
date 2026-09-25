@@ -39,8 +39,8 @@ import BrainmergeCore
     /// mark next to the name carries the whole sentence, the other account's name included (a card is too narrow for it).
     @Test func twoAccountsOnOneClaudeAccountAreMarkedWithoutHidingTheStatus() {
         #expect(AccountsView.duplicateHelp(sameAs: "Agency") == "Same Claude account as Agency")
-        let size = ByteCountFormatter.string(fromByteCount: 1_300_000_000, countStyle: .memory)
-        #expect(AccountsView.status(of: account(running: true, session: true), memory: 1_300_000_000) == "Open · \(size)")
+        // Binary units like Activity Monitor, and a point whatever the Mac's language.
+        #expect(AccountsView.status(of: account(running: true, session: true), memory: 1_300_000_000) == "Open · 1.2 GB")
         #expect(AccountsView.status(of: account(running: false, session: true), memory: 0) == "Closed")
     }
 

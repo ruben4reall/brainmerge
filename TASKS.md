@@ -9,7 +9,9 @@
 - [ ] Vérifier à la main dans l'app installée : survol et clic sur toute la ligne, Cmd-1 à Cmd-4, « Show » qui ramène une fenêtre fermée
 - [ ] Rejouer S2 et S3 (vraies sessions Claude Code des deux comptes) quand les profils CLI sont reconnectés
 - [ ] Réglages GitHub à faire par Ruben : protéger main (fusion par PR, CI verte), téléverser l'aperçu social (docs/brand/banner-1280x640.png), description et sujets du dépôt, activer « Report a vulnerability »
-- [ ] Codex et autres assistants (CODEX_HOME, AGENTS.md, notify) derrière une abstraction « provider » ; sessions Terminal dans la RAM par compte
+- [ ] Codex et autres assistants (CODEX_HOME, AGENTS.md, notify) derrière une abstraction « provider » ; rattacher les sessions Claude Code du Terminal à leur compte (aujourd'hui une seule ligne pour tous : le compte n'est que dans l'environnement, jamais lu ; piste : un lanceur `brainmerge claude <compte>` qui marque son argv)
+- [ ] Refaire la capture 21-usage.png avec la section RAM et disque (elle montre la vraie RAM du Mac qui capture ; les tailles disque d'un home de démo sont minuscules)
+- [ ] Vérifier à la main dans l'app installée l'écran Usage : RAM du Mac proche de Moniteur d'activité, RAM par compte, ligne Terminal, tailles disque et « Measure again »
 - [ ] Calibrer la détection de connexion sur une vraie connexion (un compte de test au clavier)
 - [ ] Envoyer à Anthropic la demande d'autorisation pour la mascotte (lettre dans ~/brainmerge-private/docs/anthropic-brand-request.md) avant la sortie publique ; si refus, remplacer la créature (un seul fichier)
 - [ ] Trouver un nom à la créature avec Ruben
@@ -20,6 +22,7 @@
 
 ## Fait
 
+- [x] 2026-09-25 : RAM et disque par compte (0.6.0, non publiée) : RAM du Mac comptée comme Moniteur d'activité, RAM de chaque compte par l'empreinte de ses processus (cartes, sous-titre et alerte au même chiffre), sessions Claude Code du Terminal sur une ligne honnête, taille disque de chaque compte depuis les métadonnées (liens jamais suivis, historique partagé compté une fois, copie teintée par ses blocs propres), gardes de sécurité ajoutées
 - [x] 2026-09-25 : v0.5.0 publiée, notarisée et installée : barre latérale cliquable sur toute la ligne avec survol et Open/Show visibles, animation de démarrage du personnage qui marche, e-mail Claude Code de chaque compte (3 champs d'affichage lus, jamais stockés) avec échange des noms inversés, compte principal modifiable sans quitter Claude et app à sa couleur, apps faites main reconnues et signalées ; un seul bouton violet par écran (teinte globale de la 0.4.0 retirée) ; captures toujours arrêtées à la fin du script
 
 - [x] 2026-09-25 : notarisation de la 0.4.0 acceptée par Apple (soumission 00621551), DMG agrafés et remplacés dans la release, consignes d'installation mises à jour (site, README, notes de release)

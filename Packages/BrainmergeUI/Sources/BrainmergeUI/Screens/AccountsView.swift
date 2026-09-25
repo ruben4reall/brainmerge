@@ -77,7 +77,7 @@ public struct AccountsView: View {
         let open = model.openAccounts
         if let a = model.accounts.first(where: { model.opening.contains($0.id) }) { return "Opening \(a.identity.name)…" }
         if open.isEmpty { return "\(model.accounts.count) accounts, none open" }
-        let memory = model.totalResidentBytes > 0 ? ", \(ByteCountFormatter.string(fromByteCount: model.totalResidentBytes, countStyle: .memory))" : ""
+        let memory = model.totalRAMBytes > 0 ? ", \(ByteFormat.ram(model.totalRAMBytes))" : ""
         return open.count == 1 ? "1 account open\(memory)" : "\(open.count) accounts open\(memory)"
     }
 
@@ -94,7 +94,7 @@ public struct AccountsView: View {
     /// A compact card: swatch, name, note, status; the primary action and the "more" menu on the right.
     func card(_ account: Account) -> some View {
         let opening = model.opening.contains(account.id)
-        let memory = model.residentBytes(of: account.id)
+        let memory = model.ramBytes(of: account.id)
         let sameAs = model.duplicateCodeAccount(of: account.id)?.identity.name
         let othersOpen = model.openAccounts.contains { $0.id != account.id }
         let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
@@ -234,7 +234,7 @@ public struct AccountsView: View {
         }
         switch (account.isRunning, account.needsLogin) {
         case (true, true): return "Open · log in from its window"
-        case (true, false): return memory > 0 ? "Open · \(ByteCountFormatter.string(fromByteCount: memory, countStyle: .memory))" : "Open"
+        case (true, false): return memory > 0 ? "Open · \(ByteFormat.ram(memory))" : "Open"
         case (false, true): return "Not logged in yet"
         case (false, false): return "Closed"
         }

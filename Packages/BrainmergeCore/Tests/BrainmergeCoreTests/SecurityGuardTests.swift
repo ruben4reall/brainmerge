@@ -125,6 +125,42 @@ import Testing
         for call in flags { #expect(call.contains("O_RDONLY") && call.contains("O_NOFOLLOW") && call.contains("O_NONBLOCK"), "open(\(call))") }
     }
 
+    /// Disk sizes come from the sizes the file system reports while listing a folder (SECURITY.md): the walker opens no
+    /// file, reads no content or extended attribute, turns no name into text, follows no link, enters no other disk,
+    /// writes nothing and starts nothing.
+    @Test func diskSizesAreReadNeverContents() throws {
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "DiskUsage.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        #expect(code.contains("FTS_PHYSICAL") && code.contains("FTS_XDEV"), "the walk must not follow links nor cross disks")
+        for forbidden in ["FTS_LOGICAL", "FTS_COMFOLLOW", "Data(contentsOf", "String(contentsOf", "FileHandle", "InputStream", "fopen",
+                          "mmap", "getxattr", "listxattr", "String(cString", "String(validatingCString", "readlink",
+                          "removeItem", "moveItem", "write(", "setAttributes", "unlink", "rename(", "contentsOfDirectory",
+                          "Shell", "Process", "posix_spawn", "O_RDONLY", "O_RDWR", "O_WRONLY"] {
+            #expect(!code.contains(forbidden), "DiskUsage.swift must only add up sizes: \(forbidden)")
+        }
+        // Plain word boundaries: fts_open and fts_read are the walk itself, open( and read( would be a file's contents.
+        for call in [#"\bopen\("#, #"\bread\("#, #"\bpread\("#, #"\bopenat\("#] {
+            #expect(code.firstMatch(of: try Regex(call)) == nil, "DiskUsage.swift must not open or read a file: \(call)")
+        }
+    }
+
+    /// The RAM of Claude's processes is asked of the kernel as one number per process. Nothing reads another process's
+    /// arguments with their environment (KERN_PROCARGS2 returns both, and an environment can hold API keys), its memory,
+    /// or its open files; `ps` is asked for pid, parent, size and arguments, never the environment.
+    @Test func processesAreMeasuredNeverRead() throws {
+        let reads = try offenders(["KERN_PROCARGS", "KERN_PROC_ARGS", "task_for_pid", "mach_vm_read", "vm_read(", "proc_pidfdinfo",
+                                   "PROC_PIDLISTFDS", "PROC_PIDFDVNODEPATHINFO", "proc_pidinfo", "proc_listpids", "PROC_PIDREGIONPATHINFO"])
+        #expect(reads.isEmpty, "\(reads)")
+        let rusage = try offenders(["proc_pid_rusage"], except: ["ProcessMonitor.swift"])
+        #expect(rusage.isEmpty, "only ProcessMonitor.swift asks for a footprint: \(rusage)")
+        // One ps call, with exactly these arguments: -E or an "e" keyword would print every environment.
+        let calls = try Self.sources().flatMap { url, text in text.matches(of: try Regex(#""/bin/ps",\s*\[([^\]]*)\]"#)).map { (url.lastPathComponent, String($0.output[1].substring ?? "")) } }
+        #expect(calls.count == 1 && calls.first?.0 == "ProcessMonitor.swift", "\(calls)")
+        #expect(calls.first?.1 == #""-axo", "pid=,ppid=,rss=,args=""#, "\(calls)")
+        #expect(try offenders(["\"/bin/ps\""], except: ["ProcessMonitor.swift"]).isEmpty)
+    }
+
     /// The repository is public: no real person's email address in it, not even in a test. Examples use example.com.
     @Test func noRealEmailAddressInTheRepository() throws {
         let skipped: Set<String> = [".git", ".build", ".swiftpm", "graphify-out", "DerivedData", "dist", "node_modules"]

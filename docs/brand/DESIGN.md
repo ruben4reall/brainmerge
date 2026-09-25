@@ -31,6 +31,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.rowPressed` | text at 10% | a sidebar row while it is pressed |
 | `Colors.accentSoft` | accent at 35% | the older bars of the usage chart |
 | `Colors.onAccent` | `#FBF7FF` | text on the accent |
+| `Colors.meter` | text at 42% | the RAM bars of the Usage screen that are not an account's (the Mac, terminal sessions, other apps); an account's bar takes its tint, every bar sits on a `field` track |
 | `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states |
 | `Colors.creature` / `creatureEye` | `#A06BE0` / `#1E1430` | the creature |
 | `Halo.opacity` / `radius` / `size` | 0 / 110 / 520 | background halos (off; set 0.14 to bring them back) |
@@ -44,6 +45,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Layout.padding` / `cardRadius` | 20 / 12 | screen padding, card corners |
 | `Layout.rowRadius` | 10 | sidebar rows: their selection, hover and press fills |
 | `Layout.readingWidth` / `formWidth` | 880 / 720 | the widest a Memory or Usage card gets / the settings form |
+| `Layout.meterRadius` | 3 | the thin RAM bars of the Usage screen |
 
 Account tints (`Theme.hex(for:)`): orange `#D97757`, blue `#6FA3D8`, green `#7FA37A`, purple `#A87BC9`, pink `#D97A8E`, yellow `#E0A526`, gray `#7D8A99`. Red maps to pink and is not offered in pickers.
 

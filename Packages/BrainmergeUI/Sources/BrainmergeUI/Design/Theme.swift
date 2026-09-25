@@ -38,6 +38,10 @@ public enum Theme {
         public static let graphLink = Color(hex: "#F4EFE6").opacity(0.22)
         public static let graphLinkLit = Color(hex: "#F4EFE6").opacity(0.55)
 
+        /// The RAM bars of the Usage screen for what is not an account (the Mac, terminal sessions, other apps):
+        /// neutral cream, on a `field` track. An account's bar takes its tint.
+        public static let meter = Color(hex: "#F4EFE6").opacity(0.42)
+
         // States: open, saved.
         public static let sage = Color(hex: "#8FC7A6")
 
@@ -113,6 +117,8 @@ public enum Theme {
         public static let readingWidth: CGFloat = 880
         /// The settings form.
         public static let formWidth: CGFloat = 720
+        /// The thin RAM bars of the Usage screen.
+        public static let meterRadius: CGFloat = 3
     }
 
     public enum Fonts {

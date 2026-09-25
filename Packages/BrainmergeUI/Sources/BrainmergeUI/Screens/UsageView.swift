@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import BrainmergeCore
 
-/// What each account has consumed, read from Claude Code's local transcripts. Informational: never a switcher.
+/// What each account uses on this Mac (RAM and disk) and what it spent in Claude Code, read from its local transcripts.
+/// Informational: never a switcher.
 public struct UsageView: View {
     @Bindable var model: AppModel
     public init(model: AppModel) { self.model = model }
@@ -10,9 +11,12 @@ public struct UsageView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                ScreenHeader("Usage", subtitle: "What your accounts spent, read from Claude Code's own transcripts on this Mac. Limits and reset times are only known to Claude.") {
+                ScreenHeader("Usage", subtitle: "What your accounts use on this Mac, and what they spent in Claude Code. Limits and reset times are only known to Claude.") {
                     Button("See limits in Claude") { if let url = URL(string: "https://claude.ai/settings/usage") { NSWorkspace.shared.open(url) } }.buttonStyle(.glass)
                 }
+                sectionLabel("RAM and disk")
+                ResourcesSection(model: model)
+                sectionLabel("Spent in Claude Code").padding(.top, 8)
                 if model.usage.isEmpty {
                     GlassCard {
                         Text(model.usageRefreshing ? "Reading the transcripts…" : "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
@@ -32,6 +36,19 @@ public struct UsageView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task { await model.refreshUsage() }
+        // Disk sizes: walked when the screen opens, then again every few minutes at most (refreshDisk decides) or
+        // right after a change to the accounts. Leaving the screen cancels this task, and the walk with it.
+        .task {
+            while !Task.isCancelled {
+                await model.refreshDisk()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    func sectionLabel(_ text: String) -> some View {
+        Text(text.uppercased()).font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
+            .accessibilityAddTraits(.isHeader)
     }
 
     func card(_ entry: AccountUsage) -> some View {

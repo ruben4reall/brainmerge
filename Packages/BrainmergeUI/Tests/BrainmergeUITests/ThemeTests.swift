@@ -75,6 +75,16 @@ import BrainmergeCore
         #expect(Self.contrast(Theme.Colors.onAccent, over: Theme.Colors.button) >= 4.5)
     }
 
+    /// The RAM bars of the Usage screen: neutral cream (the purple means an action, a tint means an account), a thin
+    /// bar still visible on the canvas (3:1, the bar for graphics), on the same track as the fields.
+    @Test func ramBarsAreNeutralAndVisible() {
+        func alpha(_ c: Color) -> CGFloat { NSColor(c).usingColorSpace(.sRGB)?.alphaComponent ?? 1 }
+        #expect(Theme.Colors.meter.rgb255 == Theme.Colors.text.rgb255)
+        #expect(Self.contrast(Theme.Colors.meter, over: Theme.Colors.background) >= 3)
+        #expect(alpha(Theme.Colors.meter) < alpha(Theme.Colors.textFaint))
+        #expect(Theme.Layout.meterRadius > 0 && Theme.Layout.meterRadius < Theme.Layout.rowRadius)
+    }
+
     @Test func noHardCodedColorsOutsideTheme() throws {
         // Everything visible flows through Theme.swift: a hex or a bare white outside it is a retheming trap.
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

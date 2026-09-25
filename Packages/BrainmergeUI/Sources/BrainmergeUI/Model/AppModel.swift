@@ -86,12 +86,31 @@ public final class AppModel {
     public private(set) var usageRefreshing = false
     /// The Mac's memory pressure, injectable in tests.
     public var memoryPressure: @Sendable () -> MemoryPressure.Level = { MemoryPressure.current() ?? .normal }
-    public private(set) var totalResidentBytes: Int64 = 0
-    /// Resident memory per open account (instance and child processes). Kept apart from the accounts and compared
-    /// at a 16 MB step: a few kilobytes moving with every `ps` do not redraw the interface.
-    public private(set) var memoryBySlug: [String: Int64] = [:]
-    /// A sentence when the Mac is low on memory, nil otherwise.
+    /// The Mac's RAM figures, injectable in tests.
+    public var readMacMemory: @Sendable (MemoryPressure.Level) -> MacMemory? = { MacMemory.read(pressure: $0) }
+    /// The RAM of the open accounts together.
+    public private(set) var totalRAMBytes: Int64 = 0
+    /// The RAM each open account uses (instance and child processes, footprints like Activity Monitor). Kept apart
+    /// from the accounts and compared at a 16 MB step: a few kilobytes moving with every `ps` do not redraw the interface.
+    public private(set) var ramBySlug: [String: Int64] = [:]
+    /// Claude Code sessions started outside any Claude window, which no account can claim.
+    public private(set) var terminalUse = ProcessMonitor.TerminalUse(sessions: 0, bytes: 0)
+    /// The Mac's RAM, redrawn only when a figure the screen shows (a tenth of a GB) or the pressure moves.
+    public private(set) var macMemory: MacMemory?
+    /// A sentence when the Mac is low on RAM, nil otherwise.
     public private(set) var memoryWarning: String?
+    /// The disk space of each account, walked while the Usage screen shows (see `refreshDisk`). In memory only.
+    public private(set) var disk: [String: AccountDisk] = [:]
+    public private(set) var diskMeasuredAt: Date?
+    public private(set) var diskMeasuring = false
+    /// Walks one folder; the closure says when to stop. Injectable in tests.
+    public var diskMeasure: @Sendable (DiskPlan.Root, @Sendable () -> Bool) -> DiskSize? = { root, cancelled in
+        DiskUsage().size(of: root.url, privateOnly: root.privateOnly, skipping: root.skipping, isCancelled: cancelled)
+    }
+    /// Bumped by every change to the accounts: a walk that started before it is not taken as up to date.
+    private var diskGeneration = 0
+    /// The shortest time between two walks unless asked again.
+    static let diskInterval: TimeInterval = 300
     private var logos: [String: NSImage] = [:]
     /// Automatic rebuilds already reported (slug and Claude version): one sentence, not one every five minutes.
     private var reportedRebuildFailures: Set<String> = []
@@ -195,7 +214,7 @@ public final class AppModel {
     private func loadFirstTime() async {
         let monitor = manager.monitor, store = self.store
         let (snapshot, log) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?) in
-            let snapshot = (try? monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+            let snapshot = (try? monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
             let brain = (try? store.load())?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
             return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) })
         }.value
@@ -232,32 +251,44 @@ public final class AppModel {
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
         else if selectedBrainID == nil, let first = state.defaultBrain { selectedBrainID = first.id }
-        let snapshot = prefetchedSnapshot ?? (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+        let snapshot = prefetchedSnapshot ?? (try? manager.monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
         let claudeApp = claude
         var memory: [String: Int64] = [:]
         codeAccountsRead.formIntersection(state.identities.map(\.slug))
         readCodeAccounts(of: state.identities.filter { !codeAccountsRead.contains($0.slug) })
         set(\.accounts, state.identities.map { identity in
             let main = claudeApp.flatMap { app in snapshot.mains.first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: app) } }
-            if let main { memory[identity.slug] = snapshot.residentBytes(of: main.pid) }
+            if let main { memory[identity.slug] = snapshot.memoryBytes(of: main.pid) }
             let session = identity.surfaces.desktop && DesktopSession.hasSession(dataDir: identity.desktopData(in: paths))
             return Account(identity: identity, isRunning: main != nil, hasSession: session, claudeVersion: Self.versionState(of: identity, claude: claudeApp),
                            codeAccount: codeAccounts[identity.slug])
         })
         let step: Int64 = 16 * 1024 * 1024
-        func coarse(_ m: [String: Int64]) -> [String: Int64] { m.mapValues { ($0 + step / 2) / step } }
-        if coarse(memory) != coarse(memoryBySlug) {
-            memoryBySlug = memory
-            totalResidentBytes = memory.values.reduce(0, +)
+        func coarse(_ bytes: Int64) -> Int64 { (bytes + step / 2) / step }
+        if memory.mapValues(coarse) != ramBySlug.mapValues(coarse) {
+            ramBySlug = memory
+            totalRAMBytes = memory.values.reduce(0, +)
             changed = true
         }
-        set(\.memoryWarning, Self.memoryWarning(level: memoryPressure(), open: openAccounts.count, bytes: totalResidentBytes))
+        let terminal = snapshot.terminalUse
+        if terminal.sessions != terminalUse.sessions || coarse(terminal.bytes) != coarse(terminalUse.bytes) { terminalUse = terminal; changed = true }
+        let level = memoryPressure()
+        let mac = readMacMemory(level)
+        if mac.map(Self.shownFigures) != macMemory.map(Self.shownFigures) { macMemory = mac; changed = true }
+        set(\.memoryWarning, Self.memoryWarning(level: level, open: openAccounts.count, bytes: totalRAMBytes))
         // A window that showed up is no longer "opening".
         set(\.opening, opening.subtracting(openAccounts.map(\.id)))
         return changed
     }
 
-    public func residentBytes(of slug: String) -> Int64 { memoryBySlug[slug] ?? 0 }
+    public func ramBytes(of slug: String) -> Int64 { ramBySlug[slug] ?? 0 }
+
+    /// What the screen shows of the Mac's RAM, to a tenth of a GB, and the pressure.
+    static func shownFigures(_ mac: MacMemory) -> [Int64] {
+        let tenth: Int64 = (1 << 30) / 10
+        return [mac.physical, mac.used, mac.appMemory, mac.wired, mac.compressed, mac.swapUsed].map { ($0 + tenth / 2) / tenth }
+            + [Int64(mac.pressure.rawValue)]
+    }
 
     // MARK: Which account Claude Code uses
 
@@ -396,12 +427,12 @@ public final class AppModel {
         for slug in outdatedAccounts.map(\.id) { await updateAccount(slug) }
     }
 
-    /// "The Mac is low on memory": a sentence, not an alarm, only when the kernel says so and accounts are open.
+    /// "The Mac is low on RAM": a sentence, not an alarm, only when the kernel says so and accounts are open.
     static func memoryWarning(level: MemoryPressure.Level, open: Int, bytes: Int64) -> String? {
         guard level >= .warning, open > 0 else { return nil }
-        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)
+        let size = ByteFormat.ram(bytes)
         let accounts = open == 1 ? "1 open account uses" : "\(open) open accounts use"
-        let severity = level == .critical ? "Your Mac is very low on memory." : "Your Mac is running low on memory."
+        let severity = level == .critical ? "Your Mac is very low on RAM." : "Your Mac is running low on RAM."
         return "\(severity) \(accounts) \(size). Close the ones you don't use."
     }
 
@@ -491,6 +522,34 @@ public final class AppModel {
         }.value
         if usage != computed { usage = computed }
         usageUpdatedAt = now
+    }
+
+    // MARK: Disk
+
+    /// Walks every account's folders off the main thread, unless a walk runs or the last one is recent and nothing
+    /// changed since (`force` walks anyway). Cancelling the caller (the screen went away) stops the walk, and a walk
+    /// stopped that way keeps nothing: the next visit walks again.
+    public func refreshDisk(force: Bool = false, now: Date = Date()) async {
+        guard !diskMeasuring else { return }
+        if !force, let last = diskMeasuredAt, now.timeIntervalSince(last) < Self.diskInterval { return }
+        diskMeasuring = true
+        defer { diskMeasuring = false }
+        let identities = accounts.map(\.identity), paths = self.paths, measure = diskMeasure, generation = diskGeneration
+        let walk = Task.detached(priority: .utility) { () -> [String: AccountDisk]? in
+            let plan = DiskPlan.plan(for: identities, paths: paths)
+            let disks = DiskPlan.measure(plan) { root in measure(root, { Task.isCancelled }) }
+            return Task.isCancelled ? nil : disks
+        }
+        // A detached task does not inherit the caller's cancellation: it is passed on by hand.
+        guard let measured = await withTaskCancellationHandler(operation: { await walk.value }, onCancel: { walk.cancel() }) else { return }
+        if disk != measured { disk = measured }
+        if generation == diskGeneration { diskMeasuredAt = now }
+    }
+
+    /// Accounts or their apps changed: the next visit of the Usage screen walks again.
+    func diskChanged() {
+        diskGeneration += 1
+        diskMeasuredAt = nil
     }
 
     // MARK: Photos
@@ -625,6 +684,8 @@ public final class AppModel {
         let result: Result<T, Error> = await withCheckedContinuation { continuation in
             queue.async { continuation.resume(returning: Result { try work() }) }
         }
+        // Every change to accounts, their folders or their apps runs here, the automatic rebuilds included.
+        diskChanged()
         reload()
         return result
     }

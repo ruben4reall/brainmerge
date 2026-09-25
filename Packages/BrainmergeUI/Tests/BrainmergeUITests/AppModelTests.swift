@@ -5,10 +5,13 @@ import BrainmergeTestSupport
 @testable import BrainmergeUI
 
 @MainActor @Suite struct AppModelTests {
+    /// Hermetic: no process of the real Mac and no real RAM figure, which move between two reloads.
     func model(_ e: ManagerEnv, monitor: ProcessMonitor? = nil) -> AppModel {
         let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
-                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor)
-        return AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor ?? ProcessMonitor(psOutput: { "" }))
+        let model = AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+        model.readMacMemory = { _ in nil }
+        return model
     }
 
     @Test func listsAccountsWithRunningFlags() throws {
@@ -296,23 +299,100 @@ import BrainmergeTestSupport
         #expect(try e.store.load().identity(slug: "client")?.name == "Client")
     }
 
+    nonisolated static let mb: Int64 = 1024 * 1024
+    /// 16 GB, 9 GB used (pages of 16 KB, 65,536 per GB).
+    nonisolated static func mac(_ level: MemoryPressure.Level) -> MacMemory {
+        MacMemory(physical: 16 << 30, pageSize: 16_384, pages: .init(internalPages: 5 * 65_536, purgeable: 0, external: 65_536,
+                                                                     wired: 3 * 65_536, compressor: 65_536, free: 1000), swapUsed: 0, pressure: level)
+    }
+
+    /// The cards, the subtitle and the warning use one number per account: Activity Monitor's (the footprint of each
+    /// process of its tree), the resident size where the kernel gave none.
     @Test func memoryPerAccountAndAWarningUnderPressure() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
         let data = client.desktopData(in: e.home.paths).path
         let exe = e.claude.executable.path
-        let ps = "  800 1 50000 \(exe)\n  900 1 100000 \(exe) --user-data-dir=\(data)\n  901 900 400000 \(exe.replacingOccurrences(of: "MacOS/Claude", with: "Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper")) --type=renderer\n"
-        let m = model(e, monitor: ProcessMonitor(psOutput: { ps }))
+        let helper = exe.replacingOccurrences(of: "MacOS/Claude", with: "Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper")
+        let ps = "  800 1 50000 \(exe)\n  900 1 100000 \(exe) --user-data-dir=\(data)\n  901 900 400000 \(helper) --type=renderer\n"
+            + "  950 1 3000 -zsh\n  951 950 70000 claude --resume\n"
+        let footprints: [Int32: Int64] = [900: 300 * Self.mb, 901: 150 * Self.mb, 951: 90 * Self.mb]
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps }, footprint: { footprints[$0] }))
         m.memoryPressure = { .warning }
+        m.readMacMemory = { Self.mac($0) }
         m.reload()
-        #expect(m.residentBytes(of: "client") == Int64(500_000) * 1024)
-        #expect(m.residentBytes(of: "ruben") == Int64(50_000) * 1024)
-        #expect(m.totalResidentBytes == Int64(550_000) * 1024)
-        #expect(m.memoryWarning?.contains("2 open accounts") == true)
+        #expect(m.ramBytes(of: "client") == 450 * Self.mb)
+        #expect(m.ramBytes(of: "ruben") == 50_000 * 1024)          // no footprint: its resident size
+        #expect(m.totalRAMBytes == 450 * Self.mb + 50_000 * 1024)
+        #expect(m.terminalUse == ProcessMonitor.TerminalUse(sessions: 1, bytes: 90 * Self.mb))
+        #expect(m.macMemory == Self.mac(.warning))
+        #expect(m.memoryWarning == "Your Mac is running low on RAM. 2 open accounts use 499 MB. Close the ones you don't use.")
         m.memoryPressure = { .normal }
         m.reload()
         #expect(m.memoryWarning == nil)
+        #expect(m.macMemory?.pressure == .normal)
+    }
+
+    /// The first load, off the main thread, measures too: the first screen never shows resident sizes first.
+    @Test func theFirstLoadMeasuresToo() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let exe = e.claude.executable.path
+        let m = model(e, monitor: ProcessMonitor(psOutput: { "  800 1 50000 \(exe)\n" }, footprint: { $0 == 800 ? 70 * Self.mb : nil }))
+        await m.launch(minimum: .zero)
+        #expect(m.ramBytes(of: "ruben") == 70 * Self.mb)
+    }
+
+    /// Disk sizes are walked when the screen asks, at most every few minutes unless asked again; any change to the
+    /// accounts makes the next ask walk again.
+    @Test func refreshDiskIsThrottledAndForced() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        let walks = PSCounter()
+        m.diskMeasure = { root, _ in walks.bump(); return root.part == .claudeCode ? DiskSize(bytes: 5_000_000, complete: true) : nil }
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        await m.refreshDisk(now: start)
+        let perPass = walks.value
+        #expect(perPass >= 2)
+        #expect(m.disk["ruben"]?.bytes(.claudeCode) == 5_000_000)
+        #expect(m.diskMeasuredAt == start)
+        #expect(!m.diskMeasuring)
+        await m.refreshDisk(now: start.addingTimeInterval(60))
+        #expect(walks.value == perPass)
+        await m.refreshDisk(force: true, now: start.addingTimeInterval(61))
+        #expect(walks.value == 2 * perPass)
+        await m.refreshDisk(now: start.addingTimeInterval(61 + 301))
+        #expect(walks.value == 3 * perPass)
+        var form = AddAccountForm(); form.name = "Work"
+        #expect(await m.add(form, open: false))
+        #expect(m.diskMeasuredAt == nil)
+        await m.refreshDisk(now: start.addingTimeInterval(400))
+        #expect(m.disk["work"] != nil)
+    }
+
+    /// Leaving the screen stops the walk: nothing half counted is kept, and the next visit walks again.
+    @Test func leavingTheScreenCancelsTheWalk() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        let started = PSCounter()
+        m.diskMeasure = { _, cancelled in
+            started.bump()
+            while !cancelled() { usleep(1000) }
+            return DiskSize(bytes: 1, complete: false)
+        }
+        let visit = Task { await m.refreshDisk() }
+        while started.value == 0 { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(m.diskMeasuring)
+        visit.cancel()
+        await visit.value
+        #expect(!m.diskMeasuring)
+        #expect(m.disk.isEmpty)
+        #expect(m.diskMeasuredAt == nil)
     }
 
     @Test func aFailedAutomaticRebuildIsReportedOncePerClaudeVersion() async throws {

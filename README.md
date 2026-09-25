@@ -38,7 +38,7 @@ Brainmerge is built so that there is nothing in it Anthropic's terms could objec
 - **Which account is which.** Each card shows the email Claude Code uses for that account, the search finds it, and two accounts on the same Claude account are pointed out. When the names ended up on each other's account, the edit sheet offers to swap them, once you confirm. Claude Code's display name can become the name, never without a click.
 - **Alive.** When Claude updates itself, the accounts that keep a copy of it (the ones with their own Dock icon) are rebuilt for the new version, on their own or with one click. Claude's version is checked every few minutes and whenever the window comes to the front.
 - **Usage per account.** What each account spent, read from Claude Code's own transcripts on your Mac: today, seven days, thirty days, by project and by model. Informative only: Brainmerge never switches accounts for you, and it never reads your limits (only Claude knows them). Reading eight gigabytes of transcripts takes under twenty seconds and a few dozen megabytes; the next read takes under a second.
-- **Memory per account.** How much RAM each open Claude window uses, and a quiet warning when your Mac runs low.
+- **RAM and disk per account.** At the top of the Usage screen: your Mac's RAM counted like Activity Monitor, how much of it each account's Claude uses (with everything it runs), Claude Code sessions in a terminal as one row, the other apps, and the disk space each account's folders and app take. A quiet warning shows when your Mac runs low on RAM.
 - **Nothing leaves your Mac.** No server, no account of ours, no network call. Everything is local files and git.
 - **Leaves cleanly.** Remove Brainmerge from Settings: its hooks, account apps, link and settings go, every project keeps a copy of its notes, your memories and logins stay.
 
@@ -85,7 +85,9 @@ Where Claude is, whether tinted copies are rebuilt after a Claude update, your m
 
 ![Usage](docs/design/captures/21-usage.png)
 
-Each card is one account, or two accounts that share their history (they write the same transcripts, so their usage is one number). Numbers are output tokens (what Claude wrote) and context (what it read, cache included), from the transcripts Claude Code keeps locally. Limits and reset times are only known to Claude: the button opens its usage page.
+The screen opens on RAM and disk. First your Mac: the RAM in use (apps, wired and compressed, the way Activity Monitor counts it), out of how much, and the pressure word when macOS says it is short. Then one row per account: the RAM its Claude uses with everything it runs (its windows, its Code tab, the tools they start), as a share of the Mac, and the disk space of its Claude data folder, its Claude Code profile and its app (hover for the parts). A closed account shows its disk only. Claude Code sessions started in a terminal are one row for all accounts together: which account a session uses is only in its environment, which Brainmerge never reads. Disk sizes are added up from file metadata, never file contents, off the main thread, when the screen opens and at most every five minutes ("Measure again" to redo it now); a shared history is counted once, with your first account.
+
+Below, what each account spent: each card is one account, or two accounts that share their history (they write the same transcripts, so their usage is one number). Numbers are output tokens (what Claude wrote) and context (what it read, cache included), from the transcripts Claude Code keeps locally. Limits and reset times are only known to Claude: the button opens its usage page.
 
 ### Under the hood
 
@@ -95,6 +97,7 @@ Each card is one account, or two accounts that share their history (they write t
 - The first account's own app, when you switch it on, is the same small app with its color or photo. It asks macOS to open Claude itself, and only Claude: the one it was built for, signed by Anthropic. Claude opens on its usual folders, or comes to the front if it already runs.
 - An app you made yourself for an account, such as a copy of Claude whose executable is a launch script with the account's folders, is recognized by reading its `Info.plist` and that script, never by running it. The edit sheet says which account it opens, and warns, like `brainmerge doctor`, when it runs an older Claude than the one installed, which can damage the account's data. Brainmerge never opens, changes or trashes that app: you retire it yourself once the account is closed.
 - "Connected" comes from the presence of Claude's own storage files in the account's data folder. Their contents are never read.
+- RAM figures come from the kernel: the Mac's statistics, and one number per Claude process (the footprint Activity Monitor shows), never another process's memory, environment or open files. Disk sizes come from the sizes the file system reports while listing each folder, without following links or opening a file.
 - The email on a card comes from Claude Code's own `.claude.json`, where it records the account it last used for display: only the email, the display name and the organization name are decoded, never the rest. It is shown in the window and written nowhere (not in Brainmerge's state, a memory, a commit or the command line's output).
 
 ## Install
