@@ -72,11 +72,23 @@ import Testing
         let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "ClaudeCodeAccount.swift" })
         let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
-        // Typed decoding of declared keys only: nothing that loads the whole entry, nothing about identifiers, tokens, plan or limits.
-        for forbidden in ["JSONSerialization", "[String: Any]", "[String:Any]", "Uuid", "UUID", "token", "Token", "SecItem", "billing", "Billing",
-                          "RateLimit", "seatTier", "Usage", "subscription"] {
-            #expect(!code.contains(forbidden), "ClaudeCodeAccount.swift must not mention \(forbidden)")
+        // Typed decoding of declared keys only: nothing that loads the whole entry, nothing about identifiers, tokens, plan,
+        // roles or limits, whatever the case of the word.
+        let lowered = code.lowercased()
+        for forbidden in ["jsonserialization", "[string: any]", "[string:any]", "uuid", "userid", "token", "secitem", "billing",
+                          "ratelimit", "seattier", "usage", "subscription", "role", "createdat"] {
+            #expect(!lowered.contains(forbidden), "ClaudeCodeAccount.swift must not mention \(forbidden)")
         }
+        // Every key it can decode is a case of a CodingKey enum: together they are exactly the entry and its three fields.
+        let enums = try Regex(#"enum\s+\w+\s*:[^{]*CodingKey[^{]*\{([^}]*)\}"#)
+        let bodies = code.matches(of: enums).map { String($0.output[1].substring ?? "") }
+        #expect(bodies.count >= 2, "the scan must see the entry's key and its fields")
+        let caseLine = try Regex(#"case\s+([^\n;]+)"#)
+        let keys = Set(bodies.flatMap { body in
+            body.matches(of: caseLine).flatMap { String($0.output[1].substring ?? "").split(separator: ",") }
+                .map { $0.split(separator: "=").first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? "" }
+        })
+        #expect(keys == ["oauthAccount", "emailAddress", "displayName", "organizationName"], "decodable keys: \(keys)")
         // Its paths come from the profile it is given, never from the process: tests and demo captures never read the owner's real file.
         for forbidden in ["NSHomeDirectory", "homeDirectoryForCurrentUser", "ProcessInfo", "getenv", "environment", "CLAUDE_CONFIG_DIR"] {
             #expect(!code.contains(forbidden), "ClaudeCodeAccount.swift must not resolve paths itself: \(forbidden)")
@@ -87,15 +99,30 @@ import Testing
         #expect(found.isSubset(of: allowed), "unexpected string literals: \(found.subtracting(allowed))")
     }
 
-    /// Apps the person made are read, never run, changed or moved (SECURITY.md): no process, no opening, no writing, no trash.
+    /// Apps the person made are read, never run, changed or moved (SECURITY.md): no process, no opening, no writing, no
+    /// trash, no link followed. What it may call on the file system is a short list; everything else is refused.
     @Test func existingAppsOnlyReadsBundles() throws {
         let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "ExistingApps.swift" })
         let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
-        for forbidden in ["Shell", "Process", "execv", "posix_spawn", "NSWorkspace", "LSOpen", "bash", "trashItem", "removeItem",
-                          "moveItem", "copyItem", "replaceItem", "createFile", "createDirectory", "write(", "setAttributes", "codesign", "lsregister"] {
+        for forbidden in ["Shell", "Process", "execv", "execl", "posix_spawn", "fork(", "system(", "popen", "dlopen", "Bundle(", "NSAppleScript",
+                          "NSWorkspace", "LSOpen", "bash", "codesign", "lsregister",
+                          "FileHandle", "Data(contentsOf", "String(contentsOf", "InputStream", "Plist.read", "mmap",
+                          "trashItem", "removeItem", "moveItem", "copyItem", "replaceItem", "linkItem", "createFile", "createDirectory",
+                          "createSymbolicLink", "setAttributes", "setResourceValues", "write(", "unlink", "rename(", "truncate", "symlink(",
+                          "link(", "mkdir", "rmdir", "chmod", "chown", "utimes", "setxattr", "removexattr",
+                          "O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC", "O_APPEND"] {
             #expect(!code.contains(forbidden), "ExistingApps.swift must only read: \(forbidden)")
         }
+        // The file manager: listing a folder, nothing else.
+        let members = try Regex(#"(?:FileManager\.default|\bfm)\s*\.\s*(\w+)"#)
+        let used = Set(code.matches(of: members).map { String($0.output[1].substring ?? "") })
+        #expect(used.isSubset(of: ["contentsOfDirectory", "homeDirectoryForCurrentUser"]), "file manager calls: \(used.subtracting(["contentsOfDirectory", "homeDirectoryForCurrentUser"]))")
+        // Files are opened read only, never through a link, never waiting on a pipe.
+        let opens = try Regex(#"\bopen\(([^)]*)\)"#)
+        let flags = code.matches(of: opens).map { String($0.output[1].substring ?? "") }
+        #expect(!flags.isEmpty)
+        for call in flags { #expect(call.contains("O_RDONLY") && call.contains("O_NOFOLLOW") && call.contains("O_NONBLOCK"), "open(\(call))") }
     }
 
     @Test func noTelemetryOrAnalytics() throws {

@@ -35,8 +35,9 @@ public struct ExistingApp: Equatable, Sendable {
 }
 
 /// Finds the apps of `ExistingApp`: the top level of ~/Applications (and /Applications for the real home), without
-/// Brainmerge's own apps and without Claude itself. Per bundle, only its Info.plist and, when it is a short script
-/// (it starts with "#!", under 64 KB), the script's text. Nothing is executed and nothing inside a Claude data folder is read.
+/// Brainmerge's own apps and without Claude itself. Per bundle, only its Info.plist (under 1 MB) and, when it is a short
+/// script (it starts with "#!", under 64 KB), the script's text; no link inside a bundle is followed. Nothing is executed
+/// and nothing inside a Claude data folder is read.
 public struct ExistingApps: Sendable {
     public let paths: Paths
     public let claudeAppURL: URL
@@ -44,6 +45,8 @@ public struct ExistingApps: Sendable {
 
     /// A launch line is short: anything larger is not read.
     static let maxScriptBytes = 64 * 1024
+    /// An Info.plist is a few kilobytes: anything larger is not read.
+    static let maxInfoPlistBytes = 1024 * 1024
 
     public init(paths: Paths, claudeAppURL: URL, folders: [URL]? = nil) {
         self.paths = paths; self.claudeAppURL = claudeAppURL; self.folders = folders ?? Self.folders(for: paths)
@@ -81,33 +84,66 @@ public struct ExistingApps: Sendable {
         scan().filter { $0.opens(identity, in: paths) }
     }
 
+    /// Only the bundle's own files are read: the bundle, Contents and MacOS must be real folders, and Info.plist and the
+    /// executable regular files, none of them a link. So a bundle can never point the reader into a Claude data folder.
     func read(_ bundle: URL, name: String) -> ExistingApp? {
-        guard let info = try? Plist.read(bundle.appending(path: "Contents/Info.plist")),
+        let contents = bundle.appending(path: "Contents", directoryHint: .isDirectory)
+        let macos = contents.appending(path: "MacOS", directoryHint: .isDirectory)
+        guard Self.isRealFolder(bundle), Self.isRealFolder(contents), Self.isRealFolder(macos),
+              let plist = Self.readFile(at: contents.appending(path: "Info.plist"), maxBytes: Self.maxInfoPlistBytes),
+              let info = try? PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any],
               let executable = info["CFBundleExecutable"] as? String,
               !executable.isEmpty, !executable.contains("/"), executable != "..", executable != ".",
-              let script = Self.script(at: bundle.appending(path: "Contents/MacOS").appending(path: executable))
+              let script = Self.script(at: macos.appending(path: executable))
         else { return nil }
         let folders = Self.launchFolders(script: script, home: paths.home)
         guard folders.dataDir != nil || folders.configDir != nil else { return nil }
-        var isDirectory: ObjCBool = false
         let copy = info["CFBundleIdentifier"] as? String == ClaudeApp.bundleIdentifier
-            && FileManager.default.fileExists(atPath: bundle.appending(path: "Contents/Frameworks").path, isDirectory: &isDirectory)
-            && isDirectory.boolValue
+            && Self.isRealFolder(contents.appending(path: "Frameworks", directoryHint: .isDirectory))
         return ExistingApp(name: name, url: bundle, isClaudeCopy: copy,
                            claudeVersion: copy ? info["CFBundleShortVersionString"] as? String : nil,
                            dataDir: folders.dataDir, configDir: folders.configDir)
     }
 
-    /// The text of a short script (a regular file starting with "#!"), read and never run; nil for anything else.
+    /// The text of a short script (a regular file starting with "#!", under 64 KB), read and never run; nil for anything
+    /// else. Only its first two bytes are read unless they are "#!".
     static func script(at url: URL) -> String? {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType == .typeRegular,
-              let size = (attributes[.size] as? NSNumber)?.intValue, size < maxScriptBytes,
-              let handle = try? FileHandle(forReadingFrom: url)
-        else { return nil }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: maxScriptBytes), data.starts(with: [0x23, 0x21]) else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        readFile(at: url, maxBytes: maxScriptBytes - 1, startingWith: [0x23, 0x21]).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    /// A folder that is not a link.
+    static func isRealFolder(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+    }
+
+    /// The bytes of a regular file of at most `maxBytes`. Opened without following a link and without waiting (a pipe put
+    /// in its place is never waited on), then checked on the open file itself, so nothing can be swapped in between.
+    /// With `startingWith`, those bytes are read first and nothing more unless they match.
+    static func readFile(at url: URL, maxBytes: Int, startingWith prefix: [UInt8] = []) -> Data? {
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_size <= maxBytes else { return nil }
+        let size = Int(info.st_size)
+        guard size >= prefix.count else { return nil }
+        let head = readBytes(descriptor, count: prefix.count)
+        guard head == prefix else { return nil }
+        return Data(head + readBytes(descriptor, count: size - prefix.count))
+    }
+
+    static func readBytes(_ descriptor: Int32, count: Int) -> [UInt8] {
+        guard count > 0 else { return [] }
+        var buffer = [UInt8](repeating: 0, count: count)
+        var total = 0
+        while total < count {
+            let n = buffer.withUnsafeMutableBytes { Darwin.read(descriptor, $0.baseAddress! + total, count - total) }
+            if n < 0, errno == EINTR { continue }
+            if n <= 0 { break }
+            total += n
+        }
+        return Array(buffer.prefix(total))
     }
 
     /// Two folders are the same when their standardized paths match whole, ignoring case and Unicode form (APFS).

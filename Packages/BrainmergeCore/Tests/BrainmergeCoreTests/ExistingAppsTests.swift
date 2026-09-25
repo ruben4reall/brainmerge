@@ -177,6 +177,96 @@ import BrainmergeTestSupport
         #expect(folders("#!/bin/sh\nexec bin --user-data-dir=/c --user-data-dir=/d").data == "/d")
     }
 
+    // MARK: Only the bundle's own files are read
+
+    /// The account's data folder, with a file named like an app's executable holding the owner's launch line: a bundle
+    /// that points there through a link must never get it read.
+    func dataFolderBait(_ home: TempHome) throws -> URL {
+        let data = home.url.appending(path: "Library/Application Support/Claude-Second", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        try Data(HandMadeApp.ownersScript.utf8).write(to: data.appending(path: "Claude"))
+        try Plist.write(["CFBundleIdentifier": ClaudeApp.bundleIdentifier, "CFBundleExecutable": "Claude", "CFBundleShortVersionString": "1.0.0"],
+                        to: data.appending(path: "Info.plist"))
+        return data
+    }
+
+    @Test func aLinkedMacOSFolderIsNotFollowed() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let data = try dataFolderBait(home)
+        let app = try HandMadeApp.make("Linked", in: try applications(home), script: "#!/bin/sh\n")
+        let macos = app.appending(path: "Contents/MacOS")
+        try FileManager.default.removeItem(at: macos)
+        try FileManager.default.createSymbolicLink(at: macos, withDestinationURL: data)
+        #expect(scanner(home).scan().isEmpty)
+    }
+
+    @Test func aLinkedExecutableIsNotFollowed() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let data = try dataFolderBait(home)
+        let app = try HandMadeApp.make("Linked", in: try applications(home), script: "#!/bin/sh\n")
+        let exe = app.appending(path: "Contents/MacOS/Claude")
+        try FileManager.default.removeItem(at: exe)
+        try FileManager.default.createSymbolicLink(at: exe, withDestinationURL: data.appending(path: "Claude"))
+        #expect(scanner(home).scan().isEmpty)
+    }
+
+    @Test func aLinkedInfoPlistOrContentsIsNotFollowed() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let data = try dataFolderBait(home)
+        let apps = try applications(home)
+        let plistLink = try HandMadeApp.make("Plist", in: apps, script: HandMadeApp.ownersScript)
+        let info = plistLink.appending(path: "Contents/Info.plist")
+        try FileManager.default.removeItem(at: info)
+        try FileManager.default.createSymbolicLink(at: info, withDestinationURL: data.appending(path: "Info.plist"))
+        let contentsLink = apps.appending(path: "Contents.app", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: contentsLink, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: contentsLink.appending(path: "Contents"), withDestinationURL: data)
+        #expect(scanner(home).scan().isEmpty)
+    }
+
+    @Test func anExecutableNameThatClimbsOutIsRefused() throws {
+        let home = try TempHome(); defer { home.remove() }
+        _ = try dataFolderBait(home)
+        let app = try HandMadeApp.make("Climb", in: try applications(home), script: "#!/bin/sh\n")
+        for name in ["../../../../Library/Application Support/Claude-Second/Claude", "..", "."] {
+            try Plist.write(["CFBundleIdentifier": ClaudeApp.bundleIdentifier, "CFBundleExecutable": name], to: app.appending(path: "Contents/Info.plist"))
+            #expect(scanner(home).scan().isEmpty, "\(name)")
+        }
+    }
+
+    /// An Info.plist is small: a large one is not loaded at all.
+    @Test func aLargeInfoPlistIsNotRead() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let app = try HandMadeApp.make("Large", in: try applications(home), script: HandMadeApp.ownersScript)
+        try Plist.write(["CFBundleIdentifier": ClaudeApp.bundleIdentifier, "CFBundleExecutable": "Claude", "CFBundleShortVersionString": "1.0.0",
+                         "Padding": Data(count: ExistingApps.maxInfoPlistBytes + 1)],
+                        to: app.appending(path: "Contents/Info.plist"))
+        #expect(scanner(home).scan().isEmpty)
+    }
+
+    /// A pipe in place of the executable: the read neither blocks nor reports anything.
+    @Test func aPipeInPlaceOfTheExecutableIsSkipped() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let app = try HandMadeApp.make("Pipe", in: try applications(home), script: HandMadeApp.ownersScript)
+        let exe = app.appending(path: "Contents/MacOS/Claude")
+        try FileManager.default.removeItem(at: exe)
+        #expect(mkfifo(exe.path, 0o644) == 0)
+        #expect(ExistingApps.script(at: exe) == nil)
+        #expect(scanner(home).scan().isEmpty)
+    }
+
+    /// Only a file that starts with "#!" is read further: the first two bytes decide.
+    @Test func onlyScriptsAreReadAndOnlyUpToTheCap() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let file = home.url.appending(path: "exe")
+        try Data("#!/bin/sh\necho hi\n".utf8).write(to: file)
+        #expect(ExistingApps.script(at: file) == "#!/bin/sh\necho hi\n")
+        try Data([0xCF, 0xFA, 0xED, 0xFE]).write(to: file)
+        #expect(ExistingApps.script(at: file) == nil)
+        try Data("#".utf8).write(to: file)
+        #expect(ExistingApps.script(at: file) == nil)
+    }
+
     @Test func theSystemFolderBelongsToTheRealHomeOnly() {
         let real = URL(fileURLWithPath: "/Users/alex", isDirectory: true)
         #expect(ExistingApps.folders(for: Paths(home: real), realHome: real).map(\.path) == ["/Users/alex/Applications", "/Applications"])
