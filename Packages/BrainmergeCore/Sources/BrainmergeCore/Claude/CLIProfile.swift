@@ -31,11 +31,36 @@ public struct CLIProfile: Equatable, Sendable {
         return inside
     }
 
+    /// The `.claude.json` where Claude Code records the account it last used (read by `ClaudeCodeAccount`).
+    /// Under CLAUDE_CONFIG_DIR it lives inside the folder. For the default install (`~/.claude`), Claude Code runs without
+    /// CLAUDE_CONFIG_DIR and uses `~/.claude.json`, which wins over a stub inside the folder whenever it exists.
+    /// Claude Code's legacy `.config.json` and its non-production file names are not looked for.
+    public var accountFile: URL {
+        let inside = directory.appending(path: ".claude.json")
+        if directory.lastPathComponent == ".claude" {
+            let beside = directory.deletingLastPathComponent().appending(path: ".claude.json")
+            if FileManager.default.fileExists(atPath: beside.path) { return beside }
+        }
+        return inside
+    }
+
     static func hasProjects(_ url: URL) -> Bool {
-        guard let data = try? Data(contentsOf: url),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let projects = root["projects"] as? [String: Any] else { return false }
-        return !projects.isEmpty
+        guard let data = try? Data(contentsOf: url), let root = try? JSONDecoder().decode(ProjectKeys.self, from: data) else { return false }
+        return !root.paths.isEmpty
+    }
+
+    /// The keys of "projects" in `.claude.json`, and nothing else: project settings can hold MCP servers and their secrets,
+    /// so no value of the file is ever loaded.
+    struct ProjectKeys: Decodable {
+        enum Key: String, CodingKey { case projects }
+        /// Any JSON value, skipped without being looked at.
+        struct Skipped: Decodable { init(from decoder: Decoder) throws {} }
+        let paths: [String]
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: Key.self)
+            let projects = (try? container.decodeIfPresent([String: Skipped].self, forKey: .projects)) ?? nil
+            paths = (projects ?? [:]).keys.sorted()
+        }
     }
 
     /// Settings inherited from the primary. Never the hooks (they would fire twice) or the permissions.
@@ -70,11 +95,8 @@ public struct CLIProfile: Equatable, Sendable {
         let file = claudeJSON
         guard FileManager.default.fileExists(atPath: file.path) else { return [] }
         let data = try Data(contentsOf: file)
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw BrainmergeError.invalidJSON(file.path)
-        }
-        let projects = root["projects"] as? [String: Any] ?? [:]
-        return projects.keys.sorted()
+        guard let root = try? JSONDecoder().decode(ProjectKeys.self, from: data) else { throw BrainmergeError.invalidJSON(file.path) }
+        return root.paths
     }
 
     /// All the projects: the known paths and the sessions folders, merged by slug.

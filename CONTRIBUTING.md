@@ -4,7 +4,7 @@ Thank you for looking at this. Brainmerge is small, native and opinionated; cont
 
 ## The rules that cannot change
 
-The project exists because it stays within Anthropic's terms. Every change must keep the six points of the README's "Why this stays within Anthropic's terms" true: no credential or token is ever read, stored or sent; no account rotation, switching or pooling; no network call; Anthropic's binaries are never redistributed; the Claude app stays untouched by default; one account is one person. A pull request that crosses one of these lines will be closed, however good the code is.
+The project exists because it stays within Anthropic's terms. Every change must keep the six points of the README's "Why this stays within Anthropic's terms" true: no credential or token is ever read, stored or sent (the one allowed read of Claude Code's account entry, `ClaudeCodeAccount`, decodes its three display fields and nothing else, and the email is never stored); no account rotation, switching or pooling; no network call; Anthropic's binaries are never redistributed; the Claude app stays untouched by default; one account is one person. A pull request that crosses one of these lines will be closed, however good the code is.
 
 ## How to propose a change
 

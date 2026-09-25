@@ -41,12 +41,14 @@ printf '#include <unistd.h>\nint main(void) { for (;;) pause(); return 0; }\n' >
 cc -o "$APP/Contents/MacOS/Claude" "$H/claude.c"
 cp /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns "$APP/Contents/Resources/electron.icns"
 export BRAINMERGE_HOME="$H" BRAINMERGE_CLAUDE_APP="$APP"
-# Two projects known to the main Claude Code (like on a real Mac: the "projects" keys in ~/.claude.json).
+# Two projects known to the main Claude Code (like on a real Mac: the "projects" keys in ~/.claude.json), and the
+# account it records for display (a made-up example.com address: captures never show a real email).
 mkdir -p "$H/website" "$H/mobile-app"
-printf '{"projects":{"%s/website":{},"%s/mobile-app":{}}}\n' "$H" "$H" > "$H/.claude.json"
+printf '{"projects":{"%s/website":{},"%s/mobile-app":{}},"oauthAccount":{"emailAddress":"alex@example.com","displayName":"Alex"}}\n' "$H" "$H" > "$H/.claude.json"
 "$CLI" brain init > /dev/null
 "$CLI" adopt-primary --name Personal > /dev/null
 "$CLI" identity add --name Studio --tint pink --note "Design studio" --shared-history > /dev/null
+printf '{"oauthAccount":{"emailAddress":"studio@example.com","displayName":"Alex"}}\n' > "$H/.claude-studio/.claude.json"
 "$CLI" identity add --name Client --tint purple --note "Client work" > /dev/null
 "$CLI" identity add --name Work --tint blue --note "Day job" > /dev/null
 # Personal and Studio have logged in: Claude's storage files exist in their data folders (empty placeholders;

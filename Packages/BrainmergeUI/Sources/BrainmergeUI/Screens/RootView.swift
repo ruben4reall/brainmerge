@@ -49,6 +49,8 @@ public struct RootView: View {
         }
         // Back in front: Claude may have updated itself in the meantime.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // And a login may have changed in Claude Code: the emails on the accounts are read again.
+            if model.launchPhase == .ready { model.refreshCodeAccounts() }
             if model.launchPhase == .ready, !model.needsOnboarding { Task { await model.checkClaudeUpdate() } }
         }
         // The first load changes it behind the splash: the launch above starts watching then, not this.

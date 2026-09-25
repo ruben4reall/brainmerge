@@ -16,6 +16,9 @@ public struct EditAccountSheet: View {
         _edit = State(initialValue: AccountEdit(account: account, memory: memory))
     }
 
+    /// The account as loaded now: its name changes after a swap, its Claude Code account on a refresh.
+    var current: Account { model.accounts.first { $0.id == account.id } ?? account }
+
     var appLabel: String? {
         guard let url = model.appURL(of: account.id) else { return nil }
         let home = model.paths.home.path
@@ -27,8 +30,8 @@ public struct EditAccountSheet: View {
             HStack(spacing: 12) {
                 OrbView(name: edit.name, tint: edit.tint, logo: edit.logo.flatMap { NSImage(contentsOf: $0) }, size: 44)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Edit \(account.identity.name)").font(Theme.Fonts.sheetTitle)
-                    Text(account.isRunning ? "Quit this account first: its app is rebuilt when you save." : "Changes apply when you save.")
+                    Text("Edit \(current.identity.name)").font(Theme.Fonts.sheetTitle)
+                    Text(current.isRunning ? "Quit this account first: its app is rebuilt when you save." : "Changes apply when you save.")
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
@@ -36,6 +39,7 @@ public struct EditAccountSheet: View {
                 TextField("Name", text: $edit.name).textFieldStyle(.plain).font(Theme.Fonts.body)
                     .padding(.horizontal, 10).padding(.vertical, 7)
                     .background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                if let note = CodeAccountNote.make(for: current, typedName: edit.name, among: model.accounts) { codeAccountLines(note) }
             }
             labeled("Color") {
                 HStack(spacing: 8) {
@@ -92,6 +96,38 @@ public struct EditAccountSheet: View {
         .padding(22)
         .frame(width: 480)
         .background(WarmBackground(accents: [edit.tint]))
+    }
+
+    /// Which email Claude Code uses for this account, and the renames it suggests. Nothing is renamed without a click.
+    @ViewBuilder func codeAccountLines(_ note: CodeAccountNote) -> some View {
+        HStack(spacing: 10) {
+            Text(note.line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            if let label = note.useLabel, let name = note.suggestedName {
+                Button(label) { edit.name = name }.buttonStyle(.glass).controlSize(.small)
+            }
+        }
+        if let line = note.swapLine, let label = note.swapLabel, let other = note.swapWith {
+            HStack(spacing: 10) {
+                Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button(label) { swapNames(with: other) }.buttonStyle(.glass).controlSize(.small).disabled(model.working != nil)
+            }
+        }
+        Text(CodeAccountNote.privacy).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Both accounts are renamed at once; the field then shows this account's new name, so Save keeps it.
+    func swapNames(with other: CodeAccountNote.Other) {
+        problem = nil
+        Task {
+            await model.swapNames(account.id, with: other.slug)
+            if let message = model.message { problem = message.detail; model.message = nil }
+            else { edit.name = current.identity.name }
+        }
     }
 
     func labeled<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {

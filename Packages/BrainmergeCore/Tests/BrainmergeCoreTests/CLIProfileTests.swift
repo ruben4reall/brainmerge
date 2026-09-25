@@ -46,6 +46,23 @@ import BrainmergeTestSupport
         #expect(try profile.projectPaths() == ["/Users/r", "/Users/r/atelier"])
     }
 
+    @Test func projectPathsAreOnlyTheKeysWhateverTheValues() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let profile = try CLIProfile.create(at: home.paths.cliProfile(slug: "client", isPrimary: false), inheritingFrom: nil)
+        // Project settings can hold MCP servers with secrets: only the paths come out, whatever the values look like.
+        try Data(#"{"projects":{"/x/a":{"mcpServers":{"db":{"env":{"DB_TOKEN":"secret"}}}},"/x/b":1,"/x/c":null,"/x/d":[]},"oauthAccount":{}}"#.utf8)
+            .write(to: profile.claudeJSON)
+        #expect(try profile.projectPaths() == ["/x/a", "/x/b", "/x/c", "/x/d"])
+        try Data(#"{"projects":[]}"#.utf8).write(to: profile.claudeJSON)
+        #expect(try profile.projectPaths() == [])
+        try Data(#"{"other":{"projects":{"/x/z":{}}}}"#.utf8).write(to: profile.claudeJSON)
+        #expect(try profile.projectPaths() == [])
+        try Data(#"["not an object"]"#.utf8).write(to: profile.claudeJSON)
+        #expect(throws: BrainmergeError.self) { try profile.projectPaths() }
+        try Data(#"{"projects":{"/x/a""#.utf8).write(to: profile.claudeJSON)
+        #expect(throws: BrainmergeError.self) { try profile.projectPaths() }
+    }
+
     @Test func primaryProfileReadsClaudeJSONBesideItsFolder() throws {
         let home = try TempHome(); defer { home.remove() }
         let profile = try CLIProfile.create(at: home.paths.primaryCLIProfile, inheritingFrom: nil)

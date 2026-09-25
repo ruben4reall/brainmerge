@@ -56,7 +56,9 @@ public enum SidebarAccountAction: Equatable, Sendable {
             if account.needsLogin, othersOpen {
                 return "Opens Claude to log in. Quit your other Claude windows first, so the login lands in this one."
             }
-            return Self.withVersion("Open Claude as \(name)", account)
+            // The email Claude Code uses, when known: it tells two accounts with similar names apart.
+            let email = account.codeAccount.map { " (\($0.email))" } ?? ""
+            return Self.withVersion("Open Claude as \(name)\(email)", account)
         case .show: return Self.withVersion("Show \(name)'s Claude window", account)
         case .opening: return "Opening \(name)…"
         case .updating: return "Brainmerge is working on \(name)'s app. Try again in a moment."

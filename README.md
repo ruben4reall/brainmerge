@@ -27,7 +27,7 @@ Brainmerge is a native macOS app that turns each of your Claude accounts into a 
 
 ## Safe for your accounts, by design
 
-Brainmerge is built so that there is nothing in it Anthropic's terms could object to. It only starts the official Claude app and the official Claude Code, each account logs in by itself, and it never reads, stores or sends a login, a token or a cookie. It has no account switching, no rotation, no pooled usage, and it makes no network call at all. Those are not just words: tests scan the source tree at every run to keep them true, and `SECURITY.md` lists exactly what the app touches on your Mac. One account is one person; Brainmerge keeps several of yours tidy, nothing more.
+Brainmerge is built so that there is nothing in it Anthropic's terms could object to. It only starts the official Claude app and the official Claude Code, each account logs in by itself, and it never reads, stores or sends a password, a token or a cookie. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it nowhere. It has no account switching, no rotation, no pooled usage, and it makes no network call at all. Those are not just words: tests scan the source tree at every run to keep them true, and `SECURITY.md` lists exactly what the app touches on your Mac. One account is one person; Brainmerge keeps several of yours tidy, nothing more.
 
 ## What you get
 
@@ -35,6 +35,7 @@ Brainmerge is built so that there is nothing in it Anthropic's terms could objec
 - **One memory, or one each.** What Claude Code learns about a project in one account, the others know too, through a shared folder of Markdown notes (`~/Brain` by default, or a folder you already have: an Obsidian vault works well). Give an account its own memory in one click, for work or a client: what it learns then stays there. Every account writes to exactly one memory; nothing is ever moved or deleted behind your back.
 - **A timeline of what was remembered.** Who saved what, about which project, and when, in plain sentences, for each memory.
 - **Connected, or not yet.** Each card says whether the account has logged in, and the guided setup turns to "Connected" on its own once you have. Brainmerge only looks at the names of Claude's own storage files, never inside them.
+- **Which account is which.** Each card shows the email Claude Code uses for that account, the search finds it, and two accounts on the same Claude account are pointed out. When the names ended up on each other's account, the edit sheet offers to swap them in one click. Claude Code's display name can become the name, never without a click.
 - **Alive.** When Claude updates itself, the accounts that keep a copy of it (the ones with their own Dock icon) are rebuilt for the new version, on their own or with one click. Claude's version is checked every few minutes and whenever the window comes to the front.
 - **Usage per account.** What each account spent, read from Claude Code's own transcripts on your Mac: today, seven days, thirty days, by project and by model. Informative only: Brainmerge never switches accounts for you, and it never reads your limits (only Claude knows them). Reading eight gigabytes of transcripts takes under twenty seconds and a few dozen megabytes; the next read takes under a second.
 - **Memory per account.** How much RAM each open Claude window uses, and a quiet warning when your Mac runs low.
@@ -92,6 +93,7 @@ Each card is one account, or two accounts that share their history (they write t
 - Brainmerge links each project's memory folder into the account's memory, and installs a small Claude Code hook that saves that memory to git at the end of each session.
 - The Dock icon of a second account is a small launcher app that starts the real Claude with the right folders. By default nothing else is created. The "own icon" option makes a local copy of Claude on your own Mac, never shared.
 - "Connected" comes from the presence of Claude's own storage files in the account's data folder. Their contents are never read.
+- The email on a card comes from Claude Code's own `.claude.json`, where it records the account it last used for display: only the email, the display name and the organization name are decoded, never the rest. It is shown in the window and written nowhere (not in Brainmerge's state, a memory, a commit or the command line's output).
 
 ## Install
 
@@ -108,7 +110,7 @@ Releases are signed with a Developer ID and notarized by Apple: the first time, 
 Anthropic's Consumer Terms forbid sharing or lending accounts, rotating accounts to get around usage limits, and using a subscription token outside Claude Code and the Claude apps. Brainmerge is built to stay on the right side of every one of those rules:
 
 1. It only launches the official Claude app and the official Claude Code that are already installed. Each account logs in by itself, inside them.
-2. It never reads, stores or transmits a credential or a token. There is no code path for it. Even "Connected" is decided from file names alone.
+2. It never reads, stores or transmits a password, a credential or a token. There is no code path for it. Even "Connected" is decided from file names alone, and the account a card shows is the email and name Claude Code writes down for display, not a credential.
 3. It separates accounts with `CLAUDE_CONFIG_DIR`, a variable documented by Anthropic, and with a data folder per instance, a standard setting of the app.
 4. The memory is a folder of local files. Brainmerge makes no network call, to Anthropic or to anyone else.
 5. It has no account rotation, no switching when a limit is reached, no pooled usage, and never will.

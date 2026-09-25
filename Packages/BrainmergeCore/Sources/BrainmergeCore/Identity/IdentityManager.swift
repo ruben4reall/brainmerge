@@ -103,7 +103,7 @@ public final class IdentityManager: @unchecked Sendable {
             guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
             try ensureNameAvailable(name, excluding: slug, in: state)
         }
-        try ensureStopped(identity)
+        try ensureEditable(identity)
         let fm = FileManager.default
         let oldName = identity.bundleDisplayName
         if let name { identity.name = name }
@@ -124,6 +124,38 @@ public final class IdentityManager: @unchecked Sendable {
         state.identities = state.identities.map { $0.slug == slug ? identity : $0 }
         try store.save(state)
         return identity
+    }
+
+    /// Swaps the names of two accounts in one operation, for names that ended up on each other's account. It goes
+    /// through a temporary name, so neither rename meets the other's name and no app is built over the other's.
+    /// Everything a rename needs is checked first (both accounts, both stopped, Claude installed when an app is rebuilt);
+    /// if a later step still fails, the first rename is undone. Swapping an account with itself does nothing.
+    public func swapNames(_ slug: String, with otherSlug: String) throws {
+        guard slug != otherSlug else { return }
+        let state = try store.load()
+        guard let one = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
+        guard let other = state.identity(slug: otherSlug) else { throw BrainmergeError.identityNotFound(otherSlug) }
+        try ensureEditable(one)
+        try ensureEditable(other)
+        let rebuildsApp = { (identity: Identity) in identity.surfaces.desktop && !identity.isPrimary }
+        if rebuildsApp(one) || rebuildsApp(other) { _ = try ClaudeApp.detect(at: claudeAppURL) }
+        // The account without an app of its own takes the temporary name: nothing is built under it.
+        let (first, second) = rebuildsApp(one) && !rebuildsApp(other) ? (other, one) : (one, other)
+        var temporary = "Swapping names"
+        var n = 2
+        while state.identities.contains(where: { $0.bundleDisplayName.caseInsensitiveCompare(temporary) == .orderedSame })
+                || FileManager.default.fileExists(atPath: paths.launcherApp(name: temporary).path)
+                || FileManager.default.fileExists(atPath: paths.tintedClone(name: temporary).path) {
+            temporary = "Swapping names \(n)"; n += 1
+        }
+        try update(slug: first.slug, name: temporary, tint: nil, logo: nil)
+        do {
+            try update(slug: second.slug, name: first.name, tint: nil, logo: nil)
+        } catch {
+            _ = try? update(slug: first.slug, name: first.name, tint: nil, logo: nil)
+            throw error
+        }
+        try update(slug: first.slug, name: second.name, tint: nil, logo: nil)
     }
 
     public func remove(slug: String, deleteData: Bool) throws {
@@ -286,6 +318,11 @@ public final class IdentityManager: @unchecked Sendable {
             $0.slug != slug && $0.bundleDisplayName.caseInsensitiveCompare(candidate) == .orderedSame
         }
         if taken { throw BrainmergeError.identityNameTaken(name) }
+    }
+
+    /// What `update` requires of an account before changing it, checked the same way by `swapNames` before its first step.
+    func ensureEditable(_ identity: Identity) throws {
+        try ensureStopped(identity)
     }
 
     /// Rebuilding, updating, or removing a running identity would break its instance.

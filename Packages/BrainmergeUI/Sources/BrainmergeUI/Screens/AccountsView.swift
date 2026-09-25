@@ -96,10 +96,13 @@ public struct AccountsView: View {
                 OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 40)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(account.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
-                    Text((account.identity.note ?? (account.identity.isPrimary ? "Primary" : "Account")) + memorySuffix(account)).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                        .help(Self.nameHelp(of: account) ?? "")
+                    Text(Self.subtitle(of: account) + memorySuffix(account)).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                        .truncationMode(.middle)
                     HStack(spacing: 5) {
                         Circle().fill(account.isRunning ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 6, height: 6)
-                        Text(Self.status(of: account, memory: memory)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                        Text(Self.status(of: account, memory: memory, sameAs: model.duplicateCodeAccount(of: account.id)?.identity.name))
+                            .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                     }
                 }
                 Spacer(minLength: 8)
@@ -167,11 +170,25 @@ public struct AccountsView: View {
         Button("Remove from Brainmerge…", role: .destructive) { pendingRemoval = account }
     }
 
+    /// Under the name: the person's note, else the email Claude Code uses for this account, else what the account is.
+    nonisolated static func subtitle(of account: Account) -> String {
+        account.identity.note ?? account.codeAccount?.email ?? (account.identity.isPrimary ? "Primary" : "Account")
+    }
+
+    /// With a note on the second line, the email moves to the name's tooltip.
+    nonisolated static func nameHelp(of account: Account) -> String? {
+        guard account.identity.note != nil, let email = account.codeAccount?.email else { return nil }
+        return "Claude Code is logged in as \(email)"
+    }
+
     /// Open or closed, and whether the account still has to log in (its Claude data folder holds no session yet).
-    static func status(of account: Account, memory: Int64) -> String {
+    /// `sameAs`: another account whose Claude Code uses the same email, said instead of "Open" or "Closed" (the dot and
+    /// the button already say which); an outdated copy or a missing login keeps its place, it asks for something.
+    nonisolated static func status(of account: Account, memory: Int64, sameAs: String? = nil) -> String {
         if case .outdated(let installed, let built) = account.claudeVersion {
             return account.isRunning ? "Open · runs Claude \(built), \(installed) installed" : "Closed · built for Claude \(built), \(installed) installed"
         }
+        if let sameAs, !account.needsLogin { return "Same Claude account as \(sameAs)" }
         switch (account.isRunning, account.needsLogin) {
         case (true, true): return "Open · log in from its window"
         case (true, false): return memory > 0 ? "Open · \(ByteCountFormatter.string(fromByteCount: memory, countStyle: .memory))" : "Open"

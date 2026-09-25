@@ -56,6 +56,37 @@ import Testing
         }
     }
 
+    @Test func claudeCodeSecretsAreNeverNamed() throws {
+        // Keys, tokens, the desktop app's token cache and account id, the keychain entry, plan and usage: no shipped file names them, not even to skip them.
+        let hits = try offenders(["primaryApiKey", "customApiKeyResponses", "accessToken", "refreshToken", "oauth:tokenCache",
+                                  "lastKnownAccountUuid", "buddy-tokens", "Claude Code-credentials", "cachedUsageUtilization", "RateLimitTier"])
+        #expect(hits.isEmpty, "\(hits)")
+    }
+
+    /// Claude Code's account entry is read in one file, for three display fields only (SECURITY.md).
+    @Test func accountEntryIsDisplayFieldsOnly() throws {
+        let elsewhere = try offenders(["oauthAccount"], except: ["ClaudeCodeAccount.swift"])
+        #expect(elsewhere.isEmpty, "only ClaudeCodeAccount.swift reads the account entry: \(elsewhere)")
+        #expect(ClaudeCodeAccount.readFields == ["emailAddress", "displayName", "organizationName"])
+
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "ClaudeCodeAccount.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        // Typed decoding of declared keys only: nothing that loads the whole entry, nothing about identifiers, tokens, plan or limits.
+        for forbidden in ["JSONSerialization", "[String: Any]", "[String:Any]", "Uuid", "UUID", "token", "Token", "SecItem", "billing", "Billing",
+                          "RateLimit", "seatTier", "Usage", "subscription"] {
+            #expect(!code.contains(forbidden), "ClaudeCodeAccount.swift must not mention \(forbidden)")
+        }
+        // Its paths come from the profile it is given, never from the process: tests and demo captures never read the owner's real file.
+        for forbidden in ["NSHomeDirectory", "homeDirectoryForCurrentUser", "ProcessInfo", "getenv", "environment", "CLAUDE_CONFIG_DIR"] {
+            #expect(!code.contains(forbidden), "ClaudeCodeAccount.swift must not resolve paths itself: \(forbidden)")
+        }
+        let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
+        let found = Set(code.matches(of: literals).map { String($0.output[1].substring ?? "") })
+        let allowed: Set<String> = ["oauthAccount", "emailAddress", "displayName", "organizationName", ".claude.json", "'s Organization"]
+        #expect(found.isSubset(of: allowed), "unexpected string literals: \(found.subtracting(allowed))")
+    }
+
     @Test func noTelemetryOrAnalytics() throws {
         let hits = try offenders(["Analytics", "Telemetry", "Sentry", "Crashlytics", "Firebase", "Mixpanel"])
         #expect(hits.isEmpty, "\(hits)")

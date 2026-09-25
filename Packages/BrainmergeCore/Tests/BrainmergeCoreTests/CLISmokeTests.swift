@@ -139,6 +139,24 @@ import BrainmergeTestSupport
         #expect(FileManager.default.fileExists(atPath: e.brain.brainMD.path))
     }
 
+    /// The email Claude Code records is shown in the window only: the command line never prints it.
+    @Test func theCommandLineNeverPrintsTheClaudeCodeEmail() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let email = "ruben.sentinel@example.com"
+        let file = e.home.url.appending(path: ".claude.json")
+        try Data(#"{"projects":{"\#(e.atelier)":{}},"oauthAccount":{"emailAddress":"\#(email)","displayName":"Ruben"}}"#.utf8).write(to: file)
+        #expect(try run(e, ["adopt-primary", "--name", "Perso"]).status == 0)
+        #expect(try run(e, ["identity", "add", "--name", "Client"]).status == 0)
+        let client = CLIProfile(directory: e.home.paths.cliProfile(slug: "client", isPrimary: false))
+        try Data(#"{"oauthAccount":{"emailAddress":"client.sentinel@example.com"}}"#.utf8).write(to: client.accountFile)
+        for arguments in [["doctor"], ["doctor", "--json"], ["identity", "list"], ["identity", "list", "--json"], ["brain", "status"]] {
+            let result = try run(e, arguments)
+            let output = result.stdout + result.stderr
+            #expect(!output.contains("sentinel@example.com"), "\(arguments)")
+        }
+        #expect(!(try String(contentsOf: e.home.paths.stateFile, encoding: .utf8)).contains("sentinel"))
+    }
+
     @Test func versionMatchesTheApp() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         #expect(try run(e, ["--version"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines) == BrainmergeInfo.version)

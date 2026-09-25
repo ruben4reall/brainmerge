@@ -99,6 +99,18 @@ import BrainmergeCore
         }
     }
 
+    @Test func helpNamesTheClaudeCodeEmailWhenKnown() {
+        var work = account()
+        work.codeAccount = ClaudeCodeAccount(email: "alex@example.com", displayName: "Alex")
+        #expect(SidebarAccountAction.open.help(for: work, othersOpen: false) == "Open Claude as Work (alex@example.com)")
+        // Logging in while others are open: the warning stays as it is.
+        var fresh = account(session: false)
+        fresh.codeAccount = ClaudeCodeAccount(email: "alex@example.com")
+        #expect(SidebarAccountAction.open.help(for: fresh, othersOpen: true).hasPrefix("Opens Claude to log in."))
+        // The words next to the name never carry the email.
+        #expect(SidebarAccountAction.open.accessibilityLabel(for: work) == "Work, Open")
+    }
+
     @Test func voiceOverReadsTheNameAndTheAction() {
         #expect(SidebarAccountAction.open.accessibilityLabel(for: account()) == "Work, Open")
         #expect(SidebarAccountAction.show.accessibilityLabel(for: account(running: true)) == "Work, Show")

@@ -5,7 +5,9 @@ public enum AccountsFilter {
 
     public static func apply(_ accounts: [Account], query: String, sort: Sort = .lastUsed) -> [Account] {
         let needle = fold(query)
-        let hits = needle.isEmpty ? accounts : accounts.filter { fold($0.identity.name).contains(needle) || $0.identity.slug.contains(needle) }
+        let hits = needle.isEmpty ? accounts : accounts.filter {
+            fold($0.identity.name).contains(needle) || $0.identity.slug.contains(needle) || ($0.codeAccount.map { fold($0.email).contains(needle) } ?? false)
+        }
         switch sort {
         case .name:
             return hits.sorted { $0.identity.name.localizedCaseInsensitiveCompare($1.identity.name) == .orderedAscending }

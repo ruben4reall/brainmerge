@@ -16,6 +16,9 @@ public struct Account: Identifiable, Equatable, Sendable {
     /// Its Claude data folder holds a logged-in session (names of files only, see DesktopSession).
     public var hasSession: Bool = false
     public var claudeVersion: ClaudeVersionState = .notApplicable
+    /// The account Claude Code last recorded in this account's folder, for display only (never stored, see ClaudeCodeAccount).
+    /// Nil when Claude Code is off for this account, has not logged in, or logged out.
+    public var codeAccount: ClaudeCodeAccount? = nil
     public var id: String { identity.slug }
     /// A desktop account that has not logged in yet.
     public var needsLogin: Bool { identity.surfaces.desktop && !hasSession }
@@ -86,6 +89,12 @@ public final class AppModel {
     private var logos: [String: NSImage] = [:]
     /// Automatic rebuilds already reported (slug and Claude version): one sentence, not one every five minutes.
     private var reportedRebuildFailures: Set<String> = []
+    /// The Claude Code account of each account, kept apart from `accounts` (rebuilt from the state on every reload) and read
+    /// again only by `refreshCodeAccounts()`. In memory only: the email is never written anywhere.
+    private var codeAccounts: [String: ClaudeCodeAccount] = [:]
+    /// Accounts whose Claude Code account was read at least once: a reload reads only the ones it has never seen.
+    private var codeAccountsRead: Set<String> = []
+    private var codeAccountCache = ClaudeCodeAccountCache()
 
     /// The live graph of the memory shown on the Memory screen; kept here so its layout survives switching screens.
     public let memoryGraph = MemoryGraphModel()
@@ -217,11 +226,14 @@ public final class AppModel {
         let snapshot = prefetchedSnapshot ?? (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
         let claudeApp = claude
         var memory: [String: Int64] = [:]
+        codeAccountsRead.formIntersection(state.identities.map(\.slug))
+        readCodeAccounts(of: state.identities.filter { !codeAccountsRead.contains($0.slug) })
         set(\.accounts, state.identities.map { identity in
             let main = claudeApp.flatMap { app in snapshot.mains.first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: app) } }
             if let main { memory[identity.slug] = snapshot.residentBytes(of: main.pid) }
             let session = identity.surfaces.desktop && DesktopSession.hasSession(dataDir: identity.desktopData(in: paths))
-            return Account(identity: identity, isRunning: main != nil, hasSession: session, claudeVersion: Self.versionState(of: identity, claude: claudeApp))
+            return Account(identity: identity, isRunning: main != nil, hasSession: session, claudeVersion: Self.versionState(of: identity, claude: claudeApp),
+                           codeAccount: codeAccounts[identity.slug])
         })
         let step: Int64 = 16 * 1024 * 1024
         func coarse(_ m: [String: Int64]) -> [String: Int64] { m.mapValues { ($0 + step / 2) / step } }
@@ -237,6 +249,39 @@ public final class AppModel {
     }
 
     public func residentBytes(of slug: String) -> Int64 { memoryBySlug[slug] ?? 0 }
+
+    // MARK: Which account Claude Code uses
+
+    /// Reads again the account Claude Code recorded for every account (only the files that changed are parsed):
+    /// at launch, on the minute clock and when the window comes back to the front. Never on the 3-second reload.
+    public func refreshCodeAccounts() {
+        let identities = accounts.map(\.identity)
+        codeAccountsRead = []
+        codeAccounts = codeAccounts.filter { slug, _ in identities.contains { $0.slug == slug } }
+        readCodeAccounts(of: identities)
+        let updated = accounts.map { account -> Account in
+            var account = account
+            account.codeAccount = codeAccounts[account.id]
+            return account
+        }
+        if updated != accounts { accounts = updated }
+    }
+
+    /// An account with Claude Code off shows nothing, even if its folder holds an entry (the Claude app's Code tab can write one).
+    private func readCodeAccounts(of identities: [Identity]) {
+        for identity in identities {
+            codeAccountsRead.insert(identity.slug)
+            codeAccounts[identity.slug] = identity.surfaces.cli
+                ? codeAccountCache.account(profile: CLIProfile(directory: identity.cliProfile(in: paths)))
+                : nil
+        }
+    }
+
+    /// Another account whose Claude Code uses the same email: one person twice, said as information.
+    public func duplicateCodeAccount(of slug: String) -> Account? {
+        guard let email = accounts.first(where: { $0.id == slug })?.codeAccount?.email else { return nil }
+        return accounts.first { $0.id != slug && $0.codeAccount?.email.caseInsensitiveCompare(email) == .orderedSame }
+    }
 
     /// Only a tinted copy can lag behind the installed Claude.
     static func versionState(of identity: Identity, claude: ClaudeApp?) -> ClaudeVersionState {
@@ -575,6 +620,21 @@ public final class AppModel {
         let manager = self.manager; let clean = form.trimmedName
         await change(slug, "Renaming to \(clean)…", touchesApp: true) { _ = try manager.update(slug: slug, name: clean, tint: nil, logo: nil) }
     }
+    /// Swaps two accounts' names in one step (the edit sheet offers it when the names look swapped against the emails
+    /// Claude Code uses). A rename rebuilds a secondary's app, so an open secondary is said and nothing changes; whether
+    /// the primary may stay open is the core's rule for any edit (`IdentityManager.ensureEditable`).
+    public func swapNames(_ slug: String, with other: String) async {
+        guard let one = accounts.first(where: { $0.id == slug }), let two = accounts.first(where: { $0.id == other }), slug != other else { return }
+        for account in [one, two] where !account.identity.isPrimary {
+            if let open = runningSentence(account.id) { message = open; return }
+        }
+        let marked = [one, two].filter { !$0.identity.isPrimary && $0.identity.surfaces.desktop }.map(\.id)
+        for id in marked { markBusy(id, true) }
+        defer { for id in marked { markBusy(id, false) } }
+        let manager = self.manager
+        _ = await perform("Swapping the names of \(one.identity.name) and \(two.identity.name)…") { try manager.swapNames(slug, with: other) }
+    }
+
     public func changeTint(_ slug: String, to tint: Tint) async {
         let manager = self.manager
         await change(slug, "Recoloring \(name(of: slug))…", touchesApp: true) { _ = try manager.update(slug: slug, name: nil, tint: tint, logo: nil) }
@@ -659,7 +719,7 @@ public final class AppModel {
         isWatching = true
         watchers.start(running: { [weak self] in self?.reload() },
                        memory: { [weak self] in self?.refreshMemory() },
-                       projects: { [weak self] in self?.wireNewProjects(); Task { await self?.refreshUsage() } },
+                       projects: { [weak self] in self?.wireNewProjects(); self?.refreshCodeAccounts(); Task { await self?.refreshUsage() } },
                        claude: { [weak self] in Task { await self?.checkClaudeUpdate() } })
         Task { await checkClaudeUpdate() }
     }
