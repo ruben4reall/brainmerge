@@ -41,7 +41,8 @@ public struct MemoryWiring: Sendable {
         for ref in try profile.projects() {
             let preferred = ref.path.map { ProjectSlug.projectName(forPath: $0, home: paths.home) }
                 ?? ProjectSlug.projectName(forSlug: ref.slug, home: paths.home)
-            let name = registry.register(preferredName: preferred, path: Self.registryKey(ref), machineID: machineID)
+            let name = Self.knownName(slug: ref.slug, path: ref.path, in: registry, machineID: machineID)
+                ?? registry.register(preferredName: preferred, path: Self.registryKey(ref), machineID: machineID)
             try link(profile.projectsDir.appending(path: ref.slug, directoryHint: .isDirectory), name: name,
                      identitySlug: identitySlug, into: &result)
         }
@@ -59,9 +60,7 @@ public struct MemoryWiring: Sendable {
         let projectDir = profile.projectsDir.appending(path: slug, directoryHint: .isDirectory)
         if isLinkedIntoThisMemory(projectDir.appending(path: "memory")) { return result }
         var registry = try ProjectRegistry.load(brain.projectsFile)
-        // The name it already has, by its path or by its sessions folder alone, so it never becomes "name-2".
-        let name = registry.name(forPath: projectPath, machineID: machineID)
-            ?? registry.name(forPath: Self.registryKey(ProjectRef(slug: slug, path: nil)), machineID: machineID)
+        let name = Self.knownName(slug: slug, path: projectPath, in: registry, machineID: machineID)
             ?? registry.register(preferredName: ProjectSlug.projectName(forPath: projectPath, home: paths.home),
                                  path: projectPath, machineID: machineID)
         try link(projectDir, name: name, identitySlug: identitySlug, into: &result)
@@ -109,7 +108,7 @@ public struct MemoryWiring: Sendable {
         return try profile.projects().map { ref in
             let preferred = ref.path.map { ProjectSlug.projectName(forPath: $0, home: paths.home) }
                 ?? ProjectSlug.projectName(forSlug: ref.slug, home: paths.home)
-            let name = registry.name(forPath: Self.registryKey(ref), machineID: machineID) ?? preferred
+            let name = Self.knownName(slug: ref.slug, path: ref.path, in: registry, machineID: machineID) ?? preferred
             let link = profile.projectsDir.appending(path: ref.slug, directoryHint: .isDirectory).appending(path: "memory")
             return ProjectLinkStatus(name: name, path: ref.path ?? ref.slug, slug: ref.slug,
                                      state: try Self.inspect(link, target: brain.memoryDir(forProject: name)))
@@ -125,6 +124,19 @@ public struct MemoryWiring: Sendable {
 
     /// Registry key: the real path, or the slug when Claude Code only knows the sessions folder.
     static func registryKey(_ ref: ProjectRef) -> String { ref.path ?? "slug:\(ref.slug)" }
+
+    /// The name a project already has on this machine, so it never becomes "name-2": by its path, by its sessions folder
+    /// alone (wired before its path was known), or, when only the sessions folder is known, by a path registered for that
+    /// same folder (a session start registers the path before `.claude.json` lists it).
+    static func knownName(slug: String, path: String?, in registry: ProjectRegistry, machineID: String) -> String? {
+        if let path, let name = registry.name(forPath: path, machineID: machineID) { return name }
+        if let name = registry.name(forPath: registryKey(ProjectRef(slug: slug, path: nil)), machineID: machineID) { return name }
+        guard path == nil else { return nil }
+        return registry.projects.keys.sorted().first { name in
+            guard let known = registry.projects[name]?.paths[machineID], known.hasPrefix("/") else { return false }
+            return ProjectSlug.slug(forPath: known) == slug
+        }
+    }
 
     /// `attributesOfItem` doesn't follow links: we see the link itself.
     static func inspect(_ link: URL, target: URL) throws -> ProjectLinkState {

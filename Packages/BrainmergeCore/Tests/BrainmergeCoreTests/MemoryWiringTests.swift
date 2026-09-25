@@ -180,6 +180,51 @@ import BrainmergeTestSupport
         #expect(try ProjectRegistry.load(e.brain.projectsFile).projects["kayak-2"] == nil)
     }
 
+    /// A session start linked a folder `.claude.json` does not list yet, then the app's minute pass sees only its sessions
+    /// folder: it keeps the one name, never registers a "kayak-2" beside it, and says it is linked.
+    @Test func theFullWiringKeepsTheNameASessionStartGave() throws {
+        let e = try env(); defer { e.home.remove() }
+        let kayak = e.home.url.path + "/kayak"
+        _ = try e.wiring.wireOne(projectPath: kayak, profile: e.profile, identitySlug: "perso")
+        for _ in 0..<2 {
+            let result = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+            #expect(result.external.isEmpty)
+        }
+        #expect(try ProjectRegistry.load(e.brain.projectsFile).projects.keys.sorted() == ["atelier", "home", "kayak"])
+        let status = try e.wiring.status(profile: e.profile).first { $0.slug == ProjectSlug.slug(forPath: kayak) }
+        #expect(status?.name == "kayak" && status?.state == .linked)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: e.link(kayak).path) == e.brain.memoryDir(forProject: "kayak").path)
+    }
+
+    /// The first account's wiring knew only the sessions folder; a session then starts there in a second account sharing
+    /// the memory, with no link yet: it joins the same folder of notes.
+    @Test func aSecondAccountJoinsTheNameTheFirstGaveBySessionsFolder() throws {
+        let e = try env(); defer { e.home.remove() }
+        let kayak = e.home.url.path + "/kayak"
+        try FileManager.default.createDirectory(at: e.profile.projectsDir.appending(path: ProjectSlug.slug(forPath: kayak)), withIntermediateDirectories: true)
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        let second = try CLIProfile.create(at: e.home.paths.cliProfile(slug: "client", isPrimary: false), inheritingFrom: nil)
+        let result = try e.wiring.wireOne(projectPath: kayak, profile: second, identitySlug: "client")
+        #expect(result.linked == ["kayak"])
+        let link = second.projectsDir.appending(path: ProjectSlug.slug(forPath: kayak)).appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "kayak").path)
+        #expect(try ProjectRegistry.load(e.brain.projectsFile).projects["kayak-2"] == nil)
+    }
+
+    /// Wired first from its sessions folder alone, then `.claude.json` records its path: still the same name.
+    @Test func aPathRecordedLaterKeepsTheSessionsFolderName() throws {
+        let e = try env(); defer { e.home.remove() }
+        let kayak = e.home.url.path + "/kayak"
+        try FileManager.default.createDirectory(at: e.profile.projectsDir.appending(path: ProjectSlug.slug(forPath: kayak)), withIntermediateDirectories: true)
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        let projects: [String: Any] = [e.atelier: [:], e.home.url.path: [:], kayak: [:]]
+        try JSONSerialization.data(withJSONObject: ["projects": projects]).write(to: e.home.url.appending(path: ".claude.json"))
+        let result = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(result.external.isEmpty && result.linked.isEmpty)
+        #expect(try ProjectRegistry.load(e.brain.projectsFile).projects["kayak-2"] == nil)
+        #expect(try e.wiring.status(profile: e.profile).first { $0.path == kayak }?.state == .linked)
+    }
+
     @Test func wireOneLeavesAnExternalLinkAndIgnoresARelativePath() throws {
         let e = try env(); defer { e.home.remove() }
         let vault = e.home.url.appending(path: "Vault", directoryHint: .isDirectory)
