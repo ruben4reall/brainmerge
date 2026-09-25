@@ -202,6 +202,39 @@ import BrainmergeTestSupport
         #expect(excluded.allSatisfy { result.colors[$0] == nil })
     }
 
+    /// The cap on notes counts only what the vault shows: newer files hidden by the search, the Excluded files or the
+    /// attachments setting never push a shown note out, nor make the graph say it was cut short. A link to a hidden note
+    /// still finds its file: it is not drawn, and it is no unresolved link either.
+    @Test func theCapCountsOnlyWhatTheVaultShows() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        func add(_ path: String, _ text: String, at seconds: TimeInterval) throws {
+            try write(root, path, text)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: seconds)],
+                                                  ofItemAtPath: root.appending(path: path).path)
+        }
+        try add("Notes/A.md", "[[B]] [[2026-09-24]] [[Draft]]\n", at: 1_000)
+        try add("Notes/B.md", "[[C]]\n", at: 1_001)
+        try add("Notes/C.md", "[[A]]\n", at: 1_002)
+        for i in 0..<4 { try add("Journal/2026-09-2\(i + 1).md", "[[A]]\n", at: 2_000 + Double(i)) }
+        try add("Drafts/Draft.md", "[[A]]\n", at: 3_000)
+        for i in 0..<4 { try add("assets/p\(i).png", "png", at: 4_000 + Double(i)) }
+        var settings = ObsidianGraphSettings()
+        settings.search = "-path:Journal"
+        settings.ignoreFilters = ["Drafts/"]
+        let builder = MemoryGraphBuilder(root: root, style: .vault, maxNotes: 3)
+        let result = builder.build(showing: ObsidianGraphFilter.showsFile(settings))
+        #expect(!result.truncated && !result.attachmentsTruncated)
+        let shown = ObsidianGraphFilter.apply(settings, to: result.graph)
+        #expect(Set(shown.graph.nodes.map(\.id)) == ["Notes/A.md", "Notes/B.md", "Notes/C.md"])
+        #expect(shown.graph.edges.count == 3)
+        // One more note the vault shows: now the graph is cut short, and keeps the three most recent.
+        try add("Notes/D.md", "[[A]]\n", at: 1_003)
+        let more = builder.build(showing: ObsidianGraphFilter.showsFile(settings))
+        #expect(more.truncated)
+        #expect(Set(ObsidianGraphFilter.apply(settings, to: more.graph).graph.nodes.map(\.id)) == ["Notes/B.md", "Notes/C.md", "Notes/D.md"])
+    }
+
     /// A vault that cannot be opened (macOS asked and was refused, or its permissions say no) is said so, never drawn
     /// as an empty vault; a locked folder inside it is only left out.
     @Test func aVaultThatCannotBeReadIsSaidSo() throws {

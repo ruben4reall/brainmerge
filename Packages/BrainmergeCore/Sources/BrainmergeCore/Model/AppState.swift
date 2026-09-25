@@ -29,6 +29,8 @@ public struct AppState: Codable, Equatable, Sendable {
     public var menuBarIcon: Bool
     /// The Obsidian vault the Memory screen's graph shows, by its folder; nil shows the Brainmerge memory.
     public var graphVault: String?
+    /// The Brainmerge memory the Memory screen shows, by its id; nil, or one forgotten since, shows the default one.
+    public var graphMemory: String?
 
     public init(schemaVersion: Int = AppState.currentSchema, machineID: String = UUID().uuidString,
                 brainPath: String? = nil, identities: [Identity] = [], autoRebuild: Bool = true,
@@ -39,7 +41,7 @@ public struct AppState: Codable, Equatable, Sendable {
         if brains.isEmpty, let brainPath { self.brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: brainPath)] }
     }
 
-    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault }
+    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory }
 
     /// Schema 1 (a single `brainPath`) becomes a list with one memory called Shared.
     public init(from decoder: Decoder) throws {
@@ -53,6 +55,7 @@ public struct AppState: Codable, Equatable, Sendable {
         // Added without a schema bump: a file written before it keeps the icon on.
         menuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarIcon) ?? true
         graphVault = try c.decodeIfPresent(String.self, forKey: .graphVault)
+        graphMemory = try c.decodeIfPresent(String.self, forKey: .graphMemory)
         let list = try c.decodeIfPresent([MemoryFolder].self, forKey: .brains) ?? []
         if list.isEmpty, let path = try c.decodeIfPresent(String.self, forKey: .brainPath) {
             brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: path)]
@@ -74,6 +77,7 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encodeIfPresent(notesApp, forKey: .notesApp)
         try c.encode(menuBarIcon, forKey: .menuBarIcon)
         try c.encodeIfPresent(graphVault, forKey: .graphVault)
+        try c.encodeIfPresent(graphMemory, forKey: .graphMemory)
     }
 
     /// The default memory's folder. Setting it moves the default memory to that folder, or creates it.

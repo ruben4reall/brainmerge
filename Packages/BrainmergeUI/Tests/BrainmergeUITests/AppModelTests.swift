@@ -780,7 +780,7 @@ import BrainmergeTestSupport
         let list = e.home.paths.obsidianVaultList
         try FileManager.default.createDirectory(at: list.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(#"{"vaults": {"a": {"path": "\#(vault.path)"}}}"#.utf8).write(to: list)
-        m.refreshVaults()
+        await m.refreshVaults()
         #expect(m.obsidianVaults.map(\.path) == [vault.standardizedFileURL.path])
         await m.selectGraphSource(.vault(vault.path)).value
         #expect(m.graphTarget == GraphTarget(root: URL(fileURLWithPath: vault.path, isDirectory: true), style: .vault))
@@ -796,21 +796,76 @@ import BrainmergeTestSupport
         // A folder picked by hand must be a vault; a plain one is explained, not shown.
         let plain = e.home.url.appending(path: "Plain", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
-        #expect(m.chooseVault(plain) == nil)
+        await m.chooseVault(plain).value
         #expect(m.message?.title == "Not an Obsidian vault")
-        #expect(m.graphTarget.style == .memory)
-        await m.chooseVault(vault)?.value
+        #expect(m.graphTarget.style == .memory && m.graphVault == nil)
+        await m.chooseVault(vault).value
         #expect(m.graphTarget.style == .vault)
         // The vault's folder goes away. The disk is not looked at on every redraw: the next time the screen opens, the
         // memory shows, and the choice waits for the folder to come back.
         try FileManager.default.removeItem(at: vault)
         #expect(m.graphTarget.style == .vault)
-        m.refreshVaults()
+        await m.refreshVaults()
         #expect(m.graphTarget == GraphTarget(root: e.brain.root, style: .memory))
         #expect(m.graphVault == vault.path)
         try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
-        m.refreshVaults()
+        await m.refreshVaults()
         #expect(m.graphTarget.style == .vault)
+    }
+
+    /// Looking at a vault's folder can make macOS ask for consent and wait for the answer: it never runs on the main
+    /// thread, whether the graph shows, a listed vault is picked or a folder is chosen.
+    @Test func vaultFoldersAreLookedAtOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let vault = e.home.url.appending(path: "Notes Vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        let log = MainThreadLog()
+        m.isVaultGone = { log.record(); return ObsidianVaults.isGone($0) }
+        m.isVaultFolder = { log.record(); return ObsidianVaults.isVault($0) }
+        await m.chooseVault(vault).value
+        await m.selectGraphSource(.vault(vault.path)).value
+        await m.refreshVaults()
+        #expect(m.graphTarget.style == .vault)
+        #expect(log.onMain.count == 3)
+        #expect(!log.onMain.contains(true))
+    }
+
+    /// A vault picked, then a memory picked before the vault's folder was looked at: the later choice wins.
+    @Test func theLastPickWinsWhileAVaultIsLookedAt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let vault = e.home.url.appending(path: "Notes Vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        m.isVaultGone = { Thread.sleep(forTimeInterval: 0.2); return ObsidianVaults.isGone($0) }
+        let slow = m.selectGraphSource(.vault(vault.path))
+        await m.selectGraphSource(.memory("shared")).value
+        await slow.value
+        #expect(m.graphVault == nil && m.graphTarget.style == .memory)
+        #expect(try e.store.load().graphVault == nil)
+    }
+
+    /// The memory picked in the graph's source menu is remembered like a vault: the next launch shows it again. A memory
+    /// forgotten since gives way to the default one.
+    @Test func theMemoryPickedForTheGraphIsRemembered() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        let m = model(e)
+        m.reload()
+        #expect(m.graphSource == .memory("shared"))
+        await m.selectGraphSource(.memory("work")).value
+        #expect(m.graphSource == .memory("work"))
+        #expect(try e.store.load().graphMemory == "work")
+        let fresh = model(e)
+        fresh.reload()
+        #expect(fresh.selectedBrainID == "work" && fresh.graphSource == .memory("work"))
+        try e.manager.forgetBrain(id: "work")
+        let later = model(e)
+        later.reload()
+        #expect(later.selectedBrainID == "shared" && later.graphSource == .memory("shared"))
     }
 
     /// Obsidian may list a vault whose folder is gone (it is listed unlooked at when macOS guards its place): picking it

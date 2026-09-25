@@ -180,6 +180,23 @@ import BrainmergeTestSupport
         #expect(graph.node("memory/website/decision.md") != nil)
     }
 
+    /// Making a builder touches no disk: its folder is looked at by the first build, which the app runs off the main
+    /// thread (a vault in Documents can make macOS ask, and wait for the answer, on the first look).
+    @Test func theFolderIsFirstLookedAtByTheBuild() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let first = home.url.appending(path: "Dropbox/One", directoryHint: .isDirectory)
+        let second = home.url.appending(path: "Dropbox/Two", directoryHint: .isDirectory)
+        try write(first, "one.md", "One.\n")
+        try write(second, "two.md", "Two.\n")
+        let link = home.url.appending(path: "Vault")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: first)
+        let builder = MemoryGraphBuilder(root: link, style: .vault)
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: second)
+        let graph = builder.build().graph
+        #expect(graph.node("two.md") != nil && graph.node("one.md") == nil)
+    }
+
     @Test func noteSymlinksAreNeverFollowed() throws {
         let home = try TempHome(); defer { home.remove() }
         let root = home.url.appending(path: "Brain", directoryHint: .isDirectory)

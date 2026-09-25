@@ -381,6 +381,18 @@ import BrainmergeTestSupport
         #expect(model.truncated)
     }
 
+    /// Notes the vault's search hides do not count against the cap either: only what shows can cut the graph short.
+    @Test func notesTheSearchHidesNeverCutTheGraph() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: Self.graphJSON)
+        for i in 0..<12 { try write(root, "Journal/day\(i).md", "[[plan]]\n") }
+        let model = MemoryGraphModel(animates: false, maxNotes: 10)
+        await model.refresh(root: root, style: .vault)
+        #expect(!model.truncated)
+        #expect(model.graph.node("Projects/plan.md") != nil && model.graph.node("memory/website/decision.md") != nil)
+        #expect(!model.graph.nodes.contains { $0.kind == .unresolved })
+    }
+
     /// In a vault a node is grabbed anywhere on it, however large the zoom draws it, and within a finger's width when
     /// small. A memory keeps the finger's width.
     @Test func aLargeNodeIsGrabbedAnywhereOnIt() async throws {

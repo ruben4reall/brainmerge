@@ -12,16 +12,25 @@ public enum ObsidianGraphFilter {
         public var colors: [String: ObsidianGraphSettings.GroupColor]
     }
 
-    public static func apply(_ settings: ObsidianGraphSettings, to graph: MemoryGraph) -> Shown {
+    /// Whether the vault shows a file, from its path alone: the search filter, the Excluded files and the attachments
+    /// setting. What depends on links (orphans, unresolved links) is judged on the graph afterwards. The graph's builder
+    /// uses it too, so its cap on notes counts only the files that can show.
+    public static func showsFile(_ settings: ObsidianGraphSettings) -> (_ path: String, _ attachment: Bool) -> Bool {
         let search = ObsidianQuery(settings.search)
         let ignore = ObsidianGraphSettings.IgnoreMatcher(settings.ignoreFilters)
+        let attachments = settings.showAttachments
+        return { path, attachment in
+            (attachments || !attachment) && !ignore.ignores(path) && search.matches(ObsidianQuery.Folded(path))
+        }
+    }
+
+    public static func apply(_ settings: ObsidianGraphSettings, to graph: MemoryGraph) -> Shown {
+        let shows = showsFile(settings)
         var visible = Set<String>()
         for node in graph.nodes {
             switch node.kind {
             case .note, .attachment:
-                let path = node.file ?? node.id
-                if node.kind == .attachment, !settings.showAttachments { continue }
-                if ignore.ignores(path) || !search.matches(ObsidianQuery.Folded(path)) { continue }
+                guard shows(node.file ?? node.id, node.kind == .attachment) else { continue }
                 visible.insert(node.id)
             case .project:
                 visible.insert(node.id)

@@ -161,13 +161,15 @@ public final class MemoryGraphModel {
         let started = Date()
         let (result, newHead, history, readHistory, vault) = await Task.detached(priority: .utility) {
             () -> (MemoryGraphBuilder.Result, String?, [String: Author], Bool, VaultRead?) in
-            let result = builder.build()
             if style == .vault {
-                // A vault is never asked who saved what: its look comes from its own settings, read again when they change.
+                // A vault is never asked who saved what: its look comes from its own settings, read again when they change,
+                // and read first: the files they hide are not read, nor counted against the cap.
                 let stamp = ObsidianGraphSettings.stamp(vault: newRoot)
                 let settings = stamp == knownStamp ? knownSettings : ObsidianGraphSettings.read(vault: newRoot)
+                let result = builder.build(showing: ObsidianGraphFilter.showsFile(settings))
                 return (result, nil, [:], false, VaultRead(stamp: stamp, settings: settings, shown: ObsidianGraphFilter.apply(settings, to: result.graph)))
             }
+            let result = builder.build()
             let brain = Brain(root: newRoot)
             guard FileManager.default.fileExists(atPath: brain.gitDir.path) else { return (result, nil, [:], false, nil) }
             let git = BrainGit(brain: brain)
@@ -216,8 +218,8 @@ public final class MemoryGraphModel {
             if !result.changed.isEmpty || pulses.values.contains(where: { $0.start == now }) { lastChange = now }
         }
         if history != authors { authors = history }
-        // A vault's attachments are capped apart, and only cut its graph short while it shows them.
-        let cut = result.truncated || (result.attachmentsTruncated && vault?.settings.showAttachments == true)
+        // Only what the vault shows is counted: its hidden files never cut the graph short.
+        let cut = result.truncated || result.attachmentsTruncated
         if truncated != cut { truncated = cut }
         if refused != result.refused { refused = result.refused }
         if shown != graph {

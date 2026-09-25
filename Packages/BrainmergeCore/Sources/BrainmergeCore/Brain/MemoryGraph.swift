@@ -190,18 +190,25 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     enum FileKind: Equatable { case markdown, unread, attachment }
     struct Entry { var modified: Date; var size: Int; var kind: FileKind; var targets: [MemoryGraph.LinkTarget] }
 
-    public let root: URL
+    /// The folder as given; `root` is where it really is, looked at by the first build.
+    private let given: URL
+    /// A memory kept in Dropbox or iCloud is often reached through a symlink: the folder it points to is read, by its
+    /// real path, which is also how the walk spells the files it finds ("/private/var", not "/var"). Resolved by the
+    /// first build, never when the builder is made: the app makes it on the main thread and builds off it, and the first
+    /// look at a vault in Documents can make macOS ask, and wait for the answer.
+    public private(set) lazy var root: URL = Self.realPath(given)
     public let style: MemoryGraph.Style
     public let maxNotes: Int
     /// Bytes read per note at most: links sit in the text, and a huge note must not stall the build.
     public let maxBytes: Int
     private var cache: [String: Entry] = [:]
+    /// Every file of the last scan, drawn or not (hidden by the vault, or left out by the cap), by kind: a link to one
+    /// of them finds its file, so it is never taken for a link to nothing.
+    private var known: [String: FileKind] = [:]
     private var built = false
 
     public init(root: URL, style: MemoryGraph.Style = .memory, maxNotes: Int = 2000, maxBytes: Int = 256 * 1024) {
-        // A memory kept in Dropbox or iCloud is often reached through a symlink: read the folder it points to, by its
-        // real path, which is also how the enumerator spells the files it finds ("/private/var", not "/var").
-        self.root = Self.realPath(root); self.style = style; self.maxNotes = maxNotes; self.maxBytes = maxBytes
+        self.given = root; self.style = style; self.maxNotes = maxNotes; self.maxBytes = maxBytes
     }
 
     static func realPath(_ url: URL) -> URL {
@@ -260,13 +267,17 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     /// The bubble a file is drawn as: in a memory a project's index is its project's bubble, in a vault every file is its own.
     func nodeID(forFile path: String) -> String { style == .memory ? MemoryGraph.nodeID(forFile: path) : path }
 
-    public func build() -> Result {
+    /// `showing`: whether the vault shows a file, by its path (see ObsidianGraphFilter.showsFile). The files it hides
+    /// are neither read nor counted against the cap; a memory shows every note.
+    public func build(showing shows: (_ path: String, _ attachment: Bool) -> Bool = { _, _ in true }) -> Result {
         let (files, refused) = scan()
+        known = Dictionary(files.map { ($0.path, $0.kind) }, uniquingKeysWith: { first, _ in first })
         // Notes and attachments are capped apart, so a vault full of images never pushes its notes out.
         func capped(_ list: [(path: String, modified: Date, size: Int, kind: FileKind)]) -> [(path: String, modified: Date, size: Int, kind: FileKind)] {
             list.count > maxNotes ? Array(list.sorted { $0.modified > $1.modified }.prefix(maxNotes)) : list
         }
-        let notes = files.filter { $0.kind != .attachment }, attachments = files.filter { $0.kind == .attachment }
+        let shown = files.filter { shows($0.path, $0.kind == .attachment) }
+        let notes = shown.filter { $0.kind != .attachment }, attachments = shown.filter { $0.kind == .attachment }
         var changed: [String] = []
         var read = 0
         var next: [String: Entry] = [:]
@@ -329,9 +340,9 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
         // preferring a note in the same folder. A link without an extension means a Markdown note.
         var byPath: [String: String] = [:]
         var byName: [String: [String]] = [:]
-        for path in paths {
+        for path in known.keys.sorted() {
             byPath[path.lowercased()] = path
-            if cache[path]?.kind == .markdown { byPath[String(path.dropLast(3)).lowercased()] = path }
+            if known[path] == .markdown { byPath[String(path.dropLast(3)).lowercased()] = path }
             byName[Self.noteName(path).lowercased(), default: []].append(path)
         }
         func named(_ target: String, from folder: String) -> String? {
@@ -380,6 +391,8 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
                 }
                 let other: String
                 if let resolved {
+                    // A file that is not drawn (hidden, or left out by the cap): no line, and no link to nothing either.
+                    guard cache[resolved] != nil else { continue }
                     other = nodeID(forFile: resolved)
                 } else if vault {
                     other = "unresolved:" + written.lowercased()

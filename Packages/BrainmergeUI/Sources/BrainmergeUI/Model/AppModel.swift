@@ -60,7 +60,7 @@ public final class AppModel {
     /// The menu bar icon setting (see `showsMenuBarIcon` for whether it shows now).
     public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
     /// The settings saved from the app, each written to state.json on the core queue (see `save`).
-    private enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault }
+    private enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory }
     /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
     private var pendingSaves: [Setting: Int] = [:]
     private func isSaving(_ setting: Setting) -> Bool { (pendingSaves[setting] ?? 0) > 0 }
@@ -306,7 +306,8 @@ public final class AppModel {
         set(\.brains, state.brains)
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
-        else if selectedBrainID == nil, let first = state.defaultBrain { selectedBrainID = first.id }
+        // The first load shows the memory picked last time, while it still exists.
+        else if selectedBrainID == nil, let first = state.graphMemory.flatMap(state.brain(id:)) ?? state.defaultBrain { selectedBrainID = first.id }
         let snapshot = prefetchedSnapshot ?? (try? manager.monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
         let claudeApp = claude
         var memory: [String: Int64] = [:]
@@ -501,7 +502,13 @@ public final class AppModel {
         return candidate.isInitialized ? candidate : brain
     }
     public var selectedFolder: MemoryFolder? { brains.first { $0.id == selectedBrainID } ?? brains.first }
-    public func selectBrain(_ id: String?) { selectedBrainID = id ?? brains.first?.id }
+    /// Shows a memory on the Memory screen and remembers it, like the graph's vault.
+    @discardableResult
+    public func selectBrain(_ id: String?) -> Task<Void, Never> {
+        let chosen = id ?? brains.first?.id
+        selectedBrainID = chosen
+        return save(.graphMemory) { $0.graphMemory = chosen }
+    }
     /// The memory an identity writes to, from the loaded list: the one it names while it exists, else the default one.
     public func brain(of identity: Identity) -> MemoryFolder? {
         identity.brain.flatMap { id in brains.first { $0.id == id } } ?? brains.first
@@ -1045,43 +1052,68 @@ public final class AppModel {
         return .memory(selectedFolder?.id ?? "")
     }
 
-    /// Reads Obsidian's list of vaults again (paths only), and looks whether the chosen vault's folder is still there.
-    /// Called when the graph shows. A vault in a place macOS guards is only looked at once it has been picked.
-    public func refreshVaults() {
-        let vaults = ObsidianVaults.known(paths: paths)
+    /// Looks at a vault's folder: gone, or a vault. For a vault in Documents, iCloud Drive or another guarded place,
+    /// macOS may hold the look until the person answers its consent prompt: always called off the main thread, so the
+    /// window never freezes meanwhile. Injectable in tests.
+    @ObservationIgnored var isVaultGone: @Sendable (URL) -> Bool = { ObsidianVaults.isGone($0) }
+    @ObservationIgnored var isVaultFolder: @Sendable (URL) -> Bool = { ObsidianVaults.isVault($0) }
+    /// Bumped by every pick of the graph's source: a look at a vault's folder that ends after a later pick changes nothing.
+    private var graphPicks = 0
+
+    /// Reads Obsidian's list of vaults again (paths only), and looks whether the chosen vault's folder is still there,
+    /// off the main thread. Called when the graph shows. A vault in a place macOS guards is only looked at once picked.
+    public func refreshVaults() async {
+        let paths = self.paths, chosen = graphVault, isGone = isVaultGone
+        let (vaults, gone) = await Task.detached(priority: .userInitiated) {
+            (ObsidianVaults.known(paths: paths), chosen.map { isGone(URL(fileURLWithPath: $0, isDirectory: true)) } ?? false)
+        }.value
         if vaults != obsidianVaults { obsidianVaults = vaults }
-        let gone = graphVault.map { ObsidianVaults.isGone(URL(fileURLWithPath: $0, isDirectory: true)) } ?? false
-        if gone != graphVaultGone { graphVaultGone = gone }
+        // Another vault picked meanwhile was looked at when picked.
+        guard chosen == graphVault, gone != graphVaultGone else { return }
+        graphVaultGone = gone
     }
 
     /// Shows a memory (which the whole screen then shows) or a vault in the graph. The task ends once the choice is saved.
     @discardableResult
     public func selectGraphSource(_ source: GraphSource) -> Task<Void, Never> {
+        graphPicks += 1
         switch source {
         case .memory(let id):
-            selectBrain(id)
-            return setGraphVault(nil)
+            let memory = selectBrain(id), vault = setGraphVault(nil)
+            return Task { await memory.value; await vault.value }
         case .vault(let path):
             let url = URL(fileURLWithPath: path, isDirectory: true)
             // Obsidian's list can hold a vault moved or deleted since: a guarded one was listed without a look.
-            guard !ObsidianVaults.isGone(url) else {
-                message = UserMessage(title: "Vault not found",
-                                      detail: "Obsidian lists \(url.lastPathComponent), but its folder is not there any more. Open it in Obsidian, or choose it again.")
-                return Task {}
+            return pickVault(path, looking: isVaultGone, at: url) { [weak self] in
+                self?.message = UserMessage(title: "Vault not found",
+                                            detail: "Obsidian lists \(url.lastPathComponent), but its folder is not there any more. Open it in Obsidian, or choose it again.")
             }
-            return setGraphVault(path)
         }
     }
 
-    /// A folder picked by hand: shown when Obsidian keeps a vault in it, explained when not. Nil when refused.
+    /// A folder picked by hand: shown when Obsidian keeps a vault in it, explained when not. The task ends once the
+    /// choice is saved, or refused.
     @discardableResult
-    public func chooseVault(_ url: URL) -> Task<Void, Never>? {
-        guard ObsidianVaults.isVault(url) else {
-            message = UserMessage(title: "Not an Obsidian vault",
-                                  detail: "Pick a folder you open in Obsidian as a vault. Obsidian keeps its settings there, in a hidden .obsidian folder.")
-            return nil
+    public func chooseVault(_ url: URL) -> Task<Void, Never> {
+        graphPicks += 1
+        let isVault = isVaultFolder
+        return pickVault(url.standardizedFileURL.path, looking: { !isVault($0) }, at: url) { [weak self] in
+            self?.message = UserMessage(title: "Not an Obsidian vault",
+                                        detail: "Pick a folder you open in Obsidian as a vault. Obsidian keeps its settings there, in a hidden .obsidian folder.")
         }
-        return setGraphVault(url.standardizedFileURL.path)
+    }
+
+    /// Looks at the folder off the main thread (`refused` says whether it may not be shown), then shows it, or says why
+    /// not, unless the person picked something else meanwhile.
+    private func pickVault(_ path: String, looking refused: @escaping @Sendable (URL) -> Bool, at url: URL,
+                           otherwise explain: @escaping @MainActor () -> Void) -> Task<Void, Never> {
+        let pick = graphPicks
+        return Task {
+            let refuse = await Task.detached(priority: .userInitiated) { refused(url) }.value
+            guard pick == graphPicks else { return }
+            if refuse { explain(); return }
+            await setGraphVault(path).value
+        }
     }
 
     /// Like every setting: the choice moves at once, the file is saved on the core queue after the work already there.

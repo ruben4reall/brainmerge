@@ -55,4 +55,16 @@ import BrainmergeTestSupport
         #expect(try JSONDecoder().decode(AppState.self, from: data).graphVault == "/Users/x/Documents/Notes Vault")
         #expect(!String(decoding: try JSONEncoder().encode(AppState(machineID: "m")), as: UTF8.self).contains("graphVault"))
     }
+
+    /// The memory the graph shows is remembered by its id, like the vault; an older file, or none chosen, shows the default.
+    @Test func theGraphsMemoryRoundTrips() throws {
+        #expect(AppState().graphMemory == nil)
+        let older = #"{"schemaVersion": 2, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#
+        #expect(try JSONDecoder().decode(AppState.self, from: Data(older.utf8)).graphMemory == nil)
+        var state = AppState(machineID: "m")
+        state.graphMemory = "work"
+        let data = try JSONEncoder().encode(state)
+        #expect(try JSONDecoder().decode(AppState.self, from: data).graphMemory == "work")
+        #expect(!String(decoding: try JSONEncoder().encode(AppState(machineID: "m")), as: UTF8.self).contains("graphMemory"))
+    }
 }
