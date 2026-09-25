@@ -63,6 +63,9 @@ public struct InstalledBrowser: Equatable, Sendable {
     public let browser: ChromiumBrowser
     public let app: URL
     public let profiles: [BrowserProfile]
+    public init(browser: ChromiumBrowser, app: URL, profiles: [BrowserProfile]) {
+        self.browser = browser; self.app = app; self.profiles = profiles
+    }
 }
 
 /// Reads browsers' profile lists and builds the command that opens one. `Local State` also records each profile's Google
@@ -74,6 +77,7 @@ public enum BrowserProfiles {
     public struct Command: Equatable, Sendable {
         public let path: String
         public let arguments: [String]
+        public init(path: String, arguments: [String]) { self.path = path; self.arguments = arguments }
     }
 
     /// The profiles in a `Local State` file, by name; none when it is not what is expected.

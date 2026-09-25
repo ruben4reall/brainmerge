@@ -134,6 +134,7 @@ public struct EditAccountSheet: View {
                     }
                 }
             }
+            labeled("Connections") { ConnectionsSection(model: model, account: current) }
             if let note = otherAppNote {
                 labeled("Apps you made") { otherAppLines(note) }
             }

@@ -69,7 +69,7 @@ public final class AppModel {
     /// The menu bar icon setting (see `showsMenuBarIcon` for whether it shows now).
     public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
     /// The settings saved from the app, each written to state.json on the core queue (see `save`).
-    private enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory }
+    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, browser(String) }
     /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
     private var pendingSaves: [Setting: Int] = [:]
     private func isSaving(_ setting: Setting) -> Bool { (pendingSaves[setting] ?? 0) > 0 }
@@ -132,6 +132,14 @@ public final class AppModel {
     }
     /// Starts Claude Code; a fake in tests, which never run the real one.
     @ObservationIgnored public var limitsRunner: ClaudeCodeLimits.Runner = ClaudeCodeLimits.shell
+    /// Connections: the Chromium browsers installed with their profiles, and each account's MCP servers by name, read
+    /// when the edit sheet opens (see `loadConnections`).
+    public internal(set) var installedBrowsers: [InstalledBrowser] = []
+    public internal(set) var mcpInventories: [String: MCPInventory] = [:]
+    /// Finds the browsers and their profiles; a fake in tests.
+    @ObservationIgnored public var findBrowsers: @Sendable (URL) -> [InstalledBrowser] = { BrowserProfiles.available(home: $0) }
+    /// Opens a browser; a fake in tests, which never open one.
+    @ObservationIgnored public var browserRunner: @Sendable (BrowserProfiles.Command) throws -> Void = { try Shell().check($0.path, $0.arguments) }
     /// The Mac's memory pressure, injectable in tests.
     public var memoryPressure: @Sendable () -> MemoryPressure.Level = { MemoryPressure.current() ?? .normal }
     /// The Mac's RAM figures, injectable in tests.
@@ -1202,7 +1210,7 @@ public final class AppModel {
     /// Saves one setting on the core queue, after any work already there, which saves the same file (a rebuild records
     /// its Claude version): a save from the main thread meanwhile would be undone by the state that work read before.
     /// The value on screen has already moved; the task ends once it is saved.
-    private func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
+    func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
         pendingSaves[setting, default: 0] += 1
         let store = self.store, queue = coreQueue
         return Task {
