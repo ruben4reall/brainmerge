@@ -187,6 +187,41 @@ import BrainmergeTestSupport
         #expect(!s.isIgnored("Notes/Plan.md"))
     }
 
+    /// Excluded files hide what the search keeps, by folder or by pattern, and take their lines, links and colors with them.
+    @Test func excludedFilesHideWhatTheSearchKeeps() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try ownersVault(home)
+        try write(root, ".obsidian/app.json", #"{"userIgnoreFilters": ["07 Archives/", "/tech\\.md$/"]}"#)
+        let result = shown(root)
+        let ids = Set(result.graph.nodes.map(\.id))
+        let excluded = ["07 Archives/Old plan.md", "02 Projets/Orchard/Orchard · Tech.md"]
+        for path in excluded { #expect(!ids.contains(path), "\(path) is excluded") }
+        #expect(ids.contains("02 Projets/Orchard/Orchard.md") && ids.contains("HOME.md"))
+        #expect(!result.graph.edges.contains { excluded.contains($0.from) || excluded.contains($0.to) })
+        #expect(!result.graph.links.contains { excluded.contains($0.source) || excluded.contains($0.target) })
+        #expect(excluded.allSatisfy { result.colors[$0] == nil })
+    }
+
+    /// A vault that cannot be opened (macOS asked and was refused, or its permissions say no) is said so, never drawn
+    /// as an empty vault; a locked folder inside it is only left out.
+    @Test func aVaultThatCannotBeReadIsSaidSo() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        let locked = root.appending(path: "Private", directoryHint: .isDirectory)
+        try write(root, "A.md", "[[B]]\n")
+        try write(root, "Private/B.md", "Hidden.\n")
+        let fm = FileManager.default
+        defer { for url in [root, locked] { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path) } }
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: locked.path)
+        let partly = MemoryGraphBuilder(root: root, style: .vault).build()
+        #expect(!partly.refused && partly.graph.node("A.md") != nil && partly.graph.node("Private/B.md") == nil)
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: root.path)
+        let refused = MemoryGraphBuilder(root: root, style: .vault).build()
+        #expect(refused.refused && refused.graph.nodes.isEmpty)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        #expect(!MemoryGraphBuilder(root: root, style: .vault).build().refused)
+    }
+
     /// The vault is only ever read: building, reading its settings and filtering leave every file and date as it was.
     @Test func theVaultIsNeverWritten() throws {
         let home = try TempHome(); defer { home.remove() }

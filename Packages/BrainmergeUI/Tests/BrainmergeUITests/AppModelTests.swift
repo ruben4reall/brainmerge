@@ -773,10 +773,29 @@ import BrainmergeTestSupport
         #expect(m.graphTarget.style == .memory)
         await m.chooseVault(vault)?.value
         #expect(m.graphTarget.style == .vault)
-        // The vault's folder goes away: the memory shows, and the choice waits for the folder to come back.
+        // The vault's folder goes away. The disk is not looked at on every redraw: the next time the screen opens, the
+        // memory shows, and the choice waits for the folder to come back.
         try FileManager.default.removeItem(at: vault)
+        #expect(m.graphTarget.style == .vault)
+        m.refreshVaults()
         #expect(m.graphTarget == GraphTarget(root: e.brain.root, style: .memory))
         #expect(m.graphVault == vault.path)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        m.refreshVaults()
+        #expect(m.graphTarget.style == .vault)
+    }
+
+    /// Obsidian may list a vault whose folder is gone (it is listed unlooked at when macOS guards its place): picking it
+    /// says so and keeps the graph as it was.
+    @Test func pickingAVaultThatIsGoneSaysSo() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let gone = e.home.url.appending(path: "Documents/Old Vault", directoryHint: .isDirectory).path
+        await m.selectGraphSource(.vault(gone)).value
+        #expect(m.message?.title == "Vault not found")
+        #expect(m.graphVault == nil && m.graphTarget.style == .memory)
+        #expect(try e.store.load().graphVault == nil)
     }
 
     @Test func menuBarSettingPersists() async throws {

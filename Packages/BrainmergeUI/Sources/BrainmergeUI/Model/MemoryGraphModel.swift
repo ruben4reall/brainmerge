@@ -97,6 +97,8 @@ public final class MemoryGraphModel {
     public private(set) var authors: [String: Author] = [:]
     public private(set) var pulses: [String: Pulse] = [:]
     public private(set) var truncated = false
+    /// The folder could not be opened: macOS (or its permissions) refused. Said so instead of an empty graph.
+    public private(set) var refused = false
     public private(set) var lastChange: Date?
     public private(set) var root: URL?
     /// Bumped on every animation frame, so the canvas redraws while the graph moves.
@@ -133,6 +135,7 @@ public final class MemoryGraphModel {
     @ObservationIgnored private var layoutGeneration = 0
     @ObservationIgnored private var timer: Timer?
     private let animates: Bool
+    private let maxNotes: Int
     @ObservationIgnored private var dragged: String?
     /// In a vault, how visible each node is (eased toward 1, or a fifth when unrelated to the hovered one), and the lines.
     @ObservationIgnored private var fades: [String: Double] = [:]
@@ -141,7 +144,7 @@ public final class MemoryGraphModel {
     /// The settings files as last read, to read them again only when they change.
     @ObservationIgnored private var settingsStamp: String?
 
-    public init(animates: Bool = true) { self.animates = animates }
+    public init(animates: Bool = true, maxNotes: Int = 2000) { self.animates = animates; self.maxNotes = maxNotes }
 
     /// Reads the folder again. The first read of a folder sets the scene without pulses; the next ones pulse what changed.
     /// Switching to another memory never waits for a read of the previous one: that read is discarded when it ends.
@@ -213,7 +216,10 @@ public final class MemoryGraphModel {
             if !result.changed.isEmpty || pulses.values.contains(where: { $0.start == now }) { lastChange = now }
         }
         if history != authors { authors = history }
-        if truncated != result.truncated { truncated = result.truncated }
+        // A vault's attachments are capped apart, and only cut its graph short while it shows them.
+        let cut = result.truncated || (result.attachmentsTruncated && vault?.settings.showAttachments == true)
+        if truncated != cut { truncated = cut }
+        if refused != result.refused { refused = result.refused }
         if shown != graph {
             graph = shown
             var adjacency: [String: Set<String>] = [:]
@@ -242,7 +248,7 @@ public final class MemoryGraphModel {
         generation += 1
         root = newRoot
         style = newStyle
-        builder = newRoot.map { MemoryGraphBuilder(root: $0, style: newStyle) }
+        builder = newRoot.map { MemoryGraphBuilder(root: $0, style: newStyle, maxNotes: maxNotes) }
         graph = MemoryGraph(); authors = [:]; pulses = [:]; layout = GraphLayout(); adjacency = [:]; head = nil
         settings = ObsidianGraphSettings(); settingsStamp = nil; groupColors = [:]; weights = [:]; lineIndices = []; arrowIndices = []
         fades = [:]; lineFade = 1; fading = false
@@ -250,7 +256,7 @@ public final class MemoryGraphModel {
         if newStyle == .vault { camera.unit = 1 / max(backingScale, 1); camera.zoomRange = GraphCamera.obsidianZoom }
         self.camera = camera
         layoutGeneration += 1
-        selected = nil; hovered = nil; highlightedAccount = nil; fitted = false; lastChange = nil
+        selected = nil; hovered = nil; highlightedAccount = nil; fitted = false; lastChange = nil; truncated = false; refused = false
     }
 
     public func clearPulses() { pulses = [:] }
@@ -259,6 +265,19 @@ public final class MemoryGraphModel {
     public func pointerLeft() { pointer = nil; hovered = nil }
 
     public func neighbors(of id: String) -> Set<String> { adjacency[id] ?? [] }
+
+    /// The bubble under a point of the view: within a finger's width of its center, and in a vault anywhere on the node
+    /// as drawn (Obsidian's reach: its size plus 2), however large the zoom makes it.
+    public func node(at point: CGPoint, in size: CGSize) -> String? {
+        let world = camera.toWorld(point, in: size), factor = camera.factor
+        guard style == .vault else { return layout.nearest(to: world, within: 14 / factor) }
+        // Drawn at its size times the square root of the zoom, in Obsidian's units: in layout units, size / sqrt(zoom).
+        let root = max(camera.scale.squareRoot(), .ulpOfOne), multiplier = settings.nodeSizeMultiplier
+        let ids = layout.ids, weights = self.weights
+        return layout.nearest(to: world, within: 14 / factor, margin: 2 / factor) { i in
+            CGFloat(ObsidianGraphSettings.nodeSize(weight: weights[ids[i]] ?? 0, multiplier: multiplier)) / root
+        }
+    }
 
     /// The notes that stay lit: the hovered note and its neighbors, else an account's notes, else the selected note's.
     public var focus: Set<String>? {

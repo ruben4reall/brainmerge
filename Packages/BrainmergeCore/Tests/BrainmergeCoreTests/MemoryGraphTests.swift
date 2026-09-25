@@ -107,6 +107,18 @@ import BrainmergeTestSupport
         #expect(result.truncated)
     }
 
+    /// Attachments are capped on their own and said apart: a vault that hides its images is not cut short by them.
+    @Test func tooManyAttachmentsAreSaidApartFromNotes() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        try write(root, "Plan.md", "![[a0.png]]\n")
+        for i in 0..<5 { try write(root, "assets/a\(i).png", "png") }
+        let result = MemoryGraphBuilder(root: root, style: .vault, maxNotes: 3).build()
+        #expect(!result.truncated && result.attachmentsTruncated)
+        #expect(result.graph.nodes.filter { $0.kind == .attachment }.count == 3)
+        #expect(result.graph.node("Plan.md") != nil)
+    }
+
     @Test func linkTargetsAreParsed() {
         let text = "See [[A note]], [[folder/B|alias]], [[C#Heading]], ![[image.png]], [x](d%20e.md#top), [web](https://x.y/z.md), [mail](mailto:a@b.c) and `[[code]]`."
         // Embeds are kept: a vault draws attachments, a memory has none to resolve them to.

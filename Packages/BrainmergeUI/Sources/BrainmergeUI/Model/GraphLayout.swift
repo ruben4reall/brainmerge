@@ -247,12 +247,15 @@ struct GraphLayout: Sendable {
 
     mutating func reheat(_ value: Double = 0.3) { alpha = max(alpha, value) }
 
-    /// The note whose center is closest to a point, within a distance (in layout units).
-    func nearest(to point: CGPoint, within limit: CGFloat) -> String? {
+    /// The note under a point, in layout units: each note reaches `limit` from its center, or its radius plus `margin`
+    /// when larger. Among those in reach, the one whose edge is nearest wins, so a pointer on a large note picks it
+    /// over a small one's nearby center. Without radii, the note whose center is closest.
+    func nearest(to point: CGPoint, within limit: CGFloat, margin: CGFloat = 0, radius: (Int) -> CGFloat = { _ in 0 }) -> String? {
         var best: (Int, Double)?
         for i in 0..<ids.count {
-            let d = hypot(x[i] - point.x, y[i] - point.y)
-            if d <= limit, d < (best?.1 ?? .infinity) { best = (i, d) }
+            let d = hypot(x[i] - point.x, y[i] - point.y), r = radius(i)
+            guard d <= max(limit, r + margin) else { continue }
+            if d - r < (best?.1 ?? .infinity) { best = (i, d - r) }
         }
         return best.map { ids[$0.0] }
     }

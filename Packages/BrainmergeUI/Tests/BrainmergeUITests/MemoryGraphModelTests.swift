@@ -282,6 +282,139 @@ import BrainmergeTestSupport
         #expect(model.fileURL("unresolved:missing") == nil)
     }
 
+    /// Obsidian's saved zoom is used as saved, anywhere in Obsidian's own range, far beyond a memory's.
+    @Test func aVaultOpensAtItsSavedZoomInObsidiansRange() async throws {
+        for scale in [0.01, 6.0] {
+            let home = try TempHome(); defer { home.remove() }
+            let root = try vault(home, graph: #"{"scale": \#(scale)}"#)
+            let model = MemoryGraphModel(animates: false)
+            await model.refresh(root: root, style: .vault)
+            #expect(model.camera.scale == CGFloat(scale))
+            #expect(model.camera.zoomRange == GraphCamera.obsidianZoom)
+        }
+    }
+
+    /// A vault is drawn in the screen's pixels: moving the window to a screen of another density follows it.
+    @Test func aVaultFollowsTheScreensDensity() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: Self.graphJSON)
+        let model = MemoryGraphModel(animates: false)
+        model.backingScale = 2
+        await model.refresh(root: root, style: .vault)
+        #expect(model.camera.unit == 0.5)
+        model.backingScale = 1
+        #expect(model.camera.unit == 1)
+        await model.refresh(root: home.url.appending(path: "Notes Vault"))
+        model.backingScale = 2
+        #expect(model.camera.unit == 1)   // a memory is drawn in points
+    }
+
+    /// A link both ways is one line but two arrows, one at each end.
+    @Test func aMutualLinkHasOneLineAndTwoArrows() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: #"{"showArrow": true}"#)
+        let model = MemoryGraphModel(animates: false)
+        await model.refresh(root: root, style: .vault)
+        #expect(model.settings.showArrow)
+        let decision = try #require(model.layout.indexOf("memory/website/decision.md"))
+        let plan = try #require(model.layout.indexOf("Projects/plan.md"))
+        func pair(_ p: (Int, Int)) -> Set<Int> { [p.0, p.1] }
+        #expect(model.lineIndices.filter { pair($0) == [decision, plan] }.count == 1)
+        #expect(model.arrowIndices.contains { $0 == (decision, plan) } && model.arrowIndices.contains { $0 == (plan, decision) })
+        #expect(model.arrowIndices.count == model.graph.links.count)
+    }
+
+    /// A change to a note the vault's filters hide is no change to the graph.
+    @Test func aChangeToAHiddenNoteChangesNothing() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: Self.graphJSON)
+        let model = MemoryGraphModel(animates: false)
+        await model.refresh(root: root, style: .vault)
+        try write(root, "Journal/today.md", "[[plan]] and more\n")
+        try write(root, "Journal/tomorrow.md", "[[plan]]\n")
+        await model.refresh(root: root, style: .vault)
+        #expect(model.lastChange == nil)
+        #expect(model.graph.node("Journal/tomorrow.md") == nil)
+    }
+
+    /// Editing only the Excluded files (app.json) is picked up like a change to graph.json.
+    @Test func excludedFilesAreReadAgainWhenTheyChange() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: Self.graphJSON)
+        let model = MemoryGraphModel(animates: false)
+        await model.refresh(root: root, style: .vault)
+        #expect(model.graph.node("Projects/plan.md") != nil)
+        try write(root, ".obsidian/app.json", #"{"userIgnoreFilters": ["Projects/"]}"#)
+        await model.refresh(root: root, style: .vault)
+        #expect(model.graph.node("Projects/plan.md") == nil)
+        #expect(!model.graph.edges.contains { $0.from == "Projects/plan.md" || $0.to == "Projects/plan.md" })
+        await model.refresh(root: root, style: .vault)
+        #expect(model.graph.node("Projects/plan.md") == nil)
+    }
+
+    /// A vault macOS refuses to open says so; once allowed, it shows.
+    @Test func aVaultThatMayNotBeReadSaysSo() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: Self.graphJSON)
+        let fm = FileManager.default
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: root.path)
+        let model = MemoryGraphModel(animates: false)
+        await model.refresh(root: root, style: .vault)
+        #expect(model.refused && model.graph.nodes.isEmpty)
+        #expect(MemoryGraphView.emptyText(vault: true, refused: true).hasPrefix("Brainmerge may not read this vault."))
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        await model.refresh(root: root, style: .vault)
+        #expect(!model.refused && model.graph.node("Projects/plan.md") != nil)
+    }
+
+    /// A vault that hides its attachments is not said to be cut short because of them.
+    @Test func attachmentsOnlyCountAsCutWhenShown() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: #"{"showAttachments": false}"#)
+        for i in 0..<12 { try write(root, "assets/a\(i).png", "png") }
+        let model = MemoryGraphModel(animates: false, maxNotes: 10)
+        await model.refresh(root: root, style: .vault)
+        #expect(!model.truncated)
+        try write(root, ".obsidian/graph.json", #"{"showAttachments": true}"#)
+        await model.refresh(root: root, style: .vault)
+        #expect(model.truncated)
+    }
+
+    /// In a vault a node is grabbed anywhere on it, however large the zoom draws it, and within a finger's width when
+    /// small. A memory keeps the finger's width.
+    @Test func aLargeNodeIsGrabbedAnywhereOnIt() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = try vault(home, graph: #"{"nodeSizeMultiplier": 3}"#)
+        let model = MemoryGraphModel(animates: false)
+        model.backingScale = 2
+        await model.refresh(root: root, style: .vault)
+        let target = "memory/website/decision.md"
+        for (i, node) in model.graph.nodes.enumerated() where node.id != target { model.drag(node.id, to: CGPoint(x: 10_000 * (i + 1), y: 0)) }
+        model.drag(target, to: .zero)
+        model.endDrag()
+        let size = CGSize(width: 800, height: 600)
+        model.camera.center = .zero
+        model.camera.scale = 8
+        // Weight 3, size 8 times 3, drawn at 24 x sqrt(8) x 0.5: about 34 points.
+        #expect(model.node(at: CGPoint(x: 430, y: 300), in: size) == target)
+        #expect(model.node(at: CGPoint(x: 435, y: 300), in: size) == target)
+        #expect(model.node(at: CGPoint(x: 437, y: 300), in: size) == nil)
+        model.camera.scale = 0.01
+        #expect(model.node(at: CGPoint(x: 412, y: 300), in: size) == target)
+        #expect(model.node(at: CGPoint(x: 416, y: 300), in: size) == nil)
+        let memory = try brain(home)
+        await model.refresh(root: memory.root)
+        let note = "memory/website/decision_pricing.md"
+        for (i, node) in model.graph.nodes.enumerated() where node.id != note { model.drag(node.id, to: CGPoint(x: 10_000 * (i + 1), y: 0)) }
+        model.drag(note, to: .zero)
+        model.endDrag()
+        model.camera.center = .zero
+        model.camera.scale = 4
+        #expect(model.node(at: CGPoint(x: 412, y: 300), in: size) == note)
+        #expect(model.node(at: CGPoint(x: 430, y: 300), in: size) == nil)
+    }
+
     /// The keyboard and VoiceOver go through hubs first, then every other node by name, whatever its kind.
     @Test func nodesAreOrderedHubsFirstThenByName() {
         func node(_ id: String, _ title: String, _ kind: MemoryGraph.Node.Kind) -> MemoryGraph.Node {

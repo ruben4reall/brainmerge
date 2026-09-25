@@ -180,6 +180,10 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
         public var readFiles: Int
         /// The folder holds more notes than `maxNotes`; the most recently modified ones were kept.
         public var truncated: Bool
+        /// Same for a vault's attachments, capped apart: it only matters while the vault shows them.
+        public var attachmentsTruncated = false
+        /// The folder itself could not be opened: macOS or its permissions refused. Not the same as an empty folder.
+        public var refused = false
     }
 
     /// Markdown notes are read for their links; a vault's canvases, bases and attachments are nodes known by name only.
@@ -212,17 +216,24 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     /// a vault its canvases, bases and attachments. Hidden folders are skipped, and so are symlinks: a note always is a
     /// file of this folder, never something a link points to elsewhere.
     /// One `fts` walk that gets each file's date and size with its name: fifty thousand files take a fraction of a second.
-    func scan() -> [(path: String, modified: Date, size: Int, kind: FileKind)] {
+    func scan() -> (files: [(path: String, modified: Date, size: Int, kind: FileKind)], refused: Bool) {
         var files: [(String, Date, Int, FileKind)] = []
+        var refused = false
         let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard let start = strdup(root.path) else { return [] }
+        guard let start = strdup(root.path) else { return ([], false) }
         defer { free(start) }
         var roots: [UnsafeMutablePointer<CChar>?] = [start, nil]
         // FTS_PHYSICAL: symlinks are reported as links and never followed.
-        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR, nil) else { return [] }
+        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR, nil) else { return ([], false) }
         defer { fts_close(fts) }
         while let entry = fts_read(fts) {
             let info = Int32(entry.pointee.fts_info)
+            // The folder itself refused (EPERM from macOS's privacy guard, EACCES from its permissions): said apart
+            // from an empty folder. A locked folder inside is only skipped.
+            if entry.pointee.fts_level == 0, info == FTS_NS || info == FTS_DNR || info == FTS_ERR,
+               entry.pointee.fts_errno == EPERM || entry.pointee.fts_errno == EACCES {
+                refused = true
+            }
             guard let cPath = entry.pointee.fts_path else { continue }
             let path = String(cString: cPath)
             let name = (path as NSString).lastPathComponent
@@ -235,7 +246,7 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
             let modified = Date(timeIntervalSince1970: TimeInterval(stat.st_mtimespec.tv_sec) + TimeInterval(stat.st_mtimespec.tv_nsec) / 1e9)
             files.append((String(path.dropFirst(base.count)), modified, Int(stat.st_size), kind))
         }
-        return files
+        return (files, refused)
     }
 
     func kind(of name: String) -> FileKind? {
@@ -250,13 +261,12 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     func nodeID(forFile path: String) -> String { style == .memory ? MemoryGraph.nodeID(forFile: path) : path }
 
     public func build() -> Result {
-        let files = scan()
+        let (files, refused) = scan()
         // Notes and attachments are capped apart, so a vault full of images never pushes its notes out.
         func capped(_ list: [(path: String, modified: Date, size: Int, kind: FileKind)]) -> [(path: String, modified: Date, size: Int, kind: FileKind)] {
             list.count > maxNotes ? Array(list.sorted { $0.modified > $1.modified }.prefix(maxNotes)) : list
         }
         let notes = files.filter { $0.kind != .attachment }, attachments = files.filter { $0.kind == .attachment }
-        let truncated = notes.count > maxNotes || attachments.count > maxNotes
         var changed: [String] = []
         var read = 0
         var next: [String: Entry] = [:]
@@ -278,7 +288,8 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
         built = true
         // Reported by bubble: a project's index that changed is its project's bubble that changed.
         let ids = { (paths: [String]) in Array(Set(paths.map(self.nodeID(forFile:)))).sorted() }
-        return Result(graph: makeGraph(), changed: ids(changed), removed: ids(removed), readFiles: read, truncated: truncated)
+        return Result(graph: makeGraph(), changed: ids(changed), removed: ids(removed), readFiles: read,
+                      truncated: notes.count > maxNotes, attachmentsTruncated: attachments.count > maxNotes, refused: refused)
     }
 
     private func readText(_ url: URL) -> String {

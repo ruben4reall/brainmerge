@@ -62,9 +62,12 @@ public final class AppModel {
     /// Saves of the switch still waiting on the core queue: a reload meanwhile keeps the switch, not the old file.
     private var menuBarIconSaves = 0
     /// The Obsidian vault the Memory screen's graph shows, by its folder; nil shows the selected memory.
-    public private(set) var graphVault: String?
+    public private(set) var graphVault: String? { didSet { if graphVault != oldValue { graphVaultGone = false } } }
+    /// The chosen vault's folder was gone when last looked at: when it was chosen, or when the screen last opened.
+    private var graphVaultGone = false
     private var graphVaultSaves = 0
-    /// The vaults in Obsidian's own list whose folder exists, read when the Memory screen shows.
+    /// The vaults in Obsidian's own list, read when the graph shows: those in a place macOS guards unlooked at, the
+    /// others only while their folder exists.
     public private(set) var obsidianVaults: [URL] = []
     /// The process's environment, injectable in tests: captures and demos never show the icon.
     @ObservationIgnored public var environment = ProcessInfo.processInfo.environment { didSet { refreshSetupState() } }
@@ -1021,14 +1024,11 @@ public final class AppModel {
 
     // MARK: The graph's source
 
-    /// What the graph shows: the chosen vault while its folder is there (an external disk may come back), else the
-    /// selected memory.
+    /// What the graph shows: the chosen vault unless its folder was gone when last looked at (an external disk may come
+    /// back), else the selected memory. Read on every redraw, so it never touches the disk itself.
     public var graphTarget: GraphTarget {
-        if let path = graphVault {
-            var isFolder: ObjCBool = false
-            if FileManager.default.fileExists(atPath: path, isDirectory: &isFolder), isFolder.boolValue {
-                return GraphTarget(root: URL(fileURLWithPath: path, isDirectory: true), style: .vault)
-            }
+        if let path = graphVault, !graphVaultGone {
+            return GraphTarget(root: URL(fileURLWithPath: path, isDirectory: true), style: .vault)
         }
         return GraphTarget(root: selectedBrain?.root, style: .memory)
     }
@@ -1038,10 +1038,13 @@ public final class AppModel {
         return .memory(selectedFolder?.id ?? "")
     }
 
-    /// Reads Obsidian's list of vaults again (paths only).
+    /// Reads Obsidian's list of vaults again (paths only), and looks whether the chosen vault's folder is still there.
+    /// Called when the graph shows. A vault in a place macOS guards is only looked at once it has been picked.
     public func refreshVaults() {
         let vaults = ObsidianVaults.known(paths: paths)
         if vaults != obsidianVaults { obsidianVaults = vaults }
+        let gone = graphVault.map { ObsidianVaults.isGone(URL(fileURLWithPath: $0, isDirectory: true)) } ?? false
+        if gone != graphVaultGone { graphVaultGone = gone }
     }
 
     /// Shows a memory (which the whole screen then shows) or a vault in the graph. The task ends once the choice is saved.
@@ -1052,6 +1055,13 @@ public final class AppModel {
             selectBrain(id)
             return setGraphVault(nil)
         case .vault(let path):
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            // Obsidian's list can hold a vault moved or deleted since: a guarded one was listed without a look.
+            guard !ObsidianVaults.isGone(url) else {
+                message = UserMessage(title: "Vault not found",
+                                      detail: "Obsidian lists \(url.lastPathComponent), but its folder is not there any more. Open it in Obsidian, or choose it again.")
+                return Task {}
+            }
             return setGraphVault(path)
         }
     }
@@ -1071,6 +1081,8 @@ public final class AppModel {
     @discardableResult
     func setGraphVault(_ path: String?) -> Task<Void, Never> {
         if graphVault != path { graphVault = path }
+        // Only called with a folder just seen, or with none.
+        if graphVaultGone { graphVaultGone = false }
         graphVaultSaves += 1
         let store = self.store, queue = coreQueue
         return Task {

@@ -14,7 +14,9 @@ public enum ObsidianVaults {
         }
     }
 
-    /// The vaults Obsidian knows whose folder still exists, each once, by name.
+    /// The vaults Obsidian knows, each once, by name. A vault in a place macOS guards with a consent prompt (Documents,
+    /// iCloud Drive, another disk) is listed as Obsidian lists it, unlooked at: a look would ask the person before they
+    /// picked anything. Anywhere else, one whose folder is gone is left out.
     public static func known(paths: Paths) -> [URL] {
         guard let handle = try? FileHandle(forReadingFrom: paths.obsidianVaultList) else { return [] }
         defer { try? handle.close() }
@@ -23,8 +25,10 @@ public enum ObsidianVaults {
         var vaults: [URL] = []
         for path in list.vaults.values.compactMap(\.path) where !path.isEmpty {
             let url = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+            // resolve() is nil when the path, or a link on the way, reaches a guarded place; it never looks inside one.
+            let guarded = DiskPlan.resolve(url, home: paths.home) == nil
             var isFolder: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), isFolder.boolValue,
+            guard guarded || FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) && isFolder.boolValue,
                   seen.insert(url.path).inserted else { continue }
             vaults.append(url)
         }
@@ -32,6 +36,14 @@ public enum ObsidianVaults {
             let order = $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent)
             return order == .orderedSame ? $0.path < $1.path : order == .orderedAscending
         }
+    }
+
+    /// Whether a chosen vault's folder is gone (moved, deleted, its disk unplugged). A folder that macOS or its
+    /// permissions refuse to show is not gone: the graph then says it may not read it, instead of quietly switching.
+    public static func isGone(_ url: URL) -> Bool {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return errno == ENOENT || errno == ENOTDIR }
+        return info.st_mode & S_IFMT != S_IFDIR
     }
 
     /// A folder is a vault when Obsidian keeps its settings in it, in a `.obsidian` folder.

@@ -126,10 +126,7 @@ struct MemoryGraphView: View {
 
     // MARK: Pointer and keyboard
 
-    func note(at point: CGPoint, size: CGSize) -> String? {
-        // Measured on screen: a bubble is grabbed within a finger's width of its center, whatever the zoom.
-        graph.layout.nearest(to: graph.camera.toWorld(point, in: size), within: 14 / graph.camera.factor)
-    }
+    func note(at point: CGPoint, size: CGSize) -> String? { graph.node(at: point, in: size) }
 
     /// One click selects, a double click opens: one gesture, so a single click is not held back by the double-click delay.
     /// In a vault, as in Obsidian, one click opens the note; Option- or Control-click shows the inspector.
@@ -254,8 +251,7 @@ struct MemoryGraphView: View {
             let windowNumber = event.windowNumber
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard graph.style == .vault, let pointer = graph.pointer, let window = host.window, window.windowNumber == windowNumber else { return false }
-                let id = graph.layout.nearest(to: graph.camera.toWorld(pointer, in: graph.viewSize), within: 14 / graph.camera.factor)
-                graph.selected = id
+                graph.selected = graph.node(at: pointer, in: graph.viewSize)
                 return true
             }
             return handled ? nil : event
@@ -315,9 +311,17 @@ struct MemoryGraphView: View {
 
     // MARK: Overlays
 
+    /// What an empty graph says: why nothing shows, and what to do when macOS refused to let Brainmerge read the folder.
+    static func emptyText(vault: Bool, refused: Bool) -> String {
+        if refused {
+            return "Brainmerge may not read this \(vault ? "vault" : "memory folder"). Allow it in System Settings, Privacy & Security, Files & Folders."
+        }
+        return vault ? "Nothing to show. This vault has no notes yet, or its graph filters in Obsidian hide them all."
+                     : "No notes yet. Open an account and work on a project: what Claude Code remembers appears here as it happens."
+    }
+
     var emptyState: some View {
-        Text(isVault ? "Nothing to show. This vault has no notes yet, or its graph filters in Obsidian hide them all."
-                     : "No notes yet. Open an account and work on a project: what Claude Code remembers appears here as it happens.")
+        Text(Self.emptyText(vault: isVault, refused: graph.refused))
             .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
             .frame(maxWidth: 380)
     }

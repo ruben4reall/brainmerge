@@ -62,7 +62,9 @@ public struct MemoryView: View {
         }
         .padding(Theme.Layout.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { model.refreshMemory(); model.refreshVaults() }
+        // Obsidian's list is only read while the graph shows, where its menu is.
+        .onAppear { model.refreshMemory(); if mode == .graph { model.refreshVaults() } }
+        .onChange(of: mode) { _, mode in if mode == .graph { model.refreshVaults() } }
     }
 
     /// What the graph shows: each Brainmerge memory, each vault Obsidian lists, or a vault picked by hand. Vaults are
