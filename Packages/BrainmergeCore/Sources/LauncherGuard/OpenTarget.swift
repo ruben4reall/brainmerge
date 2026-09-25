@@ -52,7 +52,7 @@ public enum OpenTarget {
     }
 
     /// The bundle identifier its Info.plist declares.
-    static func bundleIdentifier(of app: String) -> String? {
+    public static func bundleIdentifier(of app: String) -> String? {
         let plist = URL(fileURLWithPath: app, isDirectory: true).appending(path: "Contents/Info.plist")
         guard let data = try? Data(contentsOf: plist),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return nil }

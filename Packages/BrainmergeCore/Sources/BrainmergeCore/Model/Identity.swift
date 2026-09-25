@@ -34,6 +34,8 @@ public struct Identity: Codable, Equatable, Identifiable, Sendable {
     /// The primary only: an app of Brainmerge's in ~/Applications/Brainmerge, with this account's color or photo, that
     /// opens Claude itself. Claude is never changed, so its own icon still shows while it runs. Nil (older states) means off.
     public var ownApp: Bool?
+    /// The browser profile that goes with this account (Connections); nil when none was picked.
+    public var browser: BrowserChoice?
 
     public init(id: UUID = UUID(), slug: String, name: String, tint: Tint = .orange, logoPath: String? = nil, note: String? = nil,
                 isPrimary: Bool = false, surfaces: Surfaces = Surfaces(), iconMode: IconMode = .launcher,

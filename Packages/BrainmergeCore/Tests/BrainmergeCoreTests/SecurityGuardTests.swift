@@ -99,6 +99,29 @@ import Testing
         #expect(found.isSubset(of: allowed), "unexpected string literals: \(found.subtracting(allowed))")
     }
 
+    /// Connections read names only (SECURITY.md): a browser profile's folder id and display name, never the Google address
+    /// or ids stored next to it; MCP server names, never their values, which can hold secrets.
+    @Test func connectionReadersDecodeNamesOnly() throws {
+        let enums = try Regex(#"enum\s+\w+\s*:[^{]*CodingKey[^{]*\{([^}]*)\}"#)
+        let caseLine = try Regex(#"case\s+([^\n;]+)"#)
+        for (name, keys) in [("BrowserProfiles.swift", Set(["profile", "infoCache = \"info_cache\"", "name"])),
+                             ("MCPInventory.swift", Set(["mcpServers", "projects"]))] {
+            let file = try #require(try Self.sources().first { $0.0.lastPathComponent == name })
+            let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            let lowered = code.lowercased()
+            for forbidden in ["jsonserialization", "[string: any]", "user_name", "gaia", "email", "token", "env", "headers",
+                              "decode(string", "decode([string", "decodeifpresent([string", "anycodable", "oauthaccount"] {
+                #expect(!lowered.contains(forbidden), "\(name) must decode names only: \(forbidden)")
+            }
+            let found = Set(code.matches(of: enums).flatMap { match in
+                String(match.output[1].substring ?? "").matches(of: caseLine).flatMap { String($0.output[1].substring ?? "").split(separator: ",") }
+                    .map { String($0).trimmingCharacters(in: .whitespaces) }
+            })
+            #expect(found == keys, "\(name) decodable keys: \(found)")
+        }
+    }
+
     /// Apps the person made are read, never run, changed or moved (SECURITY.md): no process, no opening, no writing, no
     /// trash, no link followed. What it may call on the file system is a short list; everything else is refused.
     @Test func existingAppsOnlyReadsBundles() throws {
