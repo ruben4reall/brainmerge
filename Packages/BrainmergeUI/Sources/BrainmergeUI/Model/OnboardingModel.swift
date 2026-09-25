@@ -4,7 +4,11 @@ import BrainmergeCore
 
 @MainActor @Observable
 public final class OnboardingModel {
-    public enum Step: Int, CaseIterable { case welcome, howItWorks, brainLocation, adopt, secondAccount, allSet }
+    /// `git` comes last in the numbering so BRAINMERGE_ONBOARDING_STEP keeps its values; `order` places it before the memory.
+    public enum Step: Int, CaseIterable, Sendable {
+        case welcome, howItWorks, brainLocation, adopt, secondAccount, allSet, git
+        static let order: [Step] = [.welcome, .howItWorks, .git, .brainLocation, .adopt, .secondAccount, .allSet]
+    }
     public enum BrainChoice: Equatable { case newFolder, existing(URL) }
 
     /// BRAINMERGE_ONBOARDING_STEP=0...3 opens the onboarding on that step (captures, demos).
@@ -60,8 +64,13 @@ public final class OnboardingModel {
         if othersOpen.isEmpty { app.open(slug) } else { app.quitOthers(then: slug) }
     }
 
+    public private(set) var gitFound = false
+    public private(set) var claudeCodeFound = false
+
     public func detect() {
         claude = try? ClaudeApp.detect(at: app.claudeAppURL)
+        gitFound = app.git.isAvailable
+        if case .found = app.limitsBinary(app.paths.home) { claudeCodeFound = true } else { claudeCodeFound = false }
         let profile = CLIProfile(directory: app.paths.primaryCLIProfile)
         projectCount = (try? profile.projects().count) ?? 0
     }
@@ -72,8 +81,30 @@ public final class OnboardingModel {
         return path
     }
 
-    public func next() { error = nil; if let n = Step(rawValue: step.rawValue + 1) { step = n } }
-    public func back() { error = nil; if let p = Step(rawValue: step.rawValue - 1) { step = p } }
+    public func next() { error = nil; move(by: 1) }
+    public func back() { error = nil; move(by: -1) }
+
+    /// The steps shown: the git step only while Apple's tools are missing.
+    public var steps: [Step] { Step.order.filter { $0 != .git || step == .git || !app.git.isAvailable } }
+
+    private func move(by offset: Int) {
+        let order = Step.order
+        guard var index = order.firstIndex(of: step) else { return }
+        repeat {
+            index += offset
+            guard order.indices.contains(index) else { return }
+        } while order[index] == .git && app.git.isAvailable
+        step = order[index]
+    }
+
+    /// "Check again", and every few seconds while the step shows: once the tools are in, the setup moves on.
+    public func checkGit() {
+        app.git.invalidate()
+        if step == .git, app.git.isAvailable { next() }
+    }
+
+    /// Apple's installer for the Command Line Tools: its own window, its own download from Apple.
+    public func installAppleTools() { app.installAppleTools() }
 
     public func createBrain() throws {
         let root: URL
@@ -81,7 +112,7 @@ public final class OnboardingModel {
         case .newFolder: root = app.paths.defaultBrain
         case .existing(let url): root = url
         }
-        let brain = try Brain.initialize(at: root, language: language)
+        let brain = try Brain.initialize(at: root, language: language, availability: app.git)
         let notesApp = self.notesApp
         try app.store.update { state in
             state.brainPath = brain.root.path

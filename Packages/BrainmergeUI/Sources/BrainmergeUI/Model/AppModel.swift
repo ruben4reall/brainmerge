@@ -188,6 +188,32 @@ public final class AppModel {
     public let store: StateStore
     public let manager: IdentityManager
     public let claudeAppURL: URL
+    /// Whether git can run without Apple's install dialog (see GitAvailability). Tests put a fake one here.
+    @ObservationIgnored public var git: GitAvailability = .shared
+    public var gitAvailable: Bool { git.isAvailable }
+    public static let historyNeedsGit = "History needs git. Install Apple's tools"
+
+    /// Apple's installer for the Command Line Tools: its own window, its own download from Apple.
+    public func installAppleTools() {
+        let git = self.git
+        Task.detached { try? git.install() }
+    }
+
+    /// Checks the Claude app the person picks in Settings (see ClaudeLocator). Tests put a fake one here.
+    @ObservationIgnored public lazy var claudeLocator = ClaudeLocator(paths: paths)
+
+    /// Remembers the Claude app picked in Settings, only when it is Anthropic's. Used from the next launch on.
+    public func chooseClaude(_ url: URL) async -> UserMessage? {
+        let locator = claudeLocator, store = self.store
+        let refusal: String? = await Task.detached {
+            do {
+                try locator.validate(choice: url)
+                try store.update { $0.claudeAppPath = url.path }
+                return nil
+            } catch { return String(describing: error) }
+        }.value
+        return refusal.map { UserMessage(title: "Claude was not changed", detail: $0) }
+    }
     /// Where apps the person made are looked for: ~/Applications, and /Applications for the real home only.
     public var appFolders: [URL]
     private let watchers = Watchers()

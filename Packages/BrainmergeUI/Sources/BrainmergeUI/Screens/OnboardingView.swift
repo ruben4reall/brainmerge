@@ -20,6 +20,7 @@ public struct OnboardingView: View {
                         case .adopt: adopt
                         case .secondAccount: secondAccount
                         case .allSet: allSet
+                        case .git: gitStep
                         }
                         Spacer(minLength: 0)
                     }
@@ -74,6 +75,29 @@ public struct OnboardingView: View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number)").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.onAccent).frame(width: 20, height: 20).background(Theme.Colors.accent, in: Circle())
             Text(text).font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Only on a Mac without Apple's Command Line Tools: git would otherwise pop Apple's dialog at every save.
+    var gitStep: some View {
+        VStack(spacing: 20) {
+            Text("One free Apple tool first").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center)
+            Text("Brainmerge keeps your memory's history with git, which comes with Apple's Command Line Tools.")
+                .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
+            navigation {
+                Button("Back") { model.back() }.buttonStyle(.glass)
+                Button("Check again") { model.checkGit() }.buttonStyle(.glass)
+                Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+            }
+            Text("Opens Apple's installer. The download comes from Apple, not from Brainmerge.")
+                .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
+        }
+        // Checks again every 5 seconds while the step shows: the installer takes a few minutes.
+        .task {
+            while !Task.isCancelled, model.step == .git {
+                try? await Task.sleep(for: .seconds(5))
+                model.checkGit()
+            }
         }
     }
 
@@ -201,6 +225,9 @@ public struct OnboardingView: View {
                     check(model.app.claude != nil, model.app.claude.map { "Claude app \($0.version)" } ?? "Claude app not found")
                     check(model.app.brain != nil, "Memory folder: \(model.app.brain.map { Self.tilde($0.root.path, home: model.app.paths.home.path) } ?? "not chosen") · opens with \(NotesApps.target(for: model.app.notesApp, installed: NotesApps.installed()).label.replacingOccurrences(of: "Open ", with: ""))\(model.app.brains.count > 1 ? " · \(model.app.brains.count) memories" : "")")
                     check(!model.app.accounts.isEmpty, "\(model.app.accounts.count) account\(model.app.accounts.count > 1 ? "s" : ""): \(model.app.accounts.map(\.identity.name).joined(separator: ", "))")
+                    check(model.gitFound, model.gitFound ? "git: Found" : "git: Not found")
+                    check(model.claudeCodeFound, model.claudeCodeFound ? "Claude Code: Found"
+                          : "Claude Code: Not found: your accounts still work in the Claude app. Install Claude Code to use them in a terminal.")
                     check(model.app.commandLineInstalled, model.app.commandLineInstalled ? "Command line linked at ~/.local/bin/brainmerge" : "Command line not linked (Settings)")
                 }
                 .padding(14)
@@ -248,8 +275,10 @@ public struct OnboardingView: View {
 
     var dots: some View {
         HStack(spacing: 8) {
-            ForEach(OnboardingModel.Step.allCases, id: \.rawValue) { s in
-                Circle().fill(s.rawValue <= model.step.rawValue ? Theme.Colors.accent : Theme.Colors.surfaceLine).frame(width: 6, height: 6)
+            let steps = model.steps
+            let current = steps.firstIndex(of: model.step) ?? 0
+            ForEach(Array(steps.enumerated()), id: \.element.rawValue) { index, _ in
+                Circle().fill(index <= current ? Theme.Colors.accent : Theme.Colors.surfaceLine).frame(width: 6, height: 6)
             }
         }
     }

@@ -15,6 +15,52 @@ import BrainmergeTestSupport
         return (e, app, OnboardingModel(app: app))
     }
 
+    /// A git that is there or not, as a fake `xcode-select` says; `present` can change between checks.
+    final class Tools: @unchecked Sendable {
+        var present: Bool
+        init(_ present: Bool) { self.present = present }
+        var availability: GitAvailability {
+            GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: self.present ? 0 : 2, stdout: "/Tools\n", stderr: "") },
+                            isExecutable: { _ in true })
+        }
+    }
+
+    @Test func theGitStepAppearsOnlyWhenGitIsMissingAndLeavesAfterCheckAgain() throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        let tools = Tools(false)
+        app.git = tools.availability
+        onboarding.step = .howItWorks
+        onboarding.next()
+        #expect(onboarding.step == .git)
+        onboarding.checkGit()
+        #expect(onboarding.step == .git)
+        tools.present = true
+        onboarding.checkGit()
+        #expect(onboarding.step == .brainLocation)
+        onboarding.back()
+        #expect(onboarding.step == .howItWorks)
+    }
+
+    @Test func withGitTheStepIsSkipped() throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        app.git = Tools(true).availability
+        onboarding.step = .howItWorks
+        onboarding.next()
+        #expect(onboarding.step == .brainLocation)
+    }
+
+    @Test func allSetSaysWhetherGitAndClaudeCodeWereFound() throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        app.git = Tools(true).availability
+        app.limitsBinary = { _ in .found("/opt/homebrew/bin/claude") }
+        onboarding.detect()
+        #expect(onboarding.gitFound && onboarding.claudeCodeFound)
+        app.git = Tools(false).availability
+        app.limitsBinary = { _ in .notFound }
+        onboarding.detect()
+        #expect(!onboarding.gitFound && !onboarding.claudeCodeFound)
+    }
+
     @Test func detectsClaudeAndCountsProjects() throws {
         let (e, _, onboarding) = try setup(); defer { e.home.remove() }
         onboarding.detect()

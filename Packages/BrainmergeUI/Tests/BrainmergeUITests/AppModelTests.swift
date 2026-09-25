@@ -56,6 +56,31 @@ import BrainmergeTestSupport
         #expect(try e.store.load().autoRebuild == false)
     }
 
+    @Test func choosingAnUnsignedClaudeIsRefusedAndNothingIsSaved() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.claudeLocator = ClaudeLocator(paths: e.home.paths, folders: [], launchServices: { [] }, isSigned: { _ in false })
+        let refusal = await m.chooseClaude(e.claude.url)
+        #expect(refusal?.detail == "This copy of Claude is not signed by Anthropic. Brainmerge only opens the official app.")
+        #expect(try e.store.load().claudeAppPath == nil)
+    }
+
+    @Test func choosingASignedClaudeIsSavedForTheNextLaunch() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.claudeLocator = ClaudeLocator(paths: e.home.paths, folders: [], launchServices: { [] }, isSigned: { _ in true })
+        #expect(await m.chooseClaude(e.claude.url) == nil)
+        #expect(try e.store.load().claudeAppPath == e.claude.url.path)
+    }
+
+    @Test func withoutGitTheMemorySaysHistoryNeedsIt() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.git = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
+        #expect(!m.gitAvailable)
+        #expect(AppModel.historyNeedsGit == "History needs git. Install Apple's tools")
+    }
+
     @Test func listsAccountsWithRunningFlags() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")

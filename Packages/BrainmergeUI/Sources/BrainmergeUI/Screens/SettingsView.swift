@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import BrainmergeCore
 
 public struct SettingsView: View {
@@ -8,6 +9,7 @@ public struct SettingsView: View {
 
     @State private var showNewMemory = false
     @State private var showUninstall = false
+    @State private var claudeNote: String?
 
     func label(_ path: String) -> String {
         let home = model.paths.home.path
@@ -50,12 +52,16 @@ public struct SettingsView: View {
                 ScreenHeader("Settings")
                 GlassCard {
                     VStack(alignment: .leading, spacing: 0) {
-                        section("Claude app") {
+                        section("Where Claude is") {
                             if let claude = model.claude {
                                 Text("\(claude.url.path) · version \(claude.version)").foregroundStyle(Theme.Colors.textMuted)
+                                Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
+                                if let claudeNote { Text(claudeNote).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
                             } else {
                                 Text("Not found. Brainmerge needs the Claude app to open accounts.").foregroundStyle(Theme.Colors.textMuted)
                                 Button("Get Claude") { if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) } }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                                Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
+                                if let claudeNote { Text(claudeNote).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
                             }
                         }
                         section("Menu bar") {
@@ -134,6 +140,22 @@ public struct SettingsView: View {
         .task { await model.refreshHooks() }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory) }
         .sheet(isPresented: $showUninstall) { UninstallSheet(model: model, isPresented: $showUninstall) }
+    }
+
+    /// Picks another Claude app: refused unless Anthropic signed it, used from the next launch.
+    func chooseClaude() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            if let refusal = await model.chooseClaude(url) {
+                claudeNote = refusal.detail
+            } else {
+                claudeNote = "Brainmerge uses this Claude from its next launch."
+            }
+        }
     }
 
     func section<Content: View>(_ title: String, last: Bool = false, @ViewBuilder content: () -> Content) -> some View {
