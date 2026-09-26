@@ -82,14 +82,16 @@ import BrainmergeCore
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Sources/BrainmergeUI")
         let layoutKeys: [(String, String)] = [
-            ("Screens/AccountsView.swift", "model.accounts.map(\\.id)"), ("Screens/AccountsView.swift", "button"),
+            ("Screens/AccountsView.swift", "query.isEmpty ? shown.map(\\.id) : []"), ("Screens/AccountsView.swift", "button.label"),
             ("Design/ScreenHeader.swift", "busy"),
             ("Screens/ConnectionsSection.swift", "options.isEmpty"), ("Screens/ConnectionsSection.swift", "choice"),
             ("Screens/ConnectionsSection.swift", "serversRead"), ("Screens/ConnectionsSection.swift", "showsServers"),
             ("Screens/AddAccountSheet.swift", "advanced"), ("Screens/EditAccountSheet.swift", "swapProblem?.id"),
             ("Screens/UsageView.swift", "state"), ("Screens/UsageView.swift", "model.usageRefreshing"),
             ("Screens/UsageView.swift", "days.map(\\.output)"), ("Screens/UsageView.swift", "output"), ("Screens/UsageView.swift", "total"),
-            ("Design/SidebarRow.swift", "text"), ("Screens/MemoryGraphView.swift", "recent"),
+            ("Design/StateMotion.swift", "key ?? text"), ("Screens/MemoryGraphView.swift", "recent"),
+            ("Screens/MemoryGraphView.swift", "counts"), ("Screens/MemoryGraphView.swift", "ordered.map(\\.id)"),
+            ("Screens/ResourcesSection.swift", "text"),
             ("Screens/StateProblemView.swift", "model.canRestorePreviousState"),
             ("Screens/SettingsView.swift", "model.commandLineInstalled"), ("Screens/SettingsView.swift", "sentence"),
             ("Screens/SettingsView.swift", "model.hooks?.sentence"), ("Screens/ResourcesSection.swift", "model.diskMeasuring"),
@@ -107,11 +109,12 @@ import BrainmergeCore
             }
         }
         #expect(offenders.isEmpty, "\(offenders)")
-        // The innermost of two animations wins when both values change at once: the spinner arriving with a new sentence
-        // must still push the sentence aside at once, so the header's busy animation sits inside its crossfade.
+        // The header's words swap in order (`SwappingText`, keyed on the words without their RAM figure), inside the busy
+        // animation: the spinner arriving with a new sentence pushes it aside at once under Reduce Motion.
         let header = try String(contentsOf: sources.appending(path: "Design/ScreenHeader.swift"), encoding: .utf8)
-        let busy = try #require(header.range(of: "value: busy)")), words = try #require(header.range(of: "value: changeKey ?? subtitle)"))
-        #expect(busy.lowerBound < words.lowerBound)
+        #expect(header.contains("SwappingText(text: subtitle, key: changeKey)"))
+        let words = try #require(header.range(of: "SwappingText(")), busy = try #require(header.range(of: "value: busy)"))
+        #expect(words.lowerBound < busy.lowerBound)
     }
 
     /// Each `.animation(argument, value: key)` of a source, whitespace folded.

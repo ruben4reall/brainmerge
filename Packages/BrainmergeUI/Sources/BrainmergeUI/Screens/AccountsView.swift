@@ -170,7 +170,7 @@ public struct AccountsView: View {
                         cardButton(button, for: account, action: action).id(button.label).transition(SwapText.transition(reduceMotion))
                     }
                     .frame(minWidth: Self.buttonSlot, alignment: .trailing)
-                    .animation(Theme.Motion.out(SwapText.insertion), value: button.label)
+                    .animation(Theme.Motion.layout(Theme.Motion.out(SwapText.insertion), reduceMotion), value: button.label)
                 }
                 moreMenu(account)
             }

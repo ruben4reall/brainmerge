@@ -388,7 +388,7 @@ struct MemoryGraphView: View {
                 .transition(arrival)
             }
         }
-        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.22), reduceMotion), value: ordered.map(\.id))
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.22), reduceMotion), value: ordered.map(\.id))
     }
 
     /// "Live", or "Changed just now" for four seconds after a change: redrawn once more when those seconds are over. The

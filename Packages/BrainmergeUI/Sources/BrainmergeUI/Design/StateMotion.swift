@@ -411,7 +411,9 @@ struct SwappingText: View {
         ZStack(alignment: alignment) {
             Text(text).id(key ?? text).transition(SwapText.transition(reduceMotion))
         }
-        .animation(Theme.Motion.out(SwapText.insertion), value: key ?? text)
+        // Each side carries its own animation (it plays even with Reduce Motion); this one only moves what is around the
+        // line when its width changes, never under Reduce Motion.
+        .animation(Theme.Motion.layout(Theme.Motion.out(SwapText.insertion), reduceMotion), value: key ?? text)
     }
 }
 
