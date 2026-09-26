@@ -49,14 +49,27 @@ struct BeatView<Content: View>: View {
 
 /// The stroke around an opening account's card, in its own color: a bright arc that turns once every 1.6 s, and the
 /// same stroke blurred under it. It fades in over 0.18 s and out over 0.25 s. Captures and Reduce Motion hold it still
-/// at 35 degrees, and Reduce Motion draws it at 60%.
+/// at 35 degrees, and Reduce Motion draws it at 60%. Drawn inside the card's glass, 2.5 points wide with a third of the
+/// way round lit: at the spec's 1.5 points and a sliver of tint, the glass washed it out.
 enum OpeningStroke {
     static let period = 1.6
-    static let lineWidth: CGFloat = 1.5
-    static let glowBlur: CGFloat = 6
-    static let glowOpacity = 0.35
+    static let lineWidth: CGFloat = 2.5
+    static let glowBlur: CGFloat = 4
+    static let glowOpacity = 0.6
     static let stillAngle = 35.0
     static let fadeIn = 0.18, fadeOut = 0.25
+
+    /// Along the way round from the arc's head: full tint for 15%, fading out to 45%, dark, back in from 85%.
+    struct Stop: Equatable { var location: Double; var opacity: Double }
+    static let stops = [Stop(location: 0, opacity: 1), Stop(location: 0.15, opacity: 1), Stop(location: 0.45, opacity: 0),
+                        Stop(location: 0.85, opacity: 0), Stop(location: 1, opacity: 1)]
+    /// The tint's opacity at a place along the way round (0 to 1).
+    static func opacity(at x: Double) -> Double {
+        guard let next = stops.firstIndex(where: { $0.location >= x }) else { return stops.last?.opacity ?? 0 }
+        guard next > 0 else { return stops[0].opacity }
+        let a = stops[next - 1], b = stops[next]
+        return Ease.lerp(a.opacity, b.opacity, (x - a.location) / max(1e-9, b.location - a.location))
+    }
 
     /// Degrees, from the stroke's own start.
     static func angle(elapsed: Double, still: Bool) -> Double {
@@ -92,7 +105,8 @@ struct OpeningStrokeView: View {
         var cornerRadius: CGFloat = Theme.Layout.cardRadius
 
         var body: some View {
-            let gradient = AngularGradient(colors: [tint, tint.opacity(0), tint.opacity(0), tint], center: .center, angle: .degrees(angle))
+            let gradient = AngularGradient(stops: OpeningStroke.stops.map { Gradient.Stop(color: tint.opacity($0.opacity), location: $0.location) },
+                                           center: .center, angle: .degrees(angle))
             let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             ZStack {
                 shape.strokeBorder(gradient, lineWidth: OpeningStroke.lineWidth)
@@ -338,29 +352,73 @@ extension View {
     func shakes(_ trigger: Int) -> some View { modifier(ShakeModifier(trigger: trigger)) }
 }
 
+// MARK: Text that changes
+
+/// Words that change in place (a status, a subtitle, the creature's line, a button's word): the old words lift away in
+/// 0.10 s, the new ones settle in over 0.16 s from 0.06 s, so no frame shows the two above a quarter. A crossfade in place
+/// printed two strings of different lengths over each other for a few frames. Reduce Motion: the same order, no lift.
+enum SwapText {
+    static let removal = 0.10, delay = 0.06, insertion = 0.16
+    static let lift: CGFloat = 3
+
+    static func opacities(at t: Double) -> (old: Double, new: Double) {
+        (1 - Ease.out(Ease.progress(t, from: 0, over: removal)), Ease.out(Ease.progress(t, from: delay, over: insertion)))
+    }
+
+    static func transition(_ reduceMotion: Bool) -> AnyTransition {
+        let leave = Theme.Motion.out(removal), come = Theme.Motion.out(insertion).delay(delay * Theme.Motion.slow)
+        if reduceMotion { return .asymmetric(insertion: AnyTransition.opacity.animation(come), removal: AnyTransition.opacity.animation(leave)) }
+        return .asymmetric(insertion: AnyTransition.opacity.combined(with: .offset(y: lift)).animation(come),
+                           removal: AnyTransition.opacity.combined(with: .offset(y: -lift)).animation(leave))
+    }
+}
+
+/// A line of text whose words swap in order (see `SwapText`). `key` says what counts as new words: a figure inside them
+/// that moves every few seconds (a RAM size) changes in place, never swaps.
+struct SwappingText: View {
+    let text: String
+    var key: String?
+    var alignment: Alignment = .leading
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack(alignment: alignment) {
+            Text(text).id(key ?? text).transition(SwapText.transition(reduceMotion))
+        }
+        .animation(Theme.Motion.out(SwapText.insertion), value: key ?? text)
+    }
+}
+
 // MARK: M2, busy
 
 /// A waiting sentence while work runs: a small spinner before its first line, the pair fading in and out in 0.15 s, a new
-/// sentence crossfading over the old one. A long sentence wraps, never loses its end. Never a spinner inside a disabled
-/// button.
+/// sentence swapping in after the old one. A long sentence wraps, never loses its end. Never a spinner inside a disabled
+/// button. `holdsPlace`: one line's room stays when there is no work, so what is under it never jumps as it comes and goes.
 struct WorkingLine: View {
     let text: String?
     var size: ControlSize = .small
+    var holdsPlace = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let animation = Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion)
-        if let text {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                ProgressView().controlSize(size)
-                    // Centered on the first line's x-height, not sitting on its baseline.
-                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-                Text(text).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
-                    .animation(animation, value: text)
+        if holdsPlace {
+            ZStack {
+                line("Working…").hidden()
+                if let text { line(text).transition(AnyTransition.opacity.animation(animation)) }
             }
-            .transition(AnyTransition.opacity.animation(animation))
+        } else if let text {
+            line(text).transition(AnyTransition.opacity.animation(animation))
+        }
+    }
+
+    func line(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            ProgressView().controlSize(size)
+                // Centered on the first line's x-height, not sitting on its baseline.
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+            SwappingText(text: text).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

@@ -53,6 +53,37 @@ public enum NotesApps {
         }
     }
 
+    /// The notes apps on this Mac and the icon of each tile (the folder's, each app's), looked up together once. A tile
+    /// never asks macOS for its icon as it draws: LaunchServices and the icons cost the main thread whole frames.
+    public struct Found: @unchecked Sendable {
+        public let apps: [NotesApp]
+        /// By `NotesApps.iconKey`.
+        public let icons: [String: NSImage]
+        public init(apps: [NotesApp], icons: [String: NSImage]) { self.apps = apps; self.icons = icons }
+        public func icon(for target: NotesTarget) -> NSImage? { icons[NotesApps.iconKey(target)] }
+    }
+
+    static func iconKey(_ target: NotesTarget) -> String {
+        switch target {
+        case .folder: return "folder"
+        case .app(let app): return "app:" + app.bundleIdentifier
+        case .custom(let url): return "path:" + url.path
+        }
+    }
+
+    /// The apps and their icons, in one pass: off the main thread (see `OnboardingModel.detect`, `NotesAppPicker`).
+    public static func find(lookup: (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }) -> Found {
+        let apps = installed(lookup: lookup)
+        var icons = [iconKey(.folder): icon(for: .folder)]
+        for app in apps { icons[iconKey(.app(app))] = icon(for: .app(app)) }
+        return Found(apps: apps, icons: icons)
+    }
+
+    /// `find()` on a background thread.
+    public static func found() async -> Found {
+        await Task.detached(priority: .userInitiated) { find() }.value
+    }
+
     /// From the saved setting to a target. A chosen app that is no longer installed falls back to the folder.
     public static func target(for setting: String?, installed: [NotesApp]) -> NotesTarget {
         guard let setting else { return .folder }

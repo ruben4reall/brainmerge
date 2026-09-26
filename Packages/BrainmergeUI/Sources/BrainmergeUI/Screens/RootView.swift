@@ -103,14 +103,17 @@ public struct RootView: View {
     }
 
     /// The guided setup, or the main window once everything is in place. Both while the guide ends: it fades out over the
-    /// main window as the All set creature leaps into the sidebar, then goes. An unreadable list of accounts has its own
+    /// main window (built under All set already) as the All set creature leaps into the sidebar, then goes. An unreadable list of accounts has its own
     /// screen instead of either, fading in under the launch's leap like the main window.
     var screens: some View {
         ZStack {
             if let problem = model.stateProblem {
                 StateProblemView(model: model, problem: problem).launchReveal(launch, role: .main).transition(.opacity)
             } else {
-                if !showsGuide {
+                // All set builds the main window under the guide, unseen and out of reach: "Open Brainmerge" then only
+                // reveals it, and nothing is laid out for the first time while the creature is in the air.
+                let preparing = showsGuide && onboarding.step == .allSet && launch.finished
+                if !showsGuide || preparing {
                     ZStack {
                         WarmBackground()
                         HStack(spacing: 0) {
@@ -118,6 +121,9 @@ public struct RootView: View {
                             detail
                         }
                     }
+                    .opacity(preparing ? 0 : 1)
+                    .allowsHitTesting(!preparing)
+                    .accessibilityHidden(preparing)
                     .launchReveal(launch, role: .main)
                 }
                 if showsGuide || launch.leavingGuide {

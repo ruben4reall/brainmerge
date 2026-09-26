@@ -78,6 +78,22 @@ import BrainmergeCore
         }
     }
 
+    /// One continuous throw: the note arrives over the folder with speed to spare and falls in from there, never parked
+    /// above the slot (at 120 Hz it moves at least 0.3 points every frame from the last stretch of its flight to the fold).
+    @Test func theNoteNeverStopsAboveTheFolder() throws {
+        for b in 0..<3 {
+            let src = S.order[b], tm = S.timing(src: src), base = Double(b) * S.beat
+            var previous = try #require(S.frame(at: base + tm.arrive - 0.12).chips.first)
+            for i in 1...Int((0.12 + S.T.drop - 0.01) * 120) {
+                let t = base + tm.arrive - 0.12 + Double(i) / 120
+                let chip = try #require(S.frame(at: t).chips.first)
+                let step = hypot(chip.position.x - previous.position.x, chip.position.y - previous.position.y)
+                #expect(step >= 0.3, "beat \(b), t \(t - base): \(step)")
+                previous = chip
+            }
+        }
+    }
+
     @Test func eachNoteReachesBothOtherWindows() {
         for b in 0..<3 {
             let src = S.order[b]

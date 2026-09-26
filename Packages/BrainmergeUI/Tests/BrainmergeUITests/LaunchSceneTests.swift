@@ -319,7 +319,7 @@ import Testing
         let inp = input(0.2)
         #expect(AssembleScene.frame(at: 0.479, inp).screensOpacity == 0 && !AssembleScene.frame(at: 0.479, inp).handingOff)
         let first = AssembleScene.frame(at: 0.48, inp)
-        #expect(first.handingOff && first.screensOpacity == 0 && abs(first.screensScale - 0.985) < 1e-9)
+        #expect(first.handingOff && first.screensOpacity == 0 && first.screensScale == 1)
         #expect(AssembleScene.frame(at: 0.515, inp).screensOpacity == 0)
         #expect(AssembleScene.frame(at: 0.60, inp).screensOpacity > 0.5)
         #expect(AssembleScene.frame(at: 0.8201, inp).screensOpacity == 1 && AssembleScene.frame(at: 0.8201, inp).screensScale == 1)
@@ -498,8 +498,8 @@ import Testing
         // The guide's last leap too.
         let byTheButton = LaunchTarget(feet: CGPoint(x: 381, y: 571), unit: 3, asleep: false)
         let wall = crowded + [CGRect(x: 0, y: 450, width: 960, height: 140)]
-        #expect(GuideExit.frame(at: 0.3, from: byTheButton, to: footer, obstacles: wall, reduceMotion: false).screensOpacity == 0)
-        #expect(GuideExit.frame(at: 0.3, from: byTheButton, to: footer, obstacles: busy, reduceMotion: false).screensOpacity > 0.99)
+        #expect(GuideExit.frame(at: 0.46, from: byTheButton, to: footer, obstacles: wall, reduceMotion: false).screensOpacity == 0)
+        #expect(GuideExit.frame(at: 0.46, from: byTheButton, to: footer, obstacles: busy, reduceMotion: false).screensOpacity == 1)
     }
 
     /// The same window as the hosted RootView reports it now that each card marks only its words, orb and buttons (four
@@ -626,12 +626,15 @@ import Testing
             let start = GuideExit.frame(at: 0, from: allSet, to: target, reduceMotion: false)
             #expect(start.feet == allSet.feet && start.unit == 3 && start.handingOff && start.screensOpacity == 0)
             #expect(start.guideOpacity == 1 && start.shadowOpacity == 0 && start.wordmarkOpacity == 0)
-            // The guide goes in 0.2 s; the screens come in on the leap's 0.04 to 0.34.
-            #expect(GuideExit.frame(at: 0.2, from: allSet, to: target, reduceMotion: false).guideOpacity == 0)
-            #expect(GuideExit.frame(at: 0.04, from: allSet, to: target, reduceMotion: false).screensOpacity == 0)
-            #expect(GuideExit.frame(at: 0.34, from: allSet, to: target, reduceMotion: false).screensOpacity == 1)
+            // The guide holds through the crouch, then crossfades with the screens over the first half of the flight.
+            func at(_ tau: Double) -> LaunchFrame { GuideExit.frame(at: tau, from: allSet, to: target, reduceMotion: false) }
+            #expect(at(0.06).guideOpacity == 1 && at(0.10).screensOpacity == 0)
+            #expect(at(0.21).guideOpacity > 0.3 && at(0.21).guideOpacity < 0.7)
+            #expect(at(0.36).guideOpacity == 0 && at(0.46).screensOpacity == 1)
+            #expect((0...120).allSatisfy { at(Double($0) / 120).screensScale == 1 })
+            // A long way home (432 points): a 0.6 s flight.
             let end = GuideExit.finishTime(from: allSet, to: target, reduceMotion: false)
-            #expect(abs(end - (asleep ? 1.44 : 1.08)) < 1e-9)
+            #expect(abs(end - (asleep ? 1.54 : 1.18)) < 1e-9)
             let landed = GuideExit.frame(at: end, from: allSet, to: target, reduceMotion: false)
             #expect(landed.finished && landed.feet == target.feet && landed.unit == 2 && landed.pose == (asleep ? .asleep : .rest))
             var prev = start
@@ -641,6 +644,34 @@ import Testing
                 prev = f
             }
         }
+    }
+
+    /// The long hand-off from All set to the sidebar is a jump, not a skim: its apex grows with the distance (a fifth of it,
+    /// 66 points for 330), and its flight takes 0.6 s once it is longer than 250 points, so its gravity stays believable.
+    @Test func aLongLeapJumpsHome() {
+        let source = LaunchTarget(feet: CGPoint(x: 392, y: 590), unit: 3, asleep: false)
+        let target = LaunchTarget(feet: CGPoint(x: 61, y: 626), unit: 2, asleep: false)
+        let leap = GuideExit.leap(from: source, to: target)
+        #expect(leap.flightTime == 0.6)
+        var highest = CGFloat.infinity
+        let end = GuideExit.finishTime(from: source, to: target, reduceMotion: false)
+        for i in 0...Int(end * 240) {
+            let f = GuideExit.frame(at: Double(i) / 240, from: source, to: target, reduceMotion: false)
+            #expect(Self.finite(f))
+            highest = min(highest, f.feet.y)
+        }
+        #expect(highest <= source.feet.y - 50, "apex \(source.feet.y - highest) points")
+        #expect(GuideExit.frame(at: end, from: source, to: target, reduceMotion: false).feet == target.feet)
+        // Never out of the window's top: the apex stays 40 points under it.
+        let high = LaunchTarget(feet: CGPoint(x: 700, y: 80), unit: 3, asleep: false)
+        let top = (0...240).map { GuideExit.frame(at: Double($0) / 240, from: high, to: target, reduceMotion: false).feet.y }.min() ?? 0
+        #expect(top >= 40 - 0.5)
+        // A short one keeps the spec's 12 points and 0.5 s.
+        let near = LaunchTarget(feet: CGPoint(x: 120, y: 626), unit: 2, asleep: false)
+        #expect(GuideExit.leap(from: LaunchTarget(feet: CGPoint(x: 60, y: 626), unit: 3, asleep: false), to: near).flightTime == 0.5)
+        #expect(Leap.exitApex(dx: 60, dy: 0, higherFeetY: 626) == 12 && abs(Leap.exitApex(dx: 330, dy: 0, higherFeetY: 590) - 66) < 1e-9)
+        // A long fall already gives it height: the apex adds less, never below the spec's 12 points.
+        #expect(Leap.exitApex(dx: 330, dy: 36, higherFeetY: 590) < 66 && Leap.exitApex(dx: 432, dy: 462, higherFeetY: 150) == 12)
     }
 
     @Test func theGuideExitDissolvesWithReduceMotionOrWithoutASource() {

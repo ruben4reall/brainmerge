@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import BrainmergeCore
@@ -15,8 +16,13 @@ public final class OnboardingModel {
     public var step: Step = Step(rawValue: Int(ProcessInfo.processInfo.environment["BRAINMERGE_ONBOARDING_STEP"] ?? "") ?? 0) ?? .welcome
     public var choice: BrainChoice = .newFolder
     public var language: BrainLanguage = .en
-    /// What opens the memory: the first notes app found on the Mac, else the folder.
-    public var notesApp: String? = NotesApps.installed().first?.bundleIdentifier
+    /// What opens the memory: the first notes app found on the Mac (once `detect()` has looked), else the folder.
+    public var notesApp: String? { didSet { notesAppChosen = true } }
+    @ObservationIgnored private var notesAppChosen = false
+    /// The notes apps on the Mac and their icons, looked up off the main thread as the guide opens (nil until then).
+    public private(set) var notesApps: NotesApps.Found?
+    /// How they are looked up; a fake in tests.
+    @ObservationIgnored public var findNotesApps: @Sendable () -> NotesApps.Found = { NotesApps.find() }
     public var primaryName: String
     public private(set) var claude: ClaudeApp?
     public private(set) var projectCount = 0
@@ -75,6 +81,10 @@ public final class OnboardingModel {
     /// What the setup shows as found. Git and Claude Code are looked for off the main thread: `xcode-select` is a process,
     /// and Claude Code's signature check reads the whole program.
     public func detect() async {
+        let find = findNotesApps
+        let found = await Task.detached(priority: .userInitiated) { find() }.value
+        notesApps = found
+        if !notesAppChosen { notesApp = found.apps.first?.bundleIdentifier }
         claude = try? ClaudeApp.detect(at: app.claudeAppURL)
         gitFound = await app.checkGit()
         let resolve = app.limitsBinary, home = app.paths.home
@@ -154,36 +164,63 @@ public final class OnboardingModel {
     public func installAppleTools() { app.installAppleTools() }
 
     public func createBrain() throws {
+        try brainWork()()
+        app.reload()
+    }
+
+    /// "Continue" on the first account: the guide moves on at once, and the memory folder (only created now: going back
+    /// leaves nothing behind) and the first account are made on the core queue while the next step slides in. Its "Add
+    /// account" waits for them (it is off while work runs). When they cannot be made, the guide comes back here and says why.
+    public func finish() async {
+        let brain = brainWork(), primary = primaryWork()
+        next()
+        if case .failure(let failure) = await app.outcome("Setting up your memory…", { try brain(); try primary() }) {
+            if step == .secondAccount { back() }
+            error = AppModel.sentence(for: failure)
+        }
+    }
+
+    /// The already-installed Claude becomes the first account. If Claude Code has never run, its folder is created.
+    public func adoptPrimary() throws {
+        try primaryWork()()
+        app.reload()
+    }
+
+    /// The memory folder where chosen, the setting saved, and every existing account reattached to it (managed block, hook,
+    /// memory links): core work, with everything it needs read from the screen first.
+    private func brainWork() -> @Sendable () throws -> Void {
         let root: URL
         switch choice {
         case .newFolder: root = app.paths.defaultBrain
         case .existing(let url): root = url
         }
-        let brain = try Brain.initialize(at: root, language: language, availability: app.git)
-        let notesApp = self.notesApp
-        try app.store.update { state in
-            state.brainPath = brain.root.path
-            state.brainLanguage = language
-            state.notesApp = notesApp
+        let language = self.language, notesApp = self.notesApp, git = app.git, store = app.store, manager = app.manager
+        return {
+            let brain = try Brain.initialize(at: root, language: language, availability: git)
+            try store.update { state in
+                state.brainPath = brain.root.path
+                state.brainLanguage = language
+                state.notesApp = notesApp
+            }
+            let saved = try store.load()
+            for identity in saved.identities { try manager.attachBrain(to: identity, state: saved) }
         }
-        // A brain recreated or moved: every existing account is reattached to it (managed block, hook, memory links).
-        let saved = try app.store.load()
-        for identity in saved.identities { try app.manager.attachBrain(to: identity, state: saved) }
-        app.reload()
     }
 
-    /// "Done": the memory folder is only created now (going back leaves nothing behind), then the first account is adopted.
-    public func finish() throws {
-        try createBrain()
-        try adoptPrimary()
+    /// The first account, as core work. Each account's hooks call ~/.local/bin/brainmerge: the link is set up here, with
+    /// this screen's consent.
+    private func primaryWork() -> @Sendable () throws -> Void {
+        let paths = app.paths, cli = app.commandLine(), manager = app.manager, name = primaryName.trimmingCharacters(in: .whitespaces)
+        return {
+            if let cli { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+            _ = try CLIProfile.create(at: paths.primaryCLIProfile, inheritingFrom: nil)
+            _ = try manager.adoptPrimary(name: name)
+        }
     }
 
-    /// The already-installed Claude becomes the first account. If Claude Code has never run, its folder is created.
-    public func adoptPrimary() throws {
-        // Each account's hooks call ~/.local/bin/brainmerge: the link is set up here, with this screen's consent.
-        try app.linkCommandLineForHooks()
-        _ = try CLIProfile.create(at: app.paths.primaryCLIProfile, inheritingFrom: nil)
-        _ = try app.manager.adoptPrimary(name: primaryName.trimmingCharacters(in: .whitespaces))
-        app.reload()
-    }
+    /// When the welcome first showed with its own entrance (no launch landing on it): it plays from here, once; going
+    /// back to the welcome later finds it over.
+    public private(set) var greetedAt: Date?
+    public func greet(at date: Date) { if greetedAt == nil { greetedAt = date } }
+
 }

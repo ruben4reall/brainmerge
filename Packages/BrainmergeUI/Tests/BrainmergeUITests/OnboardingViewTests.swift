@@ -1,13 +1,75 @@
+import AppKit
 import SwiftUI
 import Testing
 @testable import BrainmergeUI
 
 @MainActor @Suite struct OnboardingViewTests {
-    /// Going on, the new page comes in from the right and the old one leaves to the left; going back, the other way round.
+    /// Going on, the new page comes in from the right; going back, from the left. The old page fades where it is: the
+    /// button just clicked never moves from under the pointer.
     @Test func pagesSlideTheWayTheGuideMoves() {
-        #expect(StepSlide.shift(.willAppear, direction: 1) == 24 && StepSlide.shift(.didDisappear, direction: 1) == -24)
-        #expect(StepSlide.shift(.willAppear, direction: -1) == -24 && StepSlide.shift(.didDisappear, direction: -1) == 24)
+        #expect(StepSlide.shift(.willAppear, direction: 1) == 24 && StepSlide.shift(.willAppear, direction: -1) == -24)
+        #expect(StepSlide.shift(.didDisappear, direction: 1) == 0 && StepSlide.shift(.didDisappear, direction: -1) == 0)
         #expect(StepSlide.shift(.identity, direction: 1) == 0 && StepSlide.shift(.identity, direction: -1) == 0)
+    }
+
+    /// The two pages share one column: the old one is gone before the new one shows, never two pages half drawn.
+    @Test func theOldPageIsGoneBeforeTheNewOneShows() {
+        for i in 0...120 {
+            let t = Double(i) / 240, o = PageSwap.opacities(at: t)
+            #expect(min(o.old, o.new) < 0.2, "t \(t): old \(o.old), new \(o.new)")
+        }
+        #expect(PageSwap.opacities(at: 0).old == 1 && PageSwap.opacities(at: 0).new == 0)
+        #expect(PageSwap.opacities(at: PageSwap.removal).old == 0 && PageSwap.opacities(at: 1).new > 0.99)
+    }
+
+    /// The line that says work is running keeps its place when there is none: the step never jumps as it comes and goes.
+    @Test func theWorkingLineHoldsItsPlace() {
+        let empty = NSHostingView(rootView: WorkingLine(text: nil, holdsPlace: true).frame(width: 400)).fittingSize
+        let busy = NSHostingView(rootView: WorkingLine(text: "Adding Work…", holdsPlace: true).frame(width: 400)).fittingSize
+        #expect(empty.height > 10 && empty.height == busy.height)
+        #expect(NSHostingView(rootView: WorkingLine(text: nil).frame(width: 400)).fittingSize.height == 0)
+    }
+
+    /// All set says what opens the memory in plain words: "opens in Obsidian", "opens in Finder".
+    @Test func allSetSaysWhatOpensTheMemory() {
+        let obsidian = NotesApp(name: "Obsidian", bundleIdentifier: "md.obsidian", website: URL(string: "https://obsidian.md")!)
+        #expect(OnboardingView.opensIn(.app(obsidian)) == "opens in Obsidian")
+        #expect(OnboardingView.opensIn(.folder) == "opens in Finder")
+        #expect(OnboardingView.opensIn(.custom(URL(fileURLWithPath: "/Applications/Bear.app"))) == "opens in Bear")
+    }
+
+    /// All set: the checks come in one by one once the page has landed, then the creature hops for the whole list.
+    @Test func theChecksComeInOneByOneThenTheCreatureHops() {
+        #expect(AllSetBeat.check(0, elapsed: AllSetBeat.checksFrom - 0.01, reduceMotion: false).opacity == 0)
+        #expect(AllSetBeat.check(0, elapsed: AllSetBeat.checksFrom + 0.1, reduceMotion: false).opacity > 0.5)
+        let last = AllSetBeat.checksFrom + 5 * AllSetBeat.checkStagger
+        #expect(AllSetBeat.check(5, elapsed: last - 0.01, reduceMotion: false).opacity == 0)
+        #expect(AllSetBeat.check(5, elapsed: last + 0.1, reduceMotion: false).opacity > 0.5)
+        #expect(AllSetBeat.hop >= last + 0.15 && AllSetBeat.hop < 1.2)
+        for i in 0..<6 {
+            let done = AllSetBeat.check(i, elapsed: 1.6, reduceMotion: false)
+            #expect(done.opacity == 1 && done.scale == 1)
+            #expect(AllSetBeat.check(i, elapsed: nil, reduceMotion: false) == .init(scale: 1, opacity: 1))
+            // Reduce Motion: they fade, never scale.
+            for t in stride(from: 0.0, to: 1.6, by: 0.02) { #expect(AllSetBeat.check(i, elapsed: t, reduceMotion: true).scale == 1) }
+        }
+    }
+
+    /// A welcome shown without the launch landing on it (a demo, a capture of the guide, a later window) still greets: the
+    /// creature wakes, then the words rise in one after the other. Once only: never again on Back.
+    @Test func theWelcomeGreetsWithoutTheLaunch() {
+        #expect(WelcomeEntrance.word(0, elapsed: 0.29).opacity == 0)
+        #expect(WelcomeEntrance.word(0, elapsed: 0.30 + 0.30).opacity == 1 && WelcomeEntrance.word(0, elapsed: 0.6).rise == 0)
+        #expect(WelcomeEntrance.word(3, elapsed: 0.30 + 3 * 0.05 - 0.001).opacity == 0)
+        #expect(WelcomeEntrance.word(1, elapsed: 0.40).rise > 0 && WelcomeEntrance.word(1, elapsed: 0.40).rise <= 6)
+        #expect(WelcomeEntrance.word(2, elapsed: nil) == .init(opacity: 1, rise: 0))
+        #expect(WelcomeEntrance.wake == 0.15)
+        #expect(WelcomeEntrance.plays(launch: nil, reduceMotion: false, capture: false))
+        #expect(!WelcomeEntrance.plays(launch: nil, reduceMotion: true, capture: false))
+        #expect(!WelcomeEntrance.plays(launch: nil, reduceMotion: false, capture: true))
+        // The launch's own landing brings the words in: no second entrance.
+        #expect(!WelcomeEntrance.plays(launch: LaunchClock(slow: 1, capture: false), reduceMotion: false, capture: false))
+        #expect(WelcomeEntrance.plays(launch: LaunchClock(finished: true, slow: 1, capture: false), reduceMotion: false, capture: false))
     }
 
     /// How it works is drawn 1:1 inside the step's column: never scaled nor clipped, so its 3 point cells stay whole.

@@ -110,10 +110,25 @@ import Testing
         let guide = clock.reveal(.guide, at: at(0.1)), main = clock.reveal(.main, at: at(0.1))
         #expect(!guide.hittable && guide.opacity < 1 && main.hittable && main.opacity < 1)
         #expect(clock.frame(at: at(0), size: size).feet == CGPoint(x: 480, y: 150))
-        #expect(clock.finishTime.map { abs($0 - 1.08) < 1e-9 } == true)
+        // A long way home: a 0.6 s flight.
+        #expect(clock.finishTime.map { abs($0 - 1.18) < 1e-9 } == true)
         clock.finish()
         #expect(clock.finished && !clock.leavingGuide && !clock.hidesSource && !clock.hidesTarget)
-        #expect(clock.landed.map { abs($0.timeIntervalSince(t0) - 1.08) < 1e-6 } == true)
+        #expect(clock.landed.map { abs($0.timeIntervalSince(t0) - 1.18) < 1e-6 } == true)
+    }
+
+    /// All set builds the main window under the guide before "Open Brainmerge": its footer creature tells the clock where
+    /// it stands then (the clock is finished, no leap takes it), and the guide's exit lands there.
+    @Test func theGuideExitLandsOnTheSidebarBuiltUnderIt() {
+        let clock = LaunchClock(finished: true, slow: 1, capture: false)
+        clock.windowSize = size
+        clock.offer(sidebar, at: t0)
+        #expect(clock.target == nil)
+        var asleep = sidebar
+        asleep.asleep = true
+        clock.offer(asleep, at: at(1))
+        clock.leave(from: CGRect(x: 456, y: 117, width: 48, height: 33), reduceMotion: false, at: at(2))
+        #expect(clock.target == asleep)
     }
 
     @Test func leavingWithTheCreatureOutOfSightOrReducedMotionDissolves() {

@@ -44,8 +44,37 @@ import Testing
         #expect(abs(OpeningStroke.angle(elapsed: 1.6, still: false)) < 1e-9)
         #expect(OpeningStroke.angle(elapsed: 12.3, still: true) == 35)
         #expect(OpeningStroke.opacity(reduceMotion: false) == 1 && OpeningStroke.opacity(reduceMotion: true) == 0.6)
-        #expect(OpeningStroke.lineWidth == 1.5 && OpeningStroke.glowBlur == 6 && OpeningStroke.glowOpacity == 0.35)
         #expect(OpeningStroke.fadeIn == 0.18 && OpeningStroke.fadeOut == 0.25)
+    }
+
+    /// The stroke reads on a dark glass card: 2.5 points, a third of the way round at full tint (not a sliver), and a
+    /// tighter, brighter glow.
+    @Test func theOpeningStrokeIsReadable() {
+        #expect(OpeningStroke.lineWidth == 2.5 && OpeningStroke.glowBlur == 4 && OpeningStroke.glowOpacity == 0.6)
+        let stops = OpeningStroke.stops
+        #expect(stops.first?.location == 0 && stops.last?.location == 1)
+        #expect(zip(stops, stops.dropFirst()).allSatisfy { $0.location <= $1.location })
+        // How much of the way round is at full tint: the full stops' spans at each end.
+        let full = stops.filter { $0.opacity == 1 }.map(\.location)
+        let head = full.filter { $0 < 0.5 }.max() ?? 0, tail = 1 - (full.filter { $0 > 0.5 }.min() ?? 1)
+        #expect(head + tail >= 0.15, "\(stops)")
+        // At least 30% of the way round is lit above half.
+        let lit = (0..<1000).filter { OpeningStroke.opacity(at: Double($0) / 1000) > 0.5 }.count
+        #expect(lit >= 300, "\(lit)")
+    }
+
+    // MARK: Text that changes
+
+    /// A line that changes (a status, a subtitle, the creature's line, a button's word): the old words leave before the
+    /// new ones settle, so no frame shows both above 25%.
+    @Test func aSwappedLineNeverShowsTwoStringsAtOnce() {
+        for i in 0...96 {
+            let t = Double(i) / 240, o = SwapText.opacities(at: t)
+            #expect(min(o.old, o.new) <= 0.25, "t \(t): \(o)")
+        }
+        #expect(SwapText.opacities(at: 0).old == 1 && SwapText.opacities(at: 0).new == 0)
+        #expect(SwapText.opacities(at: 0.4) == (old: 0, new: 1))
+        #expect(SwapText.removal + SwapText.delay <= 0.2 && SwapText.delay + SwapText.insertion <= 0.25)
     }
 
     /// Opened: one sage ring from the 6 point dot to 18 points, fading from 0.8, in 0.5 s on the ease-out.

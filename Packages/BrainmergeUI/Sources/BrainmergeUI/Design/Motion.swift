@@ -46,6 +46,9 @@ public enum Ease {
     public static let inOut = Bezier(0.77, 0, 0.175, 1)
     /// A throw that leaves quickly and lands gently: cubic-bezier(0.45, 0, 0.2, 1).
     public static let glide = Bezier(0.45, 0, 0.2, 1)
+    /// A throw that keeps some speed at the end, for what falls on from there (How it works' note into the folder):
+    /// cubic-bezier(0.45, 0, 0.55, 0.85), arriving at a third of its average speed.
+    public static let toss = Bezier(0.45, 0, 0.55, 0.85)
     /// Plain ease, for color crossfades: cubic-bezier(0.25, 0.1, 0.25, 1).
     public static let ease = Bezier(0.25, 0.1, 0.25, 1)
     /// A gentle, sine-like in-out for breathing: cubic-bezier(0.45, 0, 0.55, 1).

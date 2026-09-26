@@ -161,6 +161,63 @@ import BrainmergeTestSupport
         #expect(claudeMD.contains(Brain(root: newRoot).root.path) && !claudeMD.contains(oldRoot.path))
     }
 
+    /// "Continue" on the first account moves on at once: the memory folder and the account are made on the core queue while
+    /// the next step slides in (its "Add account" waits for them), never while the window waits.
+    @Test func doneMovesOnAtOnceWhileTheMemoryIsMade() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        onboarding.step = .adopt
+        onboarding.primaryName = "Ruben"
+        let finishing = Task { await onboarding.finish() }
+        while onboarding.step == .adopt { await Task.yield() }
+        #expect(onboarding.step == .secondAccount)
+        #expect(app.working != nil && app.needsOnboarding)
+        await finishing.value
+        #expect(app.working == nil && !app.needsOnboarding && onboarding.error == nil)
+        #expect(app.accounts.first?.identity.name == "Ruben")
+    }
+
+    /// When the memory cannot be made, the guide comes back to the first account and says why.
+    @Test func aFailedSetupComesBackToTheFirstAccount() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        let file = e.home.url.appending(path: "a-file")
+        try Data("x".utf8).write(to: file)
+        onboarding.choice = .existing(file.appending(path: "Brain", directoryHint: .isDirectory))
+        onboarding.step = .adopt
+        await onboarding.finish()
+        #expect(onboarding.step == .adopt && onboarding.error != nil)
+        #expect(app.needsOnboarding)
+    }
+
+    /// The notes apps on the Mac (and their icons) are looked up once, off the main thread, as the guide opens: the memory
+    /// step then draws at once. The first one found is the default, unless the person already chose.
+    @Test func notesAppsAreFoundOffTheMainThread() async throws {
+        let (e, _, onboarding) = try setup(); defer { e.home.remove() }
+        let seen = Threads()
+        let obsidian = NotesApp(name: "Obsidian", bundleIdentifier: "md.obsidian", website: URL(string: "https://obsidian.md")!,
+                                location: URL(fileURLWithPath: "/Applications/Obsidian.app"))
+        onboarding.findNotesApps = { seen.record(Thread.isMainThread); return NotesApps.Found(apps: [obsidian], icons: [:]) }
+        #expect(onboarding.notesApps == nil)
+        await onboarding.detect()
+        #expect(seen.all == [false])
+        #expect(onboarding.notesApps?.apps == [obsidian] && onboarding.notesApp == "md.obsidian")
+        // A choice made before the lookup ends is kept.
+        let (e2, _, chosen) = try setup(); defer { e2.home.remove() }
+        chosen.findNotesApps = { NotesApps.Found(apps: [obsidian], icons: [:]) }
+        chosen.notesApp = nil
+        await chosen.detect()
+        #expect(chosen.notesApp == nil)
+    }
+
+    /// The welcome's own entrance plays once: going back to it shows it still.
+    @Test func theWelcomeGreetsOnce() throws {
+        let (e, _, onboarding) = try setup(); defer { e.home.remove() }
+        #expect(onboarding.greetedAt == nil)
+        let first = Date(timeIntervalSinceReferenceDate: 1000)
+        onboarding.greet(at: first)
+        onboarding.greet(at: first.addingTimeInterval(30))
+        #expect(onboarding.greetedAt == first)
+    }
+
     @Test func errorClearsWhenMovingOn() throws {
         let (e, _, onboarding) = try setup(); defer { e.home.remove() }
         onboarding.error = UserMessage(title: "Oops", detail: "x")
@@ -168,12 +225,13 @@ import BrainmergeTestSupport
         #expect(onboarding.error == nil)
     }
 
-    @Test func continueDoesNotTouchTheDiskBeforeDone() throws {
+    @Test func continueDoesNotTouchTheDiskBeforeDone() async throws {
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }
         onboarding.next(); onboarding.next(); onboarding.next()     // welcome, how it works, location, first account
         #expect(!FileManager.default.fileExists(atPath: e.home.paths.defaultBrain.path))
         onboarding.primaryName = "Ruben"
-        try onboarding.finish()
+        await onboarding.finish()
+        #expect(onboarding.error == nil)
         #expect(FileManager.default.fileExists(atPath: e.home.paths.defaultBrain.appending(path: "BRAIN.md").path))
         #expect(!app.needsOnboarding)
     }
@@ -182,7 +240,7 @@ import BrainmergeTestSupport
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }
         #expect(!onboarding.finished)
         onboarding.primaryName = "Ruben"
-        try onboarding.finish()
+        await onboarding.finish()
         #expect(!app.needsOnboarding && !onboarding.finished)   // adopted, but the guide goes on
         onboarding.secondAccount.name = "Work"
         #expect(await onboarding.addSecondAccount())
@@ -197,7 +255,7 @@ import BrainmergeTestSupport
     @Test func theSecondAccountCanGetItsOwnMemory() async throws {
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }
         onboarding.primaryName = "Ruben"
-        try onboarding.finish()
+        await onboarding.finish()
         onboarding.secondAccount.name = "Work"
         onboarding.secondAccount.memory = .own
         #expect(await onboarding.addSecondAccount())

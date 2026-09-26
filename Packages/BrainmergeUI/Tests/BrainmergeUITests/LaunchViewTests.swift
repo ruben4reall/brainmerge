@@ -48,15 +48,15 @@ import Testing
         #expect(clock.hidesTarget)
     }
 
-    /// The screens come in at 98.5% of their size: the creature under them must still be measured where it will be once
-    /// they are whole, or the overlay would land a few points off and the real creature would jump when it shows.
+    /// The screens come in at their own size (never scaled: rescaling their glass cost the leap frames), and the creature
+    /// under them is measured where it is: the overlay lands exactly on it.
     @MainActor @Test func aTargetUnderTheRevealIsMeasuredAtFullSize() {
         // Twenty times slower than the clock: the scene is the same, and a busy machine has 1.5 s to lay the view out.
         let now = Date(), slow = 20.0
         let clock = LaunchClock(slow: slow, capture: false)
         clock.begin(at: now.addingTimeInterval(-0.485 * slow), reduceMotion: false)
         clock.ready(at: now.addingTimeInterval(-0.285 * slow))                 // ready at 0.2 s: the hand-off started at 0.48 s
-        #expect(abs(clock.reveal(.main, at: now).scale - 0.985) < 1e-3)
+        #expect(clock.reveal(.main, at: now).scale == 1 && clock.reveal(.main, at: now).opacity == 0)
         let screens = VStack(alignment: .leading, spacing: 0) {
             Color.clear.frame(height: 500)
             CreatureView(state: .awake, size: 32).launchTarget(clock, asleep: false)

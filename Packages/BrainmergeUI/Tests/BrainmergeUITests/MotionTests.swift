@@ -7,7 +7,7 @@ import Testing
 @Suite struct MotionTests {
     static let curves: [(String, Ease.Bezier)] = [
         ("out", Ease.out), ("inOut", Ease.inOut), ("glide", Ease.glide), ("ease", Ease.ease),
-        ("breath", Ease.breath), ("shrink", Ease.shrink), ("travel", Ease.travel),
+        ("breath", Ease.breath), ("shrink", Ease.shrink), ("travel", Ease.travel), ("toss", Ease.toss),
     ]
 
     @Test func everyCurveRunsFromZeroToOneWithoutGoingBack() {

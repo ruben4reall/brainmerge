@@ -392,11 +392,11 @@ public enum LaunchDirector {
         return f
     }
 
-    /// The window's content under the leap: opacity 0 to 1 and scale 0.985 to 1, from 0.04 s over 0.30 s.
+    /// The window's content under the leap: opacity 0 to 1, from 0.04 s over 0.30 s. Never scaled: the spec's 0.985 could
+    /// not be seen, and rescaling the glass under it cost frames of the leap.
     static func screens(_ f: inout LaunchFrame, tau: Double) {
-        let s = Ease.out(Ease.progress(tau, from: screensDelay, over: screensFade))
-        f.screensOpacity = s
-        f.screensScale = CGFloat(1 - 0.015 * (1 - s))
+        f.screensOpacity = Ease.out(Ease.progress(tau, from: screensDelay, over: screensFade))
+        f.screensScale = 1
     }
 
     /// When the overlay goes, on the splash's clock; nil until the app is ready.
@@ -455,19 +455,24 @@ public struct LeapRoute: Equatable, Sendable {
     /// The swing's late start, when a leap rises straight up first: 0.1 s of a 0.5 s flight, about when it tops out.
     public static let riseFirst = 0.2
     /// In order of preference: the higher and earlier, the more natural.
-    public static let candidates: [LeapRoute] = [
-        natural,
-        LeapRoute(apex: Theme.Launch.leapApex, travel: Ease.breath, stretch: 1),
-        LeapRoute(apex: Theme.Launch.leapApex, travel: Ease.inOut, stretch: 1),
-        LeapRoute(apex: Theme.Launch.leapApex, travel: Ease.breath, stretch: 1, lag: riseFirst),
-        LeapRoute(apex: Theme.Launch.leapApex / 2, travel: Ease.travel, stretch: 0.5),
-        LeapRoute(apex: Theme.Launch.leapApex / 2, travel: Ease.breath, stretch: 0.5),
-        LeapRoute(apex: Theme.Launch.leapApex / 2, travel: Ease.inOut, stretch: 0.5),
-        LeapRoute(apex: Theme.Launch.leapApex / 2, travel: Ease.breath, stretch: 0.5, lag: riseFirst),
-        LeapRoute(apex: 0, travel: Ease.travel, stretch: 0),
-        LeapRoute(apex: 0, travel: Ease.breath, stretch: 0),
-        LeapRoute(apex: 0, travel: Ease.inOut, stretch: 0),
-    ]
+    public static let candidates = candidates(apex: Theme.Launch.leapApex)
+
+    /// The routes for a leap whose natural apex is `apex`: that arc and its later swings, then half as high, then none.
+    public static func candidates(apex: CGFloat) -> [LeapRoute] {
+        [
+            LeapRoute(apex: apex, travel: Ease.travel, stretch: 1),
+            LeapRoute(apex: apex, travel: Ease.breath, stretch: 1),
+            LeapRoute(apex: apex, travel: Ease.inOut, stretch: 1),
+            LeapRoute(apex: apex, travel: Ease.breath, stretch: 1, lag: riseFirst),
+            LeapRoute(apex: apex / 2, travel: Ease.travel, stretch: 0.5),
+            LeapRoute(apex: apex / 2, travel: Ease.breath, stretch: 0.5),
+            LeapRoute(apex: apex / 2, travel: Ease.inOut, stretch: 0.5),
+            LeapRoute(apex: apex / 2, travel: Ease.breath, stretch: 0.5, lag: riseFirst),
+            LeapRoute(apex: 0, travel: Ease.travel, stretch: 0),
+            LeapRoute(apex: 0, travel: Ease.breath, stretch: 0),
+            LeapRoute(apex: 0, travel: Ease.inOut, stretch: 0),
+        ]
+    }
 }
 
 /// From whatever pose it is in, the creature crouches, leaps along a ballistic arc to its home, shrinking to the target's
@@ -516,14 +521,15 @@ public struct Leap: Equatable, Sendable {
     /// crosses none of them (the natural arc when it can), or, when every one crosses something, the one that covers the
     /// least. Same takeoff, same touchdown: only the shape of the flight changes.
     public static func routed(start: Creature.Pose, feet: CGPoint, unit: CGFloat, startVelocityY: CGFloat, target: LaunchTarget,
-                              crouch: Double = Leap.anticipation, avoiding obstacles: [CGRect]) -> Leap {
+                              crouch: Double = Leap.anticipation, flight: Double = Leap.flight,
+                              routes: [LeapRoute] = LeapRoute.candidates, avoiding obstacles: [CGRect]) -> Leap {
         func leap(_ route: LeapRoute) -> Leap {
-            Leap(start: start, feet: feet, unit: unit, startVelocityY: startVelocityY, target: target, crouch: crouch, route: route)
+            Leap(start: start, feet: feet, unit: unit, startVelocityY: startVelocityY, target: target, crouch: crouch, flight: flight, route: route)
         }
-        let natural = leap(.natural)
+        let natural = leap(routes.first ?? .natural)
         guard !obstacles.isEmpty else { return natural }
         var best = natural, least = CGFloat.infinity
-        for route in LeapRoute.candidates {
+        for route in routes {
             let candidate = leap(route)
             let covered = candidate.cover(obstacles, stopAbove: least)
             if covered == 0 { return candidate }
@@ -656,6 +662,17 @@ public struct Leap: Equatable, Sendable {
         return (at, cell, scaleX, scaleY, 5 * sin(.pi * u) * Double(direction))
     }
 
+    /// The long hand-off out of the guide (All set to the sidebar, some 330 points): a jump, never a skim along the bottom
+    /// of the window. Its apex is a fifth of the way across, less a quarter of the height it falls (a long fall already
+    /// gives it height, and would come down too fast), 12 points at least, and never closer than 40 points to the window's
+    /// top (`higherFeetY` is the higher end's feet); past 250 points across, the flight takes 0.6 s.
+    public static func exitApex(dx: CGFloat, dy: CGFloat, higherFeetY: CGFloat) -> CGFloat {
+        let cap = max(apex, higherFeetY - 40)
+        return min(max(0.2 * abs(dx) - 0.25 * abs(dy), apex), cap)
+    }
+    public static let longWay: CGFloat = 250, longFlight = 0.6
+    public static func exitFlight(dx: CGFloat) -> Double { abs(dx) > longWay ? longFlight : flight }
+
     /// The blink after a landing: half, slit, half, open.
     static func blink(at start: Double) -> [(Double, Double)] {
         [(start, 0.5), (start + 0.04, 0.15), (start + 0.10, 0.5), (start + 0.14, 1)]
@@ -719,11 +736,19 @@ private extension Creature.Pose {
 
 // MARK: - The end of the guided setup
 
-/// "Open Brainmerge" (audit M14): the All set creature leaps into the sidebar footer with the launch's leap, the guide fades
-/// out in 0.2 s, the screens fade in on the leap's 0.04 to 0.34 s. With Reduce Motion, a 0.15 s dissolve; with no creature
+/// "Open Brainmerge" (audit M14): the All set creature leaps into the sidebar footer with the launch's leap (higher and
+/// longer: it has a long way to go), the guide holds through the crouch and crossfades with the main window over the first
+/// half of the flight. With Reduce Motion, a 0.15 s dissolve; with no creature
 /// to leap from (scrolled out of the window), the screens simply come in.
 public enum GuideExit {
-    static let guideFade = 0.2
+    /// The guide holds through the crouch, then crossfades with the main window over the first half of the flight
+    /// (`Ease.inOut`), so the window settles while the creature is in the air.
+    static let guideFrom = 0.06, guideFade = 0.30
+    /// The main window comes in from 0.10 s over 0.36 s, on the ease-out.
+    static let screensFrom = 0.10, screensFade = 0.36
+
+    static func guideOpacity(at tau: Double) -> Double { 1 - Ease.inOut(Ease.progress(tau, from: guideFrom, over: guideFade)) }
+    static func screensOpacity(at tau: Double) -> Double { Ease.out(Ease.progress(tau, from: screensFrom, over: screensFade)) }
 
     /// The leap out of the guide, worked out once: its shape, and whether the main window waits for its landing.
     struct Plan: Equatable {
@@ -750,8 +775,8 @@ public enum GuideExit {
         var f = LaunchFrame(feet: feet, unit: unit)
         f.pose = pose
         f.handingOff = true
-        f.guideOpacity = 1 - Ease.out(Ease.progress(tau, from: 0, over: guideFade))
-        LaunchDirector.screens(&f, tau: held ? tau - leap.touchdown + LaunchDirector.screensDelay : tau)
+        f.guideOpacity = guideOpacity(at: tau)
+        f.screensOpacity = screensOpacity(at: held ? tau - leap.touchdown + screensFrom : tau)
         f.screensHeld = held && tau < leap.touchdown
         if target == nil {
             f.pose.opacity = 1 - Ease.out(Ease.progress(tau, from: leap.touchdown, over: LaunchDirector.fadeWithoutTarget))
@@ -760,6 +785,9 @@ public enum GuideExit {
         if f.finished { f.screensOpacity = 1; f.screensScale = 1; f.guideOpacity = 0 }
         return f
     }
+
+    /// With no creature to follow, the guide simply goes in 0.2 s while the screens come in.
+    static let dissolveGuide = 0.2
 
     static func dissolve(at tau: Double, reduceMotion: Bool) -> LaunchFrame {
         var f = LaunchFrame(feet: .zero, unit: 1)
@@ -771,7 +799,7 @@ public enum GuideExit {
             f.guideOpacity = 1 - k
         } else {
             LaunchDirector.screens(&f, tau: tau)
-            f.guideOpacity = 1 - Ease.out(Ease.progress(tau, from: 0, over: guideFade))
+            f.guideOpacity = 1 - Ease.out(Ease.progress(tau, from: 0, over: dissolveGuide))
         }
         f.finished = tau >= finishTime(from: nil, to: nil, reduceMotion: reduceMotion)
         if f.finished { f.screensOpacity = 1; f.screensScale = 1; f.guideOpacity = 0 }
@@ -790,6 +818,9 @@ public enum GuideExit {
     /// splash's hop where it stands.
     static func leap(from source: LaunchTarget, to target: LaunchTarget?, avoiding obstacles: [CGRect] = []) -> Leap {
         guard let target else { return Leap.hopInPlace(from: .rest, feet: source.feet, unit: source.unit) }
-        return Leap.routed(start: .rest, feet: source.feet, unit: source.unit, startVelocityY: 0, target: target, avoiding: obstacles)
+        let dx = target.feet.x - source.feet.x
+        let apex = Leap.exitApex(dx: dx, dy: target.feet.y - source.feet.y, higherFeetY: min(source.feet.y, target.feet.y))
+        return Leap.routed(start: .rest, feet: source.feet, unit: source.unit, startVelocityY: 0, target: target,
+                           flight: Leap.exitFlight(dx: dx), routes: LeapRoute.candidates(apex: apex), avoiding: obstacles)
     }
 }

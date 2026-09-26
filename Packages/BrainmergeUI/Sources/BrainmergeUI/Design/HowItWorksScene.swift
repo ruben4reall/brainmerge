@@ -97,6 +97,18 @@ public enum HowItWorksScene {
                       copyLeave: leave, copyArrive: arrives)
     }
 
+    /// How fast each note comes down onto the slot as its flight ends, in points per second (straight down, the lanes'
+    /// last stretch): the fall into the folder starts at that speed.
+    static let arrivalSpeed: [Double] = lanes.indices.map { src in
+        let e = 1e-4, travel = timing(src: src).travel
+        return Double(slotY - lanes[src].point(atFraction: Ease.toss(1 - e)).y) / (e * travel)
+    }
+    /// The fall into the folder, `d` from 0 to 1 over the drop: 22 points in all, starting at `speed` and accelerating.
+    static func dropDepth(_ d: Double, arrivingAt speed: Double) -> CGFloat {
+        let start = min(22, max(0, speed * T.drop))   // the depth its arrival speed alone would cover
+        return CGFloat(start * d + (22 - start) * d * d)
+    }
+
     // MARK: Captions
 
     static func savesCaption(_ src: Int) -> String { "\(accounts[src].name) saves a note" }
@@ -204,18 +216,19 @@ public enum HowItWorksScene {
             if glow > f.windows[d].outline { f.windows[d].outline = glow * 0.8; f.windows[d].outlineSource = src }
         }
 
-        // The note pops out of the prompt row, flies its lane at an even speed, and drops into the folder.
+        // The note pops out of the prompt row, flies its lane, and falls on into the folder in one throw: it reaches the slot
+        // with speed to spare (`Ease.toss`) and the fall starts at that speed, never parked above the slot.
         let lane = lanes[src]
         if tau >= T.lift - 0.02 && tau < tm.landed + 0.02 {
             let p = Ease.progress(tau, from: T.lift, over: tm.travel)
-            let s = Ease.glide(p)
+            let s = Ease.toss(p)
             var position = lane.point(atFraction: s)
             var rotation = 16 * Double(lane.tangent(atFraction: s).dx) * sin(Double.pi * p)   // banks into the curve
             var scale = 0.7 + 0.3 * Ease.spring(tau - (T.lift - 0.02), response: 0.34, damping: 0.62)
             var behind = false
             if tau > tm.arrive {
                 let d = Ease.progress(tau, from: tm.arrive, over: T.drop)
-                position.y = slotY + 22 * d * d                  // falls in, accelerating
+                position.y = slotY + dropDepth(d, arrivingAt: arrivalSpeed[src])   // falls in from its speed, accelerating
                 rotation *= 1 - d
                 scale = 1 - 0.12 * d
                 behind = true
@@ -227,7 +240,7 @@ public enum HowItWorksScene {
         if tau >= T.lift {
             let p = Ease.progress(tau, from: T.lift, over: tm.travel)
             let fade = 1 - Ease.ease(Ease.progress(tau, from: T.trailFadeStart, over: T.trailFade))
-            f.trails.append(Trail(lane: src, from: laneVisibleStart[src], to: Ease.glide(p), opacity: 0.85 * fade, source: src))
+            f.trails.append(Trail(lane: src, from: laneVisibleStart[src], to: Ease.toss(p), opacity: 0.85 * fade, source: src))
         }
         // The folder takes the note: its front dips and its rim flashes.
         f.frontSquash = 0.07 * Ease.impulse(tau - tm.landed + 0.03, response: 0.32, damping: 0.42)

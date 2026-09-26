@@ -24,6 +24,9 @@ public final class LaunchClock {
     public private(set) var skippedAt: Double?
     /// Where the creature lands, frozen at the first offer that comes in time.
     public private(set) var target: LaunchTarget?
+    /// The last place a creature said it stands, even with no leap running: the sidebar, built under All set before
+    /// "Open Brainmerge", says it there, and the guide's exit lands on it.
+    @ObservationIgnored private var lastOffer: LaunchTarget?
     public private(set) var finished: Bool
     /// The moment it landed: the target creature's own clock starts here, so its first idle blink never doubles the landing's.
     public private(set) var landed: Date?
@@ -82,7 +85,9 @@ public final class LaunchClock {
     /// A creature to land on, measured on its first layout. Taken once, and only until the leap takes off: later, it would
     /// bend the arc mid-air (the creature then hops in place and fades, and the late one shows when the overlay goes).
     public func offer(_ candidate: LaunchTarget, at date: Date) {
-        guard target == nil, !finished, candidate.unit > 0 else { return }
+        guard candidate.unit > 0 else { return }
+        lastOffer = candidate
+        guard target == nil, !finished else { return }
         if let hs = handoffStart, time(at: date) >= hs + Leap.anticipation { return }
         target = candidate
     }
@@ -173,7 +178,7 @@ public final class LaunchClock {
         start = date
         readyAt = nil
         skippedAt = nil
-        target = nil
+        target = lastOffer
         landed = nil
         self.reduceMotion = reduceMotion
         finished = capture
@@ -213,35 +218,57 @@ public final class LaunchClock {
     }
 }
 
-/// The screens under a hand-off: their opacity and scale come from the launch clock, frame by frame. They fill the window,
-/// so the window's space is named again on them, under the scale: a creature in them is measured where it will be once
-/// they are whole (98.5% at first would land the leap a few points off).
+/// The screens under a hand-off, or the guide over the last one: their opacity comes from the launch clock, frame by frame.
+/// They fill the window, so the window's space is named again on them.
+///
+/// The main window is never faded itself: a group opacity over its glass re-renders every backdrop on every frame of the
+/// leap. A cover of the window's own background fades off it instead, which looks the same (the window is opaque over
+/// that background) and leaves the screens untouched: the timeline redraws only the cover. While the screens are held
+/// back, the cover takes the clicks. The guide, over the main window, fades itself.
 struct LaunchReveal: ViewModifier {
     let clock: LaunchClock
     let role: LaunchClock.Role
 
     func body(content: Content) -> some View {
-        TimelineView(.animation(paused: !clock.revealRuns)) { context in
-            let look = clock.reveal(role, at: context.date)
+        switch role {
+        case .main:
             content
                 .coordinateSpace(.named(LaunchClock.space))
-                .opacity(look.opacity)
-                .scaleEffect(look.scale)
-                .allowsHitTesting(look.hittable)
-                .accessibilityHidden(look.opacity == 0)
+                .overlay {
+                    TimelineView(.animation(paused: !clock.revealRuns)) { context in
+                        let look = clock.reveal(role, at: context.date)
+                        WarmBackground().opacity(1 - look.opacity).allowsHitTesting(!look.hittable)
+                    }
+                }
+                .accessibilityHidden(!clock.finished && clock.mode == .launch && clock.readyAt == nil)
+        case .guide:
+            TimelineView(.animation(paused: !clock.revealRuns)) { context in
+                let look = clock.reveal(role, at: context.date)
+                content
+                    .coordinateSpace(.named(LaunchClock.space))
+                    .opacity(look.opacity)
+                    .allowsHitTesting(look.hittable)
+                    .accessibilityHidden(look.opacity == 0)
+            }
         }
     }
 }
 
-/// A creature a leap can land on: it tells the clock where it is on its first layout, and stays hidden until it lands.
+/// A creature a leap can land on: it tells the clock where it is, and whether it sleeps, as they change, and stays hidden
+/// until it lands.
 struct LaunchTargetMark: ViewModifier {
     let clock: LaunchClock?
     let asleep: Bool
+    @State private var frame: CGRect?
 
     func body(content: Content) -> some View {
         content
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(LaunchClock.space)) } action: { frame in
+                self.frame = frame
                 clock?.offer(LaunchTarget(frame: frame, asleep: asleep), at: Date())
+            }
+            .onChange(of: asleep) { _, asleep in
+                if let frame { clock?.offer(LaunchTarget(frame: frame, asleep: asleep), at: Date()) }
             }
             .opacity(clock?.hidesTarget == true ? 0 : 1)
     }
