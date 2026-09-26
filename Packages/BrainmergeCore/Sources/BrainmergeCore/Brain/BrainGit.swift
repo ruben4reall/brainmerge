@@ -90,6 +90,8 @@ public struct BrainGit: Sendable {
         try requireGit()
         let wanted = Set(paths)
         guard !wanted.isEmpty else { return [] }
+        // A plain commit would finish the person's own merge or pick under this author: the save waits for them instead.
+        guard !(try operationUnfinished()) else { throw BrainmergeError.gitOperationUnfinished }
         let changed = Set(try status(scope: Array(wanted))).intersection(wanted).sorted()
         guard !changed.isEmpty else { return [] }
         let fm = FileManager.default
@@ -117,6 +119,22 @@ public struct BrainGit: Sendable {
         // The real index follows the commit for these paths: a note rewritten since shows as changed, for the next save.
         try shell.check("/usr/bin/git", ["--literal-pathspecs", "reset", "-q", "--"] + kept, cwd: brain.root)
         return kept
+    }
+
+    /// The person's own git is stopped half way in this memory: a merge, a cherry-pick, a revert, a rebase or a bisect not
+    /// finished, or conflicts left in the index (a stash pop leaves no other trace). A commit then would record their
+    /// merge in an account's name, sign a save with the picked commit's author, or keep conflict markers.
+    public func operationUnfinished() throws -> Bool {
+        try requireGit()
+        let markers = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "rebase-merge", "rebase-apply", "BISECT_LOG"]
+        // Asked of git, not guessed: a worktree or a separate git folder keeps these elsewhere.
+        let located = try shell.check("/usr/bin/git", ["rev-parse"] + markers.flatMap { ["--git-path", $0] }, cwd: brain.root)
+        let fm = FileManager.default
+        let stopped = located.split(separator: "\n").contains { line in
+            fm.fileExists(atPath: URL(fileURLWithPath: String(line), relativeTo: brain.root).path)
+        }
+        if stopped { return true }
+        return !(try shell.check("/usr/bin/git", ["ls-files", "-u"], cwd: brain.root)).isEmpty
     }
 
     /// What staging these paths adds, and only that: no context line, no line saved before, no rename detection, and none
