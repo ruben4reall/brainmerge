@@ -58,6 +58,20 @@ import BrainmergeTestSupport
         #expect(samples.map(\.output).reduce(0, +) == 48)
     }
 
+    /// A sub-agent's transcript can replay messages of its session (same ids): counted with the session, never again.
+    @Test func aMessageReplayedInASubagentIsCountedOnce() throws {
+        let f = try fixture(); defer { f.home.remove() }
+        let now = Date()
+        try Data((assistant(id: "msg_1", at: now, output: 40) + assistant(id: "msg_2", at: now, output: 7)).utf8)
+            .write(to: f.project.appending(path: "s1.jsonl"))
+        try Data((assistant(id: "msg_1", at: now, output: 40) + assistant(id: "msg_sub", at: now, output: 3)).utf8)
+            .write(to: f.project.appending(path: "s1/subagents/a.jsonl"))
+        let samples = try f.reader.read(profile: f.profile, since: now.addingTimeInterval(-86_400), now: now)
+        #expect(samples.map(\.output).reduce(0, +) == 50)
+        // A later pass reads the same totals.
+        #expect(try f.reader.read(profile: f.profile, since: now.addingTimeInterval(-86_400), now: now.addingTimeInterval(1)).map(\.output).reduce(0, +) == 50)
+    }
+
     @Test func incrementalReadOnlyParsesAppendedLines() throws {
         let f = try fixture(); defer { f.home.remove() }
         let now = Date()
