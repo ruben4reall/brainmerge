@@ -38,18 +38,45 @@ public struct ProcessMonitor: Sendable {
         self.usage = { pid, _ in usage(pid) }
     }
 
+    /// A process as `ps` shows it, reduced to what the monitor needs. Its command line is read once, when the process is
+    /// made, and never kept: any program's arguments can hold a key, Claude Code's own (a session started with
+    /// `--settings`) and the Bash commands it runs (`zsh -c source ~/.claude/shell-snapshots/… && eval '…'`) included.
     public struct Running: Equatable, Sendable {
         public let pid: Int32
         public let ppid: Int32
         /// Resident memory of the process alone, in bytes.
         public let residentBytes: Int64
-        /// Empty for a process that is not Claude's (see `snapshot(psOutput:)`).
-        public let arguments: String
+        /// Claude's app itself, not a helper: the program it runs, up to its `Contents/MacOS/Claude…` name. Nil for every
+        /// other process.
+        public let claudeProgram: String?
+        /// The folder a Claude window was given with `--user-data-dir=`, up to its next `--` flag: nil for the first
+        /// account's Claude and for every process that is not a Claude window.
+        public let userDataDir: String?
+        /// Claude Code, however it was started (see `isClaudeCode(arguments:)`).
+        public let isClaudeCode: Bool
+        /// Runs from a `claude-code` folder: the Code tab's Claude Code, whose own path holds a space.
+        public let runsFromClaudeCodeFolder: Bool
         /// When it started, in mach absolute time (main instances only; nil when not asked or not given).
         public var startAbstime: UInt64?
-        public init(pid: Int32, ppid: Int32, residentBytes: Int64, arguments: String, startAbstime: UInt64? = nil) {
-            self.pid = pid; self.ppid = ppid; self.residentBytes = residentBytes; self.arguments = arguments; self.startAbstime = startAbstime
+
+        /// Takes what the monitor needs from `commandLine` and lets the line go. A shell's line (`zsh -c …`) is never
+        /// Claude's, whatever it mentions.
+        public init(pid: Int32, ppid: Int32, residentBytes: Int64, commandLine: some StringProtocol, startAbstime: UInt64? = nil) {
+            self.pid = pid; self.ppid = ppid; self.residentBytes = residentBytes; self.startAbstime = startAbstime
+            let line = String(commandLine)
+            guard line.range(of: "claude", options: .caseInsensitive) != nil, !ProcessMonitor.isShell(line) else {
+                claudeProgram = nil; userDataDir = nil; isClaudeCode = false; runsFromClaudeCodeFolder = false
+                return
+            }
+            let program = ProcessMonitor.claudeProgram(line)
+            claudeProgram = program
+            userDataDir = program == nil ? nil : ProcessMonitor.userDataDir(line)
+            isClaudeCode = ProcessMonitor.isClaudeCode(arguments: line)
+            runsFromClaudeCodeFolder = line.contains("/claude-code/")
         }
+
+        /// A Claude window: Claude's app itself, not one of its helpers.
+        public var isClaudeWindow: Bool { claudeProgram != nil }
     }
 
     /// Claude Code started outside any Claude window: how many sessions, and the RAM of their trees together.
@@ -82,11 +109,11 @@ public struct ProcessMonitor: Sendable {
             let byPid = Dictionary(all.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
             let windows = Set(mains.map(\.pid))
             return all.filter { process in
-                guard ProcessMonitor.isClaudeCode(arguments: process.arguments) else { return false }
+                guard process.isClaudeCode else { return false }
                 var seen: Set<Int32> = [process.pid]
                 var parent = process.ppid
                 while let above = byPid[parent], seen.insert(above.pid).inserted {
-                    if windows.contains(above.pid) || ProcessMonitor.isClaudeCode(arguments: above.arguments) { return false }
+                    if windows.contains(above.pid) || above.isClaudeCode { return false }
                     parent = above.ppid
                 }
                 return true
@@ -106,7 +133,7 @@ public struct ProcessMonitor: Sendable {
         /// that are Claude Code too are not counted again.
         public func claudeCodeSessions(under pid: Int32) -> Int {
             // The Code tab's own Claude Code lives in the data folder, whose path holds a space: its folder name tells it.
-            func isCode(_ p: Running) -> Bool { ProcessMonitor.isClaudeCode(arguments: p.arguments) || p.arguments.contains("/claude-code/") }
+            func isCode(_ p: Running) -> Bool { p.isClaudeCode || p.runsFromClaudeCodeFolder }
             let nodes = tree(of: pid).filter { $0.pid != pid }
             let codePids = Set(nodes.filter(isCode).map(\.pid))
             return nodes.filter { isCode($0) && !codePids.contains($0.ppid) }.count
@@ -117,7 +144,7 @@ public struct ProcessMonitor: Sendable {
         /// A Claude Code session of any account runs, in a terminal or in a window's Code tab: it may be writing notes
         /// without an edit tool, so the person's own edits wait (see OwnEdits).
         public var hasClaudeCodeSession: Bool {
-            all.contains { ProcessMonitor.isClaudeCode(arguments: $0.arguments) || $0.arguments.contains("/claude-code/") }
+            all.contains { $0.isClaudeCode || $0.runsFromClaudeCodeFolder }
         }
 
         /// Every process in a Claude window's tree or a terminal session's tree: the only ones measuring asks about.
@@ -198,12 +225,33 @@ public struct ProcessMonitor: Sendable {
         for line in psOutput.split(separator: "\n") {
             let parts = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
             guard parts.count == 4, let pid = Int32(parts[0]), let ppid = Int32(parts[1]), let rssKB = Int64(parts[2]) else { continue }
-            // Only a command line that mentions Claude is kept: any other program's arguments can hold a key.
-            let arguments = parts[3].range(of: "claude", options: .caseInsensitive) == nil ? "" : String(parts[3])
-            all.append(Running(pid: pid, ppid: ppid, residentBytes: rssKB * 1024, arguments: arguments))
+            all.append(Running(pid: pid, ppid: ppid, residentBytes: rssKB * 1024, commandLine: parts[3]))
         }
-        let mains = all.filter { $0.arguments.contains("Contents/MacOS/Claude") && !$0.arguments.contains("Claude Helper") }
-        return Snapshot(mains: mains, all: all)
+        return Snapshot(mains: all.filter(\.isClaudeWindow), all: all)
+    }
+
+    /// Shells, by their program's name (a login shell's starts with "-"): what they run is their own command line, and
+    /// Claude Code's Bash commands name its folders.
+    static let shells: Set<Substring> = ["sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "tcsh", "csh"]
+
+    static func isShell(_ commandLine: String) -> Bool {
+        guard let first = commandLine.split(separator: " ", maxSplits: 1).first else { return false }
+        let name = first.split(separator: "/").last ?? first
+        return shells.contains(name.hasPrefix("-") ? name.dropFirst() : name)
+    }
+
+    /// Claude's app itself (not a helper): its program, up to the end of its `Contents/MacOS/Claude…` name.
+    static func claudeProgram(_ commandLine: String) -> String? {
+        guard !commandLine.contains("Claude Helper"), let name = commandLine.range(of: "Contents/MacOS/Claude") else { return nil }
+        let end = commandLine[name.upperBound...].firstIndex(of: " ") ?? commandLine.endIndex
+        return String(commandLine[..<end])
+    }
+
+    /// The value of `--user-data-dir=`, up to the next `--` flag: a folder's path can hold spaces.
+    static func userDataDir(_ commandLine: String) -> String? {
+        guard let flag = commandLine.range(of: "--user-data-dir=") else { return nil }
+        let rest = commandLine[flag.upperBound...]
+        return String(rest[..<(rest.range(of: " --")?.lowerBound ?? rest.endIndex)])
     }
 
     /// For tests: a snapshot with the footprints the kernel would have given.
@@ -212,16 +260,13 @@ public struct ProcessMonitor: Sendable {
         return Snapshot(mains: plain.mains, all: plain.all, footprints: footprints)
     }
 
-    /// An argument is matched whole: `Claude-perso` must not match `Claude-perso-2`.
-    static func hasArgument(_ arguments: String, _ needle: String) -> Bool {
-        arguments.hasSuffix(needle) || arguments.contains(needle + " ")
-    }
-
+    /// A Claude window is an account's when its folder is the account's, matched whole: `Claude-perso` must not match
+    /// `Claude-perso-2`. The first account's Claude is Claude itself, with no folder given.
     public static func matches(_ process: Running, identity: Identity, paths: Paths, claude: ClaudeApp) -> Bool {
-        if identity.isPrimary {
-            return process.arguments.hasPrefix(claude.executable.path) && !process.arguments.contains("--user-data-dir=")
-        }
-        return hasArgument(process.arguments, "--user-data-dir=\(identity.desktopData(in: paths).path)")
+        guard let program = process.claudeProgram else { return false }
+        guard let folder = process.userDataDir else { return identity.isPrimary && program == claude.executable.path }
+        let wanted = identity.desktopData(in: paths).path
+        return !identity.isPrimary && (folder == wanted || folder.hasPrefix(wanted + " "))
     }
 
     public func isRunning(identity: Identity, paths: Paths, claude: ClaudeApp) throws -> Bool {

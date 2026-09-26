@@ -107,13 +107,57 @@ import BrainmergeTestSupport
         #expect(ProcessMonitor.usage(of: 99_999_999) == nil)
     }
 
-    /// Other programs' command lines can hold anything: only Claude's are kept once parsed.
-    @Test func argumentsOfOtherProcessesAreNotKept() {
+    /// Other programs keep their number, parent and size, and nothing of their command line.
+    @Test func otherProcessesKeepOnlyTheirNumbers() {
         let snapshot = ProcessMonitor.snapshot(psOutput: ps + "\n  510 1 100 /usr/bin/curl -H secret\n")
-        #expect(snapshot.all.first { $0.pid == 405 }?.arguments == "")
-        #expect(snapshot.all.first { $0.pid == 510 }?.arguments == "")
-        #expect(snapshot.all.first { $0.pid == 510 }?.residentBytes == Int64(102_400))
-        #expect(snapshot.all.first { $0.pid == 409 }?.arguments.hasSuffix("/claude") == true)
+        let curl = snapshot.all.first { $0.pid == 510 }
+        #expect(curl == ProcessMonitor.Running(pid: 510, ppid: 1, residentBytes: 102_400, commandLine: ""))
+        #expect(snapshot.all.first { $0.pid == 405 } == ProcessMonitor.Running(pid: 405, ppid: 1, residentBytes: 5_120_000, commandLine: ""))
+        // The Code tab's Claude Code is known by its folder; a window by its program and its data folder.
+        #expect(snapshot.all.first { $0.pid == 409 }?.runsFromClaudeCodeFolder == true)
+        let client = snapshot.all.first { $0.pid == 403 }
+        #expect(client?.claudeProgram == "/Applications/Claude.app/Contents/MacOS/Claude")
+        #expect(client?.userDataDir == "/Users/r/Library/Application Support/Claude-client")
+        #expect(snapshot.all.first { $0.pid == 404 }?.claudeProgram == "/Users/r/Applications/Brainmerge/Client (Claude).app/Contents/MacOS/Claude-bin")
+    }
+
+    /// Claude Code runs each Bash command as `zsh -c source ~/.claude/shell-snapshots/… && eval '…'`, and a session or an
+    /// extension can be started with a key in its arguments: no command line is kept, Claude's own included, only what the
+    /// monitor needs to know of it.
+    @Test func noCommandLineIsKeptNotEvenClaudes() {
+        let secret = "ghp_SENTINEL0123456789abcdef"
+        let lines = ps + """
+
+              600 409 2000 /bin/zsh -c source /Users/r/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'curl -H "Authorization: Bearer \(secret)" https://api.github.com/user'
+              601 1 80000 claude --settings {"env":{"ANTHROPIC_API_KEY":"\(secret)"}}
+              602 1 9000 node /Users/r/Library/Application Support/Claude/Claude Extensions/ant.dir.gh/server/index.js --token \(secret)
+              603 1 120000 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/r/Library/Application Support/Claude-work --flag=\(secret)
+            """
+        let snapshot = ProcessMonitor.snapshot(psOutput: lines)
+        var kept = ""
+        dump(snapshot, to: &kept)
+        #expect(!kept.contains(secret), "\(kept)")
+        // What the monitor needs still comes through: the session is Claude Code, each window is its account's.
+        #expect(snapshot.terminalSessions.map(\.pid) == [601])
+        #expect(snapshot.mains.map(\.pid) == [401, 403, 404, 406, 603])
+        let paths = Paths(home: URL(fileURLWithPath: "/Users/r"))
+        let claude = ClaudeApp(url: URL(fileURLWithPath: "/Applications/Claude.app"), version: "2.7032.0", bundleIdentifier: ClaudeApp.bundleIdentifier)
+        let work = Identity(slug: "work", name: "Work")
+        #expect(snapshot.mains.filter { ProcessMonitor.matches($0, identity: work, paths: paths, claude: claude) }.map(\.pid) == [603])
+    }
+
+    /// A shell's command line is never Claude, whatever it mentions: Claude Code's own Bash commands name its folders.
+    @Test func aShellIsNeverTakenForClaude() {
+        let shells = """
+          700 1 2000 /bin/zsh -c source /Users/r/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'ls "/Users/r/Library/Application Support/Claude/claude-code/2.1.0/claude"'
+          701 1 2000 /bin/bash -c node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js --version
+          702 1 2000 /bin/zsh -c open /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/r/Library/Application Support/Claude-client
+          703 1 2000 sh -c claude --resume
+        """
+        let snapshot = ProcessMonitor.snapshot(psOutput: shells)
+        #expect(!snapshot.hasClaudeCodeSession)
+        #expect(snapshot.terminalSessions.isEmpty)
+        #expect(snapshot.mains.isEmpty)
     }
 
     // MARK: Claude Code in a terminal
