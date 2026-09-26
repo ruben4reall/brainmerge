@@ -85,6 +85,22 @@ import BrainmergeTestSupport
         #expect(try e.store.load().autoRebuild == false)
     }
 
+    /// A setting's save is queued on the core queue when it is made, not once the main actor is free again: a busy main
+    /// actor neither delays it nor lets a later save overtake it.
+    @Test func aSaveIsQueuedAtOnceWhileTheMainActorIsBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let begun = DispatchSemaphore(value: 0)
+        m.saveBegins = { begun.signal() }
+        // Waits without an await, so the main actor stays held: a save that waits for it to be free never begins here.
+        func beginsWhileHeld() -> Bool { begun.wait(timeout: .now() + 5) == .success }
+        let task = m.setAutoRebuild(false)
+        #expect(beginsWhileHeld())
+        await task.value
+        #expect(try e.store.load().autoRebuild == false)
+    }
+
     @Test func choosingAnUnsignedClaudeIsRefusedAndNothingIsSaved() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)

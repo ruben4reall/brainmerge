@@ -1338,15 +1338,21 @@ public final class AppModel {
     /// The value on screen has already moved; the task ends once it is saved.
     func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
         pendingSaves[setting, default: 0] += 1
-        let store = self.store, queue = coreQueue, begins = saveBegins
+        let store = self.store, begins = saveBegins
+        // Queued now, not when the task first runs on the main actor: saves keep their order and a busy main actor
+        // cannot delay them. The task only waits for the end.
+        let saved = DispatchGroup()
+        saved.enter()
+        coreQueue.async {
+            begins()
+            // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
+            try? store.update { change(&$0) }
+            saved.leave()
+        }
         return Task {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                queue.async {
-                    begins()
-                    // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
-                    try? store.update { change(&$0) }
-                    done.resume()
-                }
+                // Sendable: an inferred main actor closure would trap when the group calls it off the main thread.
+                saved.notify(queue: .global(qos: .userInitiated)) { @Sendable in done.resume() }
             }
             pendingSaves[setting, default: 1] -= 1
         }
