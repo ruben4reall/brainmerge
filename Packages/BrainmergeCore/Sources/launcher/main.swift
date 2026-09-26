@@ -15,23 +15,33 @@ let executable = (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.
 let contents = executable.deletingLastPathComponent().deletingLastPathComponent()
 let configURL = contents.appending(path: "Resources/brainmerge.json")
 
-guard let data = try? Data(contentsOf: configURL),
-      let config = try? JSONDecoder().decode(LauncherConfig.self, from: data) else {
-    FileHandle.standardError.write(Data("brainmerge launcher: missing or invalid \(configURL.path)\n".utf8))
-    exit(2)
+/// Says why the app did not open: on standard error for a terminal, and, opened from the Dock, Finder or Spotlight
+/// (started by launchd, where nobody sees standard error), in one native alert that points to the fix.
+func fail(_ sentence: String, status: Int32) -> Never {
+    FileHandle.standardError.write(Data("brainmerge launcher: \(sentence)\n".utf8))
+    if getppid() == 1 {
+        let name = contents.deletingLastPathComponent().deletingPathExtension().lastPathComponent
+        var answer: CFOptionFlags = 0
+        _ = CFUserNotificationDisplayAlert(0, kCFUserNotificationStopAlertLevel, nil, nil, nil,
+                                           "\(name) could not open" as CFString,
+                                           "Open Brainmerge and choose Rebuild on this account. (\(sentence))" as CFString,
+                                           "OK" as CFString, nil, nil, &answer)
+    }
+    exit(status)
 }
 
-func refuse(_ sentence: String) -> Never {
-    FileHandle.standardError.write(Data("brainmerge launcher: \(sentence)\n".utf8))
-    exit(3)
+guard let data = try? Data(contentsOf: configURL),
+      let config = try? JSONDecoder().decode(LauncherConfig.self, from: data) else {
+    fail("missing or invalid \(configURL.path)", status: 2)
 }
+
+func refuse(_ sentence: String) -> Never { fail(sentence, status: 3) }
 
 func exec(_ path: String, _ arguments: [String]) -> Never {
     let cArguments: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
     execv(path, cArguments)
     let reason = String(cString: strerror(errno))
-    FileHandle.standardError.write(Data("brainmerge launcher: cannot start \(path): \(reason)\n".utf8))
-    exit(1)
+    fail("cannot start \(path): \(reason)", status: 1)
 }
 
 // The primary account's own app opens Anthropic's Claude at the path pinned in its Info.plist, and nothing else:
