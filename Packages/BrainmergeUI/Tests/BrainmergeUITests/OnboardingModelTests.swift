@@ -5,11 +5,12 @@ import BrainmergeTestSupport
 @testable import BrainmergeUI
 
 @MainActor @Suite struct OnboardingModelTests {
-    func setup(withBrain: Bool = false, removePrimaryProfile: Bool = false) throws -> (ManagerEnv, AppModel, OnboardingModel) {
+    func setup(withBrain: Bool = false, removePrimaryProfile: Bool = false,
+               monitor: ProcessMonitor? = nil) throws -> (ManagerEnv, AppModel, OnboardingModel) {
         let e = try ManagerEnv.make(withBrain: withBrain)
         if removePrimaryProfile { try FileManager.default.removeItem(at: e.home.paths.primaryCLIProfile) }
         let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
-                                      claudeAppURL: e.claude.url, registerLaunchers: false)
+                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor)
         let app = AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
         // Hermetic: never the Mac's own xcode-select or Claude Code.
         app.git = Tools(true).availability
@@ -24,6 +25,7 @@ import BrainmergeTestSupport
         private var list: [Bool] = []
         var all: [Bool] { lock.lock(); defer { lock.unlock() }; return list }
         func record(_ onMain: Bool) { lock.lock(); list.append(onMain); lock.unlock() }
+        func clear() { lock.lock(); list = []; lock.unlock() }
     }
 
     /// A git that is there or not, as a fake `xcode-select` says; `present` can change between checks.
@@ -174,6 +176,21 @@ import BrainmergeTestSupport
         await finishing.value
         #expect(app.working == nil && !app.needsOnboarding && onboarding.error == nil)
         #expect(app.accounts.first?.identity.name == "Ruben")
+    }
+
+    /// "Continue" on the first account never holds the window: the command line's lookup, the memory, the account and the
+    /// reload after them (its `ps` and the account's `.claude.json`) all run off the main thread, so the page's fade plays.
+    @Test func continueOnTheFirstAccountLeavesTheMainThreadFree() async throws {
+        let seen = Threads()
+        let (e, app, onboarding) = try setup(monitor: ProcessMonitor(psOutput: { seen.record(Thread.isMainThread); return "" }))
+        defer { e.home.remove() }
+        app.commandLine = { seen.record(Thread.isMainThread); return nil }
+        seen.clear()
+        onboarding.step = .adopt
+        onboarding.primaryName = "Ruben"
+        await onboarding.finish()
+        #expect(onboarding.error == nil && app.accounts.first?.identity.name == "Ruben")
+        #expect(seen.all.count >= 2 && !seen.all.contains(true), "\(seen.all)")
     }
 
     /// A second click on "Continue" while the first one's work runs changes nothing: one step on, one account.

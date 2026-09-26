@@ -1085,6 +1085,18 @@ import BrainmergeTestSupport
         #expect(late.showsMenuBarIcon && !late.launchSettling)
     }
 
+    /// The Claude update check reads the processes off the main thread: it runs as the clocks start, which can be the
+    /// moment a step of the guide slides in.
+    @Test func theUpdateCheckReadsTheProcessesOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let seen = OnboardingModelTests.Threads()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { seen.record(Thread.isMainThread); return "" }))
+        await m.checkClaudeUpdate()
+        #expect(!seen.all.isEmpty && !seen.all.contains(true), "\(seen.all)")
+        #expect(m.accounts.map(\.id) == ["ruben"])
+    }
+
     /// The apps made by hand that open an account are looked for before "Edit…" is chosen (the pointer over its card): the
     /// sheet then opens at once. A change to the accounts looks again.
     @Test func theAppsOfAnAccountAreFoundBeforeItsSheetOpens() async throws {

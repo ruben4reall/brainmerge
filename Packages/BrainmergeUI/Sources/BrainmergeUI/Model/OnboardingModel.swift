@@ -215,9 +215,10 @@ public final class OnboardingModel {
     /// The first account, as core work. Each account's hooks call ~/.local/bin/brainmerge: the link is set up here, with
     /// this screen's consent.
     private func primaryWork() -> @Sendable () throws -> Void {
-        let paths = app.paths, cli = app.commandLine(), manager = app.manager, name = primaryName.trimmingCharacters(in: .whitespaces)
+        let paths = app.paths, commandLine = app.commandLine, manager = app.manager, name = primaryName.trimmingCharacters(in: .whitespaces)
         return {
-            if let cli { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+            // Looked for with the rest, off the main thread: it lists the folder of the app's executable.
+            if let cli = commandLine() { try CLIInstaller.ensureLink(paths: paths, target: cli) }
             _ = try CLIProfile.create(at: paths.primaryCLIProfile, inheritingFrom: nil)
             _ = try manager.adoptPrimary(name: name)
         }

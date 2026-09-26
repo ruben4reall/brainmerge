@@ -179,7 +179,7 @@ public final class AppModel {
     /// What Settings says about the accounts' hooks, read when it opens (see `refreshHooks`); nil until then.
     public private(set) var hooks: HooksSummary?
     /// The command line embedded in this copy of the app, which the link the hooks call points at; a fake in tests.
-    @ObservationIgnored public var commandLine: () -> URL? = { AppModel.embeddedCLI }
+    @ObservationIgnored public var commandLine: @Sendable () -> URL? = { AppModel.embeddedCLI }
     /// Opens a browser; a fake in tests, which never open one.
     @ObservationIgnored public var browserRunner: @Sendable (BrowserProfiles.Command) throws -> Void = { try Shell().check($0.path, $0.arguments) }
     /// The Mac's memory pressure, injectable in tests.
@@ -288,6 +288,10 @@ public final class AppModel {
     /// Read off the main thread by the first load, then used once by `reload()` and `refreshMemory()`.
     private var prefetchedSnapshot: ProcessMonitor.Snapshot?
     private var prefetchedLog: (root: URL, entries: [BrainGit.Entry])?
+    /// What a reload read off the main thread (`reloadOffMain`), handed to `reload()` for one call.
+    @ObservationIgnored private var prefetchedRead: Read?
+    /// When the read shown now began: a read off the main thread that began before it is older, and changes nothing.
+    @ObservationIgnored private var shownRead: ContinuousClock.Instant?
 
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
@@ -368,12 +372,12 @@ public final class AppModel {
     private func loadFirstTime() async {
         let monitor = manager.monitor, store = self.store, paths = self.paths, manager = self.manager
         let demo = AppLifecycle.isCaptureOrDemo(environment: environment)
-        let cli = demo ? nil : commandLine()
+        let commandLine = self.commandLine
         let git = self.git
         let (snapshot, log, gitFound) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?, Bool) in
             let state = try? store.load()
             if !demo, state?.identities.isEmpty == false {
-                if let cli { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
+                if let cli = commandLine() { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
                 // Written only when one is not current: a launch never rewrites the settings of accounts already up to date.
                 if let health = try? manager.hooksHealth(), health.contains(where: { $0.1 != .current }) { try? manager.repairHooks() }
             }
@@ -463,6 +467,9 @@ public final class AppModel {
     /// its value changes, so as not to redraw the whole interface on every clock tick. Returns true if something changed.
     @discardableResult
     public func reload() -> Bool {
+        let began = prefetchedRead?.began ?? ContinuousClock.now
+        if let shown = shownRead, began < shown { return false }
+        shownRead = began
         var changed = false
         // With the window closed, only a reload notices that the setup or the icon changed: the clocks follow.
         let before = (needsOnboarding, showsMenuBarIcon)
@@ -491,7 +498,8 @@ public final class AppModel {
         if let selected = selectedBrainID, state.brain(id: selected) == nil { selectedBrainID = state.defaultBrain?.id }
         // The first load shows the memory picked last time, while it still exists.
         else if selectedBrainID == nil, let first = state.graphMemory.flatMap(state.brain(id:)) ?? state.defaultBrain { selectedBrainID = first.id }
-        let snapshot = prefetchedSnapshot ?? (try? manager.monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+        let snapshot = prefetchedRead?.snapshot ?? prefetchedSnapshot ?? (try? manager.monitor.snapshot(measuring: true))
+            ?? ProcessMonitor.Snapshot(mains: [], all: [])
         let claudeApp = claude
         var memory: [String: Int64] = [:]
         codeAccountsRead.formIntersection(state.identities.map(\.slug))
@@ -526,6 +534,41 @@ public final class AppModel {
         return changed
     }
 
+    /// What `reload()` reads that takes time, read off the main thread: the one `ps` of every account (with the RAM
+    /// figures), and the Claude Code login of each account never read before (its `.claude.json`, megabytes for a long-used
+    /// one).
+    struct Read: Sendable {
+        let began: ContinuousClock.Instant
+        let snapshot: ProcessMonitor.Snapshot
+        let codeAccountsRead: Set<String>
+        let codeAccounts: [String: ClaudeCodeAccount]
+    }
+
+    /// `reload()` with its `ps` and its unread logins read off the main thread first: the window only waits for the model's
+    /// own update. A read that began before the one shown now (a reload meanwhile) changes nothing.
+    func reloadOffMain() async {
+        let monitor = manager.monitor, store = self.store, paths = self.paths, known = codeAccountsRead
+        let read = await Task.detached(priority: .userInitiated) {
+            Self.read(monitor: monitor, store: store, paths: paths, known: known)
+        }.value
+        prefetchedRead = read
+        defer { prefetchedRead = nil }
+        reload()
+    }
+
+    nonisolated static func read(monitor: ProcessMonitor, store: StateStore, paths: Paths, known: Set<String>) -> Read {
+        let began = ContinuousClock.now
+        let snapshot = (try? monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
+        var read: Set<String> = [], accounts: [String: ClaudeCodeAccount] = [:]
+        for identity in (try? store.load())?.identities ?? [] where !known.contains(identity.slug) {
+            read.insert(identity.slug)
+            if identity.surfaces.cli, let account = ClaudeCodeAccount.read(profile: CLIProfile(directory: identity.cliProfile(in: paths))) {
+                accounts[identity.slug] = account
+            }
+        }
+        return Read(began: began, snapshot: snapshot, codeAccountsRead: read, codeAccounts: accounts)
+    }
+
     public func ramBytes(of slug: String) -> Int64 { ramBySlug[slug] ?? 0 }
 
     /// What the screen shows of the Mac's RAM, to a tenth of a GB, and the pressure.
@@ -556,6 +599,10 @@ public final class AppModel {
     private func readCodeAccounts(of identities: [Identity]) {
         for identity in identities {
             codeAccountsRead.insert(identity.slug)
+            if let read = prefetchedRead, read.codeAccountsRead.contains(identity.slug) {
+                codeAccounts[identity.slug] = read.codeAccounts[identity.slug]
+                continue
+            }
             codeAccounts[identity.slug] = identity.surfaces.cli
                 ? codeAccountCache.account(profile: CLIProfile(directory: identity.cliProfile(in: paths)))
                 : nil
@@ -1107,9 +1154,10 @@ public final class AppModel {
         let result: Result<T, Error> = await withCheckedContinuation { continuation in
             queue.async { continuation.resume(returning: Result { try work() }) }
         }
-        // Every change to accounts, their folders or their apps runs here, the automatic rebuilds included.
+        // Every change to accounts, their folders or their apps runs here, the automatic rebuilds included. The list is
+        // read again off the main thread: a step of the guide may be sliding in.
         diskChanged()
-        reload()
+        await reloadOffMain()
         return result
     }
 
@@ -1403,7 +1451,7 @@ public final class AppModel {
     /// rebuilds it anyway. Each account is looked at again when its turn comes, as an earlier step may have changed it.
     /// A failure is said once per Claude version, so the same failure never comes back every few minutes.
     public func checkClaudeUpdate() async {
-        reload()
+        await reloadOffMain()
         guard let claude, !checkingClaudeUpdate else { return }
         checkingClaudeUpdate = true
         defer { checkingClaudeUpdate = false }
