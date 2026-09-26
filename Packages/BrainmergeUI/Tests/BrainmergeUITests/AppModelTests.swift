@@ -1,14 +1,183 @@
 import Foundation
+import Observation
 import Testing
 import BrainmergeCore
 import BrainmergeTestSupport
 @testable import BrainmergeUI
 
 @MainActor @Suite struct AppModelTests {
+    /// Hermetic: no process of the real Mac and no real RAM figure, which move between two reloads.
     func model(_ e: ManagerEnv, monitor: ProcessMonitor? = nil) -> AppModel {
         let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
-                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor)
-        return AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor ?? ProcessMonitor(psOutput: { "" }))
+        let model = AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+        model.readMacMemory = { _ in nil }
+        model.git = OnboardingModelTests.Tools(true).availability
+        return model
+    }
+
+    @Test func aDamagedStateShowsItsOwnScreenNeverTheSetup() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        try Data("{ broken".utf8).write(to: e.home.paths.stateFile)
+        let m = model(e)
+        m.reload()
+        #expect(m.stateProblem == .damaged)
+        #expect(!m.needsOnboarding)
+        #expect(StateProblem.damaged.detail(canRestore: true) == "The file is damaged. A copy from before your last change is available.")
+        #expect(m.canRestorePreviousState)
+        await m.restorePreviousState()
+        #expect(m.stateProblem == nil)
+        #expect(m.accounts.map(\.identity.slug) == ["ruben"])
+    }
+
+    @Test func aStateFromANewerVersionSaysSo() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        try Data(#"{"schemaVersion": 3, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#.utf8)
+            .write(to: e.home.paths.stateFile)
+        let m = model(e)
+        m.reload()
+        #expect(m.stateProblem == .tooNew(3))
+        #expect(!m.needsOnboarding)
+        #expect(StateProblem.tooNew(3).detail(canRestore: false) == "It was written by a newer Brainmerge (version 3 of the file). Your accounts, memories and logins are untouched.")
+        #expect(StateProblem.title == "Brainmerge can't read its list of accounts")
+    }
+
+    @Test func aDamagedStateWithNoCopyToPutBackOffersNone() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        try Data("{ broken".utf8).write(to: e.home.paths.stateFile)
+        // The copy from before is damaged too: offering it would only bring this screen back.
+        try Data("{ also broken".utf8).write(to: e.store.previousFile)
+        let m = model(e)
+        m.reload()
+        #expect(m.stateProblem == .damaged)
+        #expect(!m.canRestorePreviousState)
+        #expect(StateProblem.damaged.detail(canRestore: false) == "The file is damaged. Your accounts, memories and logins are untouched.")
+    }
+
+    /// The command line holds the state lock through its own change: a setting saved meanwhile waits for it.
+    @Test func settingsAreSavedUnderTheStateLock() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let begun = DispatchSemaphore(value: 0)
+        m.saveBegins = { begun.signal() }
+        let held = try e.store.lock()
+        let task = m.setAutoRebuild(false)
+        let paths = e.home.paths
+        // Off the main actor, which other suites keep busy: the wait starts only once the save really runs on the core
+        // queue, and the lock is released on time whatever the main actor does (the save gives up after 10 s).
+        // nil: the save never began, or the file could not be read.
+        let whileHeld: Bool? = await withCheckedContinuation { done in
+            Thread.detachNewThread {
+                guard begun.wait(timeout: .now() + 30) == .success else { held.release(); done.resume(returning: nil); return }
+                // An unlocked write would land within microseconds of the start.
+                Thread.sleep(forTimeInterval: 0.3)
+                let value = try? StateStore(paths: paths).load().autoRebuild
+                held.release()
+                done.resume(returning: value)
+            }
+        }
+        #expect(whileHeld == true)
+        await task.value
+        #expect(try e.store.load().autoRebuild == false)
+    }
+
+    /// A setting the state could not take (its folder refuses the write, or the command line held the lock past its
+    /// 10 s) is said, and the switch goes back to what is saved: never a value that moved on screen but not in the file.
+    @Test func aSettingThatCouldNotBeSavedIsSaidAndGoesBack() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        #expect(m.autoRebuild)
+        let folder = e.home.paths.appSupport
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        await m.setAutoRebuild(false).value
+        #expect(m.message != nil)
+        #expect(m.autoRebuild, "the switch shows what is saved")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        #expect(try e.store.load().autoRebuild)
+    }
+
+    /// A setting's save is queued on the core queue when it is made, not once the main actor is free again: a busy main
+    /// actor neither delays it nor lets a later save overtake it.
+    @Test func aSaveIsQueuedAtOnceWhileTheMainActorIsBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let begun = DispatchSemaphore(value: 0)
+        m.saveBegins = { begun.signal() }
+        // Waits without an await, so the main actor stays held: a save that waits for it to be free never begins here.
+        func beginsWhileHeld() -> Bool { begun.wait(timeout: .now() + 5) == .success }
+        let task = m.setAutoRebuild(false)
+        #expect(beginsWhileHeld())
+        await task.value
+        #expect(try e.store.load().autoRebuild == false)
+    }
+
+    @Test func choosingAnUnsignedClaudeIsRefusedAndNothingIsSaved() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.claudeLocator = ClaudeLocator(paths: e.home.paths, folders: [], launchServices: { [] }, isSigned: { _ in false })
+        let refusal = await m.chooseClaude(e.claude.url)
+        #expect(refusal?.detail == "This copy of Claude is not signed by Anthropic. Brainmerge only opens the official app.")
+        #expect(try e.store.load().claudeAppPath == nil)
+    }
+
+    @Test func choosingASignedClaudeIsSavedForTheNextLaunch() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.claudeLocator = ClaudeLocator(paths: e.home.paths, folders: [], launchServices: { [] }, isSigned: { _ in true })
+        #expect(await m.chooseClaude(e.claude.url) == nil)
+        #expect(try e.store.load().claudeAppPath == e.claude.url.path)
+    }
+
+    @Test func choosingAnAppThatIsNotClaudeSaysSo() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.claudeLocator = ClaudeLocator(paths: e.home.paths, folders: [], launchServices: { [] }, isSigned: { _ in true })
+        let other = e.home.url.appending(path: "Notes.app", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        let refusal = await m.chooseClaude(other)
+        #expect(refusal?.detail == "This app is not Claude. Brainmerge only opens the official app.")
+        #expect(try e.store.load().claudeAppPath == nil)
+    }
+
+    @Test func withoutGitTheMemorySaysHistoryNeedsIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.git = OnboardingModelTests.Tools(false).availability
+        #expect(await m.checkGit() == false)
+        #expect(!m.gitAvailable)
+        #expect(AppModel.historyNeedsGit == "History needs git. Install Apple's tools")
+    }
+
+    @Test func theMemoryScreenNoticesAppleToolsOnceInstalled() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        let tools = OnboardingModelTests.Tools(false)
+        m.git = tools.availability
+        await m.checkGit()
+        #expect(!m.gitAvailable)
+        // Apple's installer finished meanwhile: the next check sees it, the cached answer does not hide it.
+        tools.present = true
+        #expect(await m.checkGit())
+        #expect(m.gitAvailable)
+    }
+
+    @Test func gitIsCheckedOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        let seen = OnboardingModelTests.Threads()
+        m.git = GitAvailability(shell: Shell { _, _, _, _ in
+            seen.record(Thread.isMainThread)
+            return ShellResult(status: 0, stdout: "/Tools\n", stderr: "")
+        }, isExecutable: { _ in true })
+        await m.checkGit()
+        #expect(seen.all == [false])
     }
 
     @Test func listsAccountsWithRunningFlags() throws {
@@ -213,6 +382,17 @@ import BrainmergeTestSupport
     }
 
 
+    /// New memory shows a failure's own button, like the Memory screen: without git, "Install Apple's tools", a plain
+    /// glass button next to the sheet's one purple Create.
+    @Test func newMemoryWithoutGitOffersApplesTools() throws {
+        #expect(NewMemorySheet.offersAppleTools(AppModel.sentence(for: BrainmergeError.gitUnavailable).action))
+        #expect(!NewMemorySheet.offersAppleTools(AppModel.sentence(for: BrainmergeError.lockTimeout).action))
+        #expect(!NewMemorySheet.offersAppleTools(nil))
+        let sheet = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens/NewMemorySheet.swift"), encoding: .utf8)
+        #expect(sheet.contains(#"Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass)"#))
+    }
+
     @Test func errorsBecomeSentences() {
         #expect(AppModel.sentence(for: BrainmergeError.claudeAppNotFound("/Applications/Claude.app")).title == "Claude isn't installed")
         #expect(AppModel.sentence(for: BrainmergeError.claudeAppNotFound("/Applications/Claude.app")).action == .getClaude)
@@ -220,11 +400,16 @@ import BrainmergeTestSupport
         #expect(AppModel.sentence(for: BrainmergeError.brainNotConfigured).action == .openSettings)
         #expect(AppModel.sentence(for: BrainmergeError.identityNameTaken("Client")).detail == "There is already an account called Client. Pick another name.")
         #expect(AppModel.sentence(for: BrainmergeError.brainNotConfigured).title == "Choose where the memory lives first")
-        #expect(AppModel.sentence(for: BrainmergeError.lockTimeout).title == "The memory is busy")
+        #expect(AppModel.sentence(for: BrainmergeError.lockTimeout).detail == "Another Brainmerge process is saving. Try again in a few seconds.")
+        // Never a terminal command: the same button as the setup and the Memory screen.
+        let git = AppModel.sentence(for: BrainmergeError.gitUnavailable)
+        #expect(git.title == "History needs git")
+        #expect(git.action == .installAppleTools && git.actionLabel == "Install Apple's tools")
+        #expect(!git.detail.contains("xcode-select"))
         #expect(AppModel.sentence(for: NSError(domain: "x", code: 1)).title == "Something went wrong")
     }
 
-    @Test func openOnARunningAccountShowsItInsteadOfLaunchingAgain() throws {
+    @Test func openOnARunningAccountShowsItInsteadOfLaunchingAgain() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
@@ -232,14 +417,18 @@ import BrainmergeTestSupport
         let exe = e.claude.executable.path
         let m = model(e, monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe) --user-data-dir=\(data)\n" }))
         m.reload()
-        m.open("client")
+        let launched = CoreWorkTests.Log()
+        m.launchAccount = { _, slug in launched.add(slug) }
+        let showing = m.open("client")
         // No second launch on the same data folder: no opening aura, no message.
         #expect(m.opening.isEmpty)
+        await showing?.value
+        #expect(m.opening.isEmpty && launched.entries.isEmpty)
         #expect(m.message == nil)
         #expect(m.lastShownProcess == 900)
     }
 
-    @Test func addingAnAccountWhileAnotherIsOpenAsksToQuitFirst() async throws {
+    @Test func addingAnAccountWhileAnotherIsOpenLeadsToItsLogIn() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let exe = e.claude.executable.path
@@ -248,11 +437,18 @@ import BrainmergeTestSupport
         var form = AddAccountForm(); form.name = "Work"
         #expect(await m.add(form))
         #expect(m.accounts.map(\.identity.slug).contains("work"))
-        // The login link would open in the window that's already running: no launch, a sentence and a button.
+        // The login link would open in the window that's already running: no launch and no alert, but the Log in
+        // sheet once the add sheet has gone (two sheets never show at once). Nothing is closed before Start.
         #expect(m.opening.isEmpty)
-        #expect(m.message?.title == "Close your other Claude windows first")
-        #expect(m.message?.action == .quitOthersThenOpen(slug: "work"))
+        #expect(m.message == nil)
+        #expect(m.login == nil)
+        m.beginPendingLogin()
+        #expect(m.login?.title == "Log in to Work")
+        #expect(m.login?.step == .ready)
         #expect(m.working == nil)
+        m.cancelLogin()
+        m.beginPendingLogin()
+        #expect(m.login == nil)
     }
 
     @Test func addingWithoutOpeningJustAdds() async throws {
@@ -296,23 +492,128 @@ import BrainmergeTestSupport
         #expect(try e.store.load().identity(slug: "client")?.name == "Client")
     }
 
+    nonisolated static let mb: Int64 = 1024 * 1024
+    /// 16 GB, 9 GB used (pages of 16 KB, 65,536 per GB).
+    nonisolated static func mac(_ level: MemoryPressure.Level) -> MacMemory {
+        MacMemory(physical: 16 << 30, pageSize: 16_384, pages: .init(internalPages: 5 * 65_536, purgeable: 0, external: 65_536,
+                                                                     wired: 3 * 65_536, compressor: 65_536, free: 1000), swapUsed: 0, pressure: level)
+    }
+
+    /// The cards, the subtitle and the warning use one number per account: Activity Monitor's (the footprint of each
+    /// process of its tree), the resident size where the kernel gave none.
     @Test func memoryPerAccountAndAWarningUnderPressure() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
         let data = client.desktopData(in: e.home.paths).path
         let exe = e.claude.executable.path
-        let ps = "  800 1 50000 \(exe)\n  900 1 100000 \(exe) --user-data-dir=\(data)\n  901 900 400000 \(exe.replacingOccurrences(of: "MacOS/Claude", with: "Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper")) --type=renderer\n"
-        let m = model(e, monitor: ProcessMonitor(psOutput: { ps }))
+        let helper = exe.replacingOccurrences(of: "MacOS/Claude", with: "Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper")
+        let ps = "  800 1 50000 \(exe)\n  900 1 100000 \(exe) --user-data-dir=\(data)\n  901 900 400000 \(helper) --type=renderer\n"
+            + "  950 1 3000 -zsh\n  951 950 70000 claude --resume\n"
+        let footprints: [Int32: Int64] = [900: 300 * Self.mb, 901: 150 * Self.mb, 951: 90 * Self.mb]
+        let m = model(e, monitor: ProcessMonitor(psOutput: { ps }, footprint: { footprints[$0] }))
         m.memoryPressure = { .warning }
+        m.readMacMemory = { Self.mac($0) }
         m.reload()
-        #expect(m.residentBytes(of: "client") == Int64(500_000) * 1024)
-        #expect(m.residentBytes(of: "ruben") == Int64(50_000) * 1024)
-        #expect(m.totalResidentBytes == Int64(550_000) * 1024)
-        #expect(m.memoryWarning?.contains("2 open accounts") == true)
+        #expect(m.ramBytes(of: "client") == 450 * Self.mb)
+        #expect(m.ramBytes(of: "ruben") == 50_000 * 1024)          // no footprint: its resident size
+        #expect(m.totalRAMBytes == 450 * Self.mb + 50_000 * 1024)
+        #expect(m.terminalUse == ProcessMonitor.TerminalUse(sessions: 1, bytes: 90 * Self.mb))
+        #expect(m.macMemory == Self.mac(.warning))
+        #expect(m.memoryWarning == "Your Mac is running low on RAM. 2 open accounts use 499 MB. Close the ones you don't use.")
         m.memoryPressure = { .normal }
         m.reload()
         #expect(m.memoryWarning == nil)
+        #expect(m.macMemory?.pressure == .normal)
+    }
+
+    /// The first load, off the main thread, measures too: the first screen never shows resident sizes first.
+    @Test func theFirstLoadMeasuresToo() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let exe = e.claude.executable.path
+        let m = model(e, monitor: ProcessMonitor(psOutput: { "  800 1 50000 \(exe)\n" }, footprint: { $0 == 800 ? 70 * Self.mb : nil }))
+        await m.launch(minimum: .zero)
+        #expect(m.ramBytes(of: "ruben") == 70 * Self.mb)
+    }
+
+    /// Disk sizes are walked when the screen asks, at most every few minutes unless asked again; any change to the
+    /// accounts makes the next ask walk again.
+    @Test func refreshDiskIsThrottledAndForced() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        let walks = PSCounter()
+        m.diskMeasure = { root, _ in walks.bump(); return root.part == .claudeCode ? DiskSize(bytes: 5_000_000, complete: true) : nil }
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        await m.refreshDisk(now: start)
+        let perPass = walks.value
+        #expect(perPass >= 2)
+        #expect(m.disk["ruben"]?.bytes(.claudeCode) == 5_000_000)
+        #expect(m.diskMeasuredAt == start)
+        #expect(!m.diskMeasuring)
+        await m.refreshDisk(now: start.addingTimeInterval(60))
+        #expect(walks.value == perPass)
+        await m.refreshDisk(force: true, now: start.addingTimeInterval(61))
+        #expect(walks.value == 2 * perPass)
+        await m.refreshDisk(now: start.addingTimeInterval(61 + 301))
+        #expect(walks.value == 3 * perPass)
+        var form = AddAccountForm(); form.name = "Work"
+        #expect(await m.add(form, open: false))
+        #expect(m.diskMeasuredAt == nil)
+        await m.refreshDisk(now: start.addingTimeInterval(400))
+        #expect(m.disk["work"] != nil)
+    }
+
+    /// An account added or removed outside the app (`brainmerge add` in a terminal) arrives through a reload: the next
+    /// pass of the Usage screen, a few seconds later, walks again and measures it.
+    @Test func anAccountAddedFromTheCommandLineIsMeasuredAtTheNextPass() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        m.diskMeasure = { _, _ in DiskSize(bytes: 1_000, complete: true) }
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        await m.refreshDisk(now: start)
+        #expect(m.diskMeasuredAt == start && m.disk["work"] == nil)
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        m.reload()
+        #expect(m.diskMeasuredAt == nil)
+        await m.refreshDisk(now: start.addingTimeInterval(5))
+        #expect(m.disk["work"] != nil)
+        // A reload that changes nothing keeps the measure.
+        m.reload()
+        #expect(m.diskMeasuredAt == start.addingTimeInterval(5))
+    }
+
+    /// Leaving the screen stops the walk: nothing half counted is kept, and the next visit walks again. Bounded: a walk
+    /// that is never told to stop gives up at one deadline shared by every root, two minutes after the test began, and
+    /// fails the test instead of hanging it (wide bounds: the main actor is shared by the whole suite, so a step of this
+    /// test can wait its turn for a long time).
+    @Test(.timeLimit(.minutes(5))) func leavingTheScreenCancelsTheWalk() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.reload()
+        let started = PSCounter(), stopped = PSCounter()
+        let deadline = Date().addingTimeInterval(120)
+        m.diskMeasure = { _, cancelled in
+            started.bump()
+            while !cancelled(), Date() < deadline { usleep(1000) }
+            if cancelled() { stopped.bump() }
+            return DiskSize(bytes: 1, complete: false)
+        }
+        let visit = Task { await m.refreshDisk() }
+        while started.value == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(started.value > 0, "the walk never started")
+        #expect(m.diskMeasuring)
+        visit.cancel()
+        await visit.value
+        #expect(stopped.value > 0, "the walk was not told to stop")
+        #expect(!m.diskMeasuring)
+        #expect(m.disk.isEmpty)
+        #expect(m.diskMeasuredAt == nil)
     }
 
     @Test func aFailedAutomaticRebuildIsReportedOncePerClaudeVersion() async throws {
@@ -646,6 +947,459 @@ import BrainmergeTestSupport
         while ps.value == 0, waited < 500 { try await Task.sleep(for: .milliseconds(20)); waited += 1 }
         try await Task.sleep(for: .milliseconds(100))
         #expect(ps.value == 1)
+    }
+
+    // MARK: The menu bar
+
+    /// A model past the splash, with no capture or demo variable: the icon's own rules decide.
+    func readyModel(_ e: ManagerEnv, monitor: ProcessMonitor? = nil) async -> AppModel {
+        let m = model(e, monitor: monitor)
+        m.environment = [:]
+        await m.launch(minimum: .zero)
+        return m
+    }
+
+    /// The graph shows a vault picked from Obsidian's list, remembers it, and goes back to the memory when asked or
+    /// when the vault's folder is gone. A folder Obsidian never opened is not offered as a vault.
+    @Test func theGraphShowsAChosenVaultAndRemembersIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        #expect(m.graphTarget == GraphTarget(root: e.brain.root, style: .memory))
+        #expect(m.graphSource == .memory("shared"))
+        let vault = e.home.url.appending(path: "Notes Vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        let list = e.home.paths.obsidianVaultList
+        try FileManager.default.createDirectory(at: list.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"vaults": {"a": {"path": "\#(vault.path)"}}}"#.utf8).write(to: list)
+        await m.refreshVaults()
+        #expect(m.obsidianVaults.map(\.path) == [vault.standardizedFileURL.path])
+        await m.selectGraphSource(.vault(vault.path)).value
+        #expect(m.graphTarget == GraphTarget(root: URL(fileURLWithPath: vault.path, isDirectory: true), style: .vault))
+        #expect(m.graphSource == .vault(vault.path))
+        #expect(try e.store.load().graphVault == vault.path)
+        let fresh = model(e)
+        fresh.reload()
+        #expect(fresh.graphTarget.style == .vault)
+        // Back to the memory.
+        await m.selectGraphSource(.memory("shared")).value
+        #expect(m.graphTarget.style == .memory && m.graphVault == nil)
+        #expect(try e.store.load().graphVault == nil)
+        // A folder picked by hand must be a vault; a plain one is explained, not shown.
+        let plain = e.home.url.appending(path: "Plain", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: plain, withIntermediateDirectories: true)
+        await m.chooseVault(plain).value
+        #expect(m.message?.title == "Not an Obsidian vault")
+        #expect(m.graphTarget.style == .memory && m.graphVault == nil)
+        await m.chooseVault(vault).value
+        #expect(m.graphTarget.style == .vault)
+        // The vault's folder goes away. The disk is not looked at on every redraw: the next time the screen opens, the
+        // memory shows, and the choice waits for the folder to come back.
+        try FileManager.default.removeItem(at: vault)
+        #expect(m.graphTarget.style == .vault)
+        await m.refreshVaults()
+        #expect(m.graphTarget == GraphTarget(root: e.brain.root, style: .memory))
+        #expect(m.graphVault == vault.path)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        await m.refreshVaults()
+        #expect(m.graphTarget.style == .vault)
+    }
+
+    /// Looking at a vault's folder can make macOS ask for consent and wait for the answer: it never runs on the main
+    /// thread, whether the graph shows, a listed vault is picked or a folder is chosen.
+    @Test func vaultFoldersAreLookedAtOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let vault = e.home.url.appending(path: "Notes Vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        let log = MainThreadLog()
+        m.isVaultGone = { log.record(); return ObsidianVaults.isGone($0) }
+        m.isVaultFolder = { log.record(); return ObsidianVaults.isVault($0) }
+        await m.chooseVault(vault).value
+        await m.selectGraphSource(.vault(vault.path)).value
+        await m.refreshVaults()
+        #expect(m.graphTarget.style == .vault)
+        #expect(log.onMain.count == 3)
+        #expect(!log.onMain.contains(true))
+    }
+
+    /// A vault picked, then a memory picked before the vault's folder was looked at: the later choice wins.
+    @Test func theLastPickWinsWhileAVaultIsLookedAt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let vault = e.home.url.appending(path: "Notes Vault", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: vault.appending(path: ".obsidian"), withIntermediateDirectories: true)
+        m.isVaultGone = { Thread.sleep(forTimeInterval: 0.2); return ObsidianVaults.isGone($0) }
+        let slow = m.selectGraphSource(.vault(vault.path))
+        await m.selectGraphSource(.memory("shared")).value
+        await slow.value
+        #expect(m.graphVault == nil && m.graphTarget.style == .memory)
+        #expect(try e.store.load().graphVault == nil)
+    }
+
+    /// The memory picked in the graph's source menu is remembered like a vault: the next launch shows it again. A memory
+    /// forgotten since gives way to the default one.
+    @Test func theMemoryPickedForTheGraphIsRemembered() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        let m = model(e)
+        m.reload()
+        #expect(m.graphSource == .memory("shared"))
+        await m.selectGraphSource(.memory("work")).value
+        #expect(m.graphSource == .memory("work"))
+        #expect(try e.store.load().graphMemory == "work")
+        let fresh = model(e)
+        fresh.reload()
+        #expect(fresh.selectedBrainID == "work" && fresh.graphSource == .memory("work"))
+        try e.manager.forgetBrain(id: "work")
+        let later = model(e)
+        later.reload()
+        #expect(later.selectedBrainID == "shared" && later.graphSource == .memory("shared"))
+    }
+
+    /// Obsidian may list a vault whose folder is gone (it is listed unlooked at when macOS guards its place): picking it
+    /// says so and keeps the graph as it was.
+    @Test func pickingAVaultThatIsGoneSaysSo() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let gone = e.home.url.appending(path: "Documents/Old Vault", directoryHint: .isDirectory).path
+        await m.selectGraphSource(.vault(gone)).value
+        #expect(m.message?.title == "Vault not found")
+        #expect(m.graphVault == nil && m.graphTarget.style == .memory)
+        #expect(try e.store.load().graphVault == nil)
+    }
+
+    @Test func menuBarSettingPersists() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        #expect(m.menuBarIcon && m.showsMenuBarIcon)
+        await m.setMenuBarIcon(false).value
+        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
+        #expect(try e.store.load().menuBarIcon == false)
+        let fresh = model(e)
+        fresh.reload()
+        #expect(!fresh.menuBarIcon)
+        // The guided setup on screen, a capture, or no memory yet: no icon, whatever the setting.
+        await m.setMenuBarIcon(true).value
+        #expect(m.showsMenuBarIcon)
+        m.setupGuideShown = true
+        #expect(!m.showsMenuBarIcon)
+        m.setupGuideShown = false
+        m.environment = ["BRAINMERGE_CAPTURE": "1"]
+        #expect(!m.showsMenuBarIcon)
+        let bare = try ManagerEnv.make(withBrain: false); defer { bare.home.remove() }
+        let b = await readyModel(bare)
+        #expect(b.menuBarIcon && !b.showsMenuBarIcon)
+    }
+
+    /// While the launch's creature is still in the air, the icon and the app menu's routes wait: inserting the icon and
+    /// rebuilding the main menu would land on the first frames of the leap. Once it has landed, or a few seconds later
+    /// whatever happens to the window, they come.
+    @Test func theIconWaitsForTheLaunchToLand() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.environment = [:]
+        await m.launch(minimum: .zero) { m.launchSettling = true }
+        #expect(m.launchPhase == .ready)
+        #expect(!m.showsMenuBarIcon && !m.setupDone)
+        m.launchSettling = false
+        #expect(m.showsMenuBarIcon && m.setupDone)
+        // A window that never says it landed (hidden, closed mid-leap) holds them only for a while.
+        let late = model(e)
+        late.environment = [:]
+        late.settlingLimit = .milliseconds(30)
+        await late.launch(minimum: .zero) { late.launchSettling = true }
+        #expect(!late.showsMenuBarIcon)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(late.showsMenuBarIcon && !late.launchSettling)
+    }
+
+    /// While a creature is in the air (the launch's leap, the guide's last one), the clocks wait: a reload's `ps`, a
+    /// memory's `git log` would take the main thread from its frames. Each clock that came due ticks once it has landed.
+    @Test func theClocksWaitForTheLanding() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let counter = PSCounter()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { counter.bump(); return "" }))
+        m.reload()
+        let before = counter.value
+        m.launchSettling = true
+        m.tick(.instances)
+        m.tick(.instances)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(counter.value == before)
+        m.launchSettling = false
+        for _ in 0..<200 where counter.value == before { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(counter.value == before + 1)
+        m.tick(.instances)
+        for _ in 0..<200 where counter.value == before + 1 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(counter.value == before + 2)
+    }
+
+    /// The Claude update check reads the processes off the main thread: it runs as the clocks start, which can be the
+    /// moment a step of the guide slides in.
+    @Test func theUpdateCheckReadsTheProcessesOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let seen = OnboardingModelTests.Threads()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { seen.record(Thread.isMainThread); return "" }))
+        await m.checkClaudeUpdate()
+        #expect(!seen.all.isEmpty && !seen.all.contains(true), "\(seen.all)")
+        #expect(m.accounts.map(\.id) == ["ruben"])
+    }
+
+    /// The apps made by hand that open an account are looked for before "Edit…" is chosen (the pointer over its card): the
+    /// sheet then opens at once. A change to the accounts looks again.
+    ///
+    /// The pointer alone never reads the browsers' Local State nor the accounts' server names (SECURITY.md: only when an
+    /// edit sheet opens): those wait for "Edit…".
+    @Test func theAppsOfAnAccountAreFoundBeforeItsSheetOpens() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let m = model(e)
+        let browsersRead = OnboardingModelTests.Threads()
+        m.findBrowsers = { _ in browsersRead.record(Thread.isMainThread); return [] }
+        m.reload()
+        #expect(m.knownOtherApps("work") == nil)
+        #expect(!m.connectionsKnown("work"))
+        await m.prefetchOtherApps("work")
+        #expect(m.knownOtherApps("work") != nil)
+        #expect(browsersRead.all.isEmpty, "the pointer over a card read the browsers' profiles")
+        #expect(m.mcpServers("work") == nil && !m.connectionsKnown("work"), "the pointer over a card read the server names")
+        // "Edit…": read now, before the sheet opens.
+        _ = await m.prepareEdit("work")
+        #expect(browsersRead.all.count == 1 && m.connectionsKnown("work"))
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Studio"))
+        m.reload()
+        #expect(m.knownOtherApps("work") == nil)
+    }
+
+    /// The switch is saved after any work already on the core queue (a rebuild saves the state too), and a reload in
+    /// between does not flip it back.
+    @Test func theSwitchHoldsWhileItsSaveWaitsForTheCoreQueue() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        let slow = Task { _ = await m.outcome("Rebuilding Work…") { Thread.sleep(forTimeInterval: 0.3) } }
+        while m.working == nil { await Task.yield() }
+        let save = m.setMenuBarIcon(false)
+        m.reload()
+        #expect(!m.menuBarIcon)
+        #expect(try e.store.load().menuBarIcon == true)
+        await save.value
+        await slow.value
+        m.reload()
+        #expect(!m.menuBarIcon)
+        #expect(try e.store.load().menuBarIcon == false)
+    }
+
+    /// The scenes read whether the icon shows: an account opening or closing must not draw them again (that would
+    /// rebuild the window's root view on every clock tick), only a change of the answer.
+    @Test func theIconAnswerChangesOnlyWithItself() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let exe = e.claude.url.appending(path: "Contents/MacOS/Claude").path
+        let ps = PSOutput()
+        let m = await readyModel(e, monitor: ProcessMonitor(psOutput: { ps.text }))
+        let touched = Tally()
+        func watch() {
+            withObservationTracking { _ = m.showsMenuBarIcon; _ = m.setupDone } onChange: { MainActor.assumeIsolated { touched.count += 1 } }
+        }
+        watch()
+        ps.text = "  800 1 90000 \(exe)\n"
+        m.reload()
+        #expect(m.openAccounts.count == 1)
+        #expect(touched.count == 0)
+        m.setupGuideShown = true
+        #expect(touched.count == 1)
+        #expect(!m.showsMenuBarIcon && !m.setupDone)
+    }
+
+    /// With the icon, closing the window keeps the clocks the menu needs; without it, nothing runs.
+    @Test func closingTheWindowKeepsTheClocksWithTheIcon() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        #expect(m.watchedClocks == Set(Watchers.Clock.allCases))
+        m.windowDisappeared()
+        #expect(m.watchedClocks == [.instances, .projects, .claude])
+        await m.setMenuBarIcon(false).value
+        #expect(!m.isWatching)
+        m.windowAppeared()
+        #expect(m.watchedClocks == Set(Watchers.Clock.allCases))
+        m.windowDisappeared()
+        #expect(!m.isWatching)
+        // The guide on screen stops the background clocks too, and a state that needs the setup again stops them all.
+        await m.setMenuBarIcon(true).value
+        #expect(m.isWatching)
+        m.setupGuideShown = true
+        #expect(!m.isWatching)
+        m.setupGuideShown = false
+        #expect(m.isWatching)
+        var state = try e.store.load()
+        state.identities = []
+        try e.store.save(state)
+        m.reload()
+        #expect(m.needsOnboarding && !m.isWatching)
+    }
+
+    /// With the window closed and the icon shown, the minute clock keeps new projects and emails current but reads no
+    /// transcripts: the usage is only on screen. It reads them again once the window is back.
+    @Test func theMinuteClockReadsNoUsageWithTheWindowClosed() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        m.windowDisappeared()
+        #expect(m.watchedClocks.contains(.projects))
+        await m.onProjectsTick()?.value
+        #expect(m.usageUpdatedAt == nil)
+        m.windowAppeared()
+        await m.onProjectsTick()?.value
+        #expect(m.usageUpdatedAt != nil)
+    }
+
+    /// Dragging the icon out of the menu bar turns the switch off. With the window closed, Brainmerge would be left
+    /// running with no window and no icon: the window opens again. SwiftUI echoing a removal after the app hid the icon
+    /// itself (the guide, a capture) changes nothing.
+    @Test func draggingTheIconOutWithNoWindowReopensIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        #expect(m.menuBarIconRemoved() == false)
+        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
+        await m.setMenuBarIcon(true).value
+        m.windowDisappeared()
+        #expect(m.menuBarIconRemoved() == true)
+        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
+        await m.setMenuBarIcon(true).value
+        #expect(try e.store.load().menuBarIcon == true)
+        m.setupGuideShown = true
+        #expect(m.menuBarIconRemoved() == false)
+        #expect(m.menuBarIcon)
+    }
+
+    /// A setting changed while core work runs is saved after it on the core queue: the work saving the state it read
+    /// before (a rebuild records its Claude version) never undoes it, and a reload meanwhile does not flip it back.
+    @Test func settingsChangedDuringCoreWorkAreKept() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        let store = e.store
+        let slow = Task {
+            _ = await m.outcome("Rebuilding Work…") {
+                let state = try store.load()
+                Thread.sleep(forTimeInterval: 0.3)
+                try store.save(state)
+            }
+        }
+        while m.working == nil { await Task.yield() }
+        m.setAutoRebuild(false)
+        m.setNotesApp("md.obsidian")
+        m.setLanguage(.fr)
+        m.reload()
+        #expect(!m.autoRebuild && m.notesApp == "md.obsidian" && m.language == .fr)
+        await slow.value
+        _ = await m.outcome("Checking…") {}   // after every save already queued
+        let state = try e.store.load()
+        #expect(!state.autoRebuild && state.notesApp == "md.obsidian" && state.brainLanguage == .fr)
+        m.reload()
+        #expect(!m.autoRebuild && m.notesApp == "md.obsidian" && m.language == .fr)
+    }
+
+    /// Before any window appeared (tests, the first load), nothing starts the clocks on its own.
+    @Test func noClockStartsBeforeTheWindowIsTracked() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        m.updateWatching()
+        await m.setMenuBarIcon(false).value
+        await m.setMenuBarIcon(true).value
+        m.reload()
+        #expect(!m.isWatching)
+        // During the splash, the window appearing starts nothing either: the launch asks once it is done.
+        let splash = model(e)
+        splash.environment = [:]
+        splash.windowAppeared()
+        #expect(!splash.isWatching)
+    }
+
+    /// An uninstall keeps every clock stopped, whatever the window does meanwhile: a Claude check would rebuild a copy.
+    @Test func anUninstallKeepsTheClocksStopped() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = await readyModel(e)
+        defer { m.stopWatching() }
+        m.windowAppeared()
+        #expect(m.isWatching)
+        let uninstall = Task { await m.uninstall() }
+        while m.working == nil { await Task.yield() }
+        // The window closes and opens again while the removal runs: nothing starts.
+        m.windowDisappeared()
+        m.windowAppeared()
+        #expect(!m.isWatching)
+        #expect(await uninstall.value != nil)
+        m.windowAppeared()
+        #expect(!m.isWatching)
+    }
+
+    /// Quit waits for the work on an account's app, for a bounded time.
+    @Test func quitWaitsForWorkInProgress() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        #expect(await m.waitForWork(limit: .seconds(1)))
+        // The work lasts until the short wait is over, however late a busy main actor wakes that wait (with the whole suite
+        // running, a fixed 0.3 s could end first, and the wait then rightly saw nothing left).
+        let release = DispatchSemaphore(value: 0)
+        let work = Task { _ = await m.outcome("Rebuilding Work…") { release.wait() } }
+        while m.working == nil { await Task.yield() }
+        #expect(await m.waitForWork(limit: .milliseconds(20)) == false)
+        release.signal()
+        #expect(await m.waitForWork(limit: .seconds(30)))
+        #expect(m.working == nil)
+        await work.value
+    }
+
+    /// The menu's accounts use every account whose app is being worked on: the automatic update marks only `rebuilding`.
+    @Test func menuEntriesUseEveryBusyAccount() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let m = model(e)
+        m.reload()
+        #expect(m.menuEntries.map(\.title) == ["Open Ruben", "Open Work"])
+        m.rebuilding.insert("work")
+        #expect(m.menuEntries.map(\.title) == ["Open Ruben", "Updating Work…"])
+        #expect(m.menuEntries.map(\.isEnabled) == [true, false])
+    }
+
+    /// Closing and reopening the window is routine with the icon: the move to Applications is offered once per process.
+    @Test func theMoveIsOfferedOncePerProcess() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.offersMove = { true }
+        m.offerMoveIfNeeded()
+        #expect(m.message?.action == .moveToApplications)
+        m.message = nil
+        m.offerMoveIfNeeded()
+        #expect(m.message == nil)
+        let declined = model(e)
+        declined.offersMove = { false }
+        declined.offerMoveIfNeeded()
+        #expect(declined.message == nil)
     }
 }
 

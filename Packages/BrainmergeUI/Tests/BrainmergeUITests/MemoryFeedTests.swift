@@ -11,12 +11,36 @@ import BrainmergeCore
         BrainGit.Entry(hash: UUID().uuidString, date: date, authorName: "x", authorEmail: email, message: "Brain update", files: files)
     }
 
+    /// The words are the command line's (MemorySentence), whatever the commit's own message says: older saves read well too.
     @Test func sentencesInPlainWords() {
-        #expect(MemoryFeed.sentence(files: ["memory/atelier/decision_prix.md"], project: "atelier") == "remembered something about atelier")
-        #expect(MemoryFeed.sentence(files: ["memory/trailbook/MEMORY.md"], project: "trailbook") == "updated its notes about trailbook")
-        #expect(MemoryFeed.sentence(files: ["memory/trailbook/MEMORY.md", "memory/trailbook/feedback_tests.md"], project: "trailbook") == "updated 2 notes about trailbook")
-        #expect(MemoryFeed.sentence(files: ["memory/a/x.md", "memory/b/y.md"], project: nil) == "updated 2 notes across 2 projects")
-        #expect(MemoryFeed.sentence(files: ["BRAIN.md"], project: nil) == "changed the memory's instructions")
+        let events = MemoryFeed.events(from: [entry("client@brainmerge.local", ["memory/trailbook/MEMORY.md", "memory/trailbook/feedback_tests.md"]),
+                                              entry("client@brainmerge.local", ["BRAIN.md"])], identities: [client])
+        // A note and its line in the project's index: one thing remembered.
+        #expect(events.map(\.sentence) == ["remembered something about trailbook", "changed the memory's instructions"])
+    }
+
+    /// The person's own edits, saved by the app: "You", in gray, and never counted as an account's saves.
+    @Test func yourOwnEditsReadYouInGray() {
+        let events = MemoryFeed.events(from: [entry(OwnEdits.author.email, ["memory/acme/a.md", "memory/acme/b.md"])], identities: [client, ruben])
+        #expect(events.first?.name == "You" && events.first?.tint == .gray && events.first?.slug == nil)
+        #expect(events.first?.sentence == "edited 2 notes about acme")
+        #expect(MemoryFeed.counts([entry(OwnEdits.author.email, ["a"]), entry("client@brainmerge.local", ["b"])]) == ["client": 1])
+    }
+
+    /// A click in the Tidy tab says what it did, which its files alone could not: its own words are kept, for yours only.
+    @Test func tidysCommitsKeepTheirWords() {
+        func mine(_ message: String, _ files: [String], email: String = OwnEdits.author.email) -> BrainGit.Entry {
+            BrainGit.Entry(hash: UUID().uuidString, date: Date(), authorName: "You", authorEmail: email, message: message, files: files)
+        }
+        let events = MemoryFeed.events(from: [
+            mine("You filed 2 notes under brainmerge", ["memory/scratch-a/a.md", "memory/brainmerge/a.md", "memory/scratch-a/b.md", "memory/brainmerge/b.md"]),
+            mine("You kept one copy of deploy.md", ["memory/acme/deploy.md", "memory/acme/_archive/deploy.md"]),
+            mine("You hid 3 empty folders from Tidy", [".brainmerge/hidden.json"]),
+            mine("You deleted everything", ["memory/acme/a.md"]),
+            mine("You filed 2 notes under brainmerge", ["memory/acme/a.md"], email: "client@brainmerge.local"),
+        ], identities: [client])
+        #expect(events.map(\.sentence) == ["filed 2 notes under brainmerge", "kept one copy of deploy.md", "hid 3 empty folders from Tidy",
+                                           "edited a note about acme", "remembered something about acme"])
     }
 
     @Test func eventsCarryTheIdentity() {
@@ -30,8 +54,6 @@ import BrainmergeCore
     }
 
     @Test func rootNotesAndNamelessAuthors() {
-        #expect(MemoryFeed.sentence(files: ["memory/notes.md"], project: nil) == "updated 1 note")
-        #expect(MemoryFeed.sentence(files: ["memory/a.md", "memory/b.md"], project: nil) == "updated 2 notes")
         let nameless = BrainGit.Entry(hash: "h", date: Date(), authorName: "", authorEmail: "nobody@example.com", message: "m", files: ["x.md"])
         #expect(MemoryFeed.events(from: [nameless], identities: []).first?.name == "Someone")
         #expect(MemoryFeed.events(from: [nameless], identities: []).first?.detail == "x.md")

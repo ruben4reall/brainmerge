@@ -22,7 +22,7 @@ import BrainmergeTestSupport
                                   withDestinationURL: e.home.url.appending(path: "Applications/Brainmerge.app/Contents/MacOS/brainmerge-cli"))
 
         let plan = try uninstaller(e).plan()
-        #expect(plan.removed.contains { $0.contains("2 Claude Code profiles") })
+        #expect(plan.removed.contains { $0 == "The memory hooks and the Brainmerge block in 2 Claude Code profiles" })
         #expect(plan.kept.contains { $0.contains(e.brain.root.path) })
         let report = try uninstaller(e).run()
         #expect(report.detachedAccounts == 2 && report.copiedMemories == 1 && report.removedLaunchers == 1)
@@ -33,6 +33,7 @@ import BrainmergeTestSupport
         #expect(fm.fileExists(atPath: notes.appending(path: "decision_pricing.md").path))
         // Hooks and blocks are gone; profiles, data folders and the brain stay.
         #expect(!(try HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile)))
+        #expect(HookInstaller.health(settingsFile: e.primaryProfile.settingsFile, cliPath: e.cliPath, slug: "perso") == .missing)
         #expect(!ManagedBlock.contains(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)))
         #expect(fm.fileExists(atPath: client.cliProfile(in: e.home.paths).path))
         #expect(fm.fileExists(atPath: client.desktopData(in: e.home.paths).path))
@@ -101,6 +102,28 @@ import BrainmergeTestSupport
         #expect(report.copiedMemories == 0)
         #expect(try fm.destinationOfSymbolicLink(atPath: link.path) == own.path)
         #expect(try fm.destinationOfSymbolicLink(atPath: foreign.path) == e.home.url.appending(path: "somewhere-else/brainmerge").path)
+    }
+
+    /// The per-account terminal commands are named in the plan and go; someone else's claude-<slug> stays.
+    @Test func theTerminalCommandsAreListedAndGo() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let fm = FileManager.default
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Other"))
+        let cli = e.home.url.appending(path: "Applications/Brainmerge.app/Contents/MacOS/brainmerge-cli")
+        try fm.createDirectory(at: cli.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: cli)
+        for slug in ["perso", "client"] { #expect(try CLIInstaller.linkAccount(paths: e.home.paths, slug: slug, target: cli)) }
+        let foreign = CLIInstaller.accountLink(in: e.home.paths, slug: "other")
+        try fm.createSymbolicLink(atPath: foreign.path, withDestinationPath: "/usr/bin/true")
+
+        let plan = try uninstaller(e).plan()
+        #expect(plan.removed.contains("The terminal commands claude-perso, claude-client in \(e.home.paths.localBin.path)"))
+        try uninstaller(e).run()
+        #expect((try? fm.destinationOfSymbolicLink(atPath: CLIInstaller.accountLink(in: e.home.paths, slug: "perso").path)) == nil)
+        #expect((try? fm.destinationOfSymbolicLink(atPath: CLIInstaller.accountLink(in: e.home.paths, slug: "client").path)) == nil)
+        #expect(try fm.destinationOfSymbolicLink(atPath: foreign.path) == "/usr/bin/true")
     }
 
     /// The primary's own app is Brainmerge's and goes, even while Claude runs; Claude and an app the person made stay.

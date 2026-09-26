@@ -1,5 +1,191 @@
 # Changelog
 
+## 0.6.0 (2026-09-26)
+
+Brainmerge 0.6 shows what each account takes on your Mac, puts your accounts in the menu bar and one shortcut away from any app, draws your Obsidian vault, and saves exactly what each account wrote, never a key.
+
+### New
+
+- **RAM and disk per account.** The Usage screen now opens on your Mac's RAM, then each account's RAM and disk.
+  - Your Mac's RAM in use is counted like Activity Monitor (apps, wired and compressed), out of its total, with the pressure word when macOS says it is short.
+  - Each account's row shows the RAM its Claude uses with everything it runs, as a share of the Mac and a thin bar, and the disk space of its Claude data folder, its Claude Code profile and its app (the parts on hover). A closed account shows its disk only.
+  - Claude Code sessions started in a terminal are one row for all accounts together, since which account a session uses is only in its environment, which Brainmerge never reads; everything else in use, macOS's own memory included, is "macOS and other apps".
+  - An account's RAM is now the figure Activity Monitor shows (each process's footprint), on its card, in the Accounts subtitle and in the low RAM warning alike. It includes the RAM Claude's graphics use and counts RAM shared between Claude's processes once, so an account can read noticeably less than in 0.5.0.
+  - Sizes read with a point whatever the Mac's language ("1.2 GB", never "1,2 GB").
+  - Disk sizes are added up from file metadata, never file contents: no link followed, no other disk entered, a shared history or shared skills counted once with your first account, a tinted copy counted by the blocks it does not share with Claude.
+  - Folders in places macOS guards with a consent prompt (Documents, iCloud Drive and the like) are not measured, so macOS never asks.
+  - The disk walk runs off the main thread when the screen opens, at most every five minutes or right after a change to your accounts, and stops when you leave the screen. It says "More than" when it stopped early to stay fast, and "Measure again" redoes it.
+- **Brainmerge in the menu bar.** The creature sits in the menu bar, in the menu bar's own color, eyes open while an account is open.
+  - Its menu lists your accounts with their color and the sidebar's word (Open, Show, Opening…, Updating…, Rebuild, off exactly when the sidebar's is), your Mac's RAM in one line, then Open Brainmerge, Settings…, Star on GitHub and Quit Brainmerge.
+  - A message that comes while the window is closed waits in the menu instead of popping up.
+  - Settings has a "Show in the menu bar" switch, on by default. The icon appears once the guided setup is closed, never in captures or demos.
+  - Dragging the icon out of the menu bar turns the switch off, and opens the window again if it was closed, so Brainmerge is never left running with neither.
+  - With the icon, closing the window keeps Brainmerge running in the menu bar with only the clocks the menu needs: the accounts every few seconds, new projects and emails every minute, Claude updates every five minutes. The usage is not read in the background, and opening or closing the window never starts these clocks over.
+  - Without it, closing the window now quits Brainmerge, where it used to stay in the Dock with its clocks stopped.
+  - "Star on GitHub", in the menu bar, at the bottom of Settings and as a quiet link on the guide's last step, opens the project's page in your browser, nothing more. Brainmerge still makes no network call.
+- **Your Obsidian vault in the graph.** The Memory screen's graph can show an Obsidian vault the way Obsidian shows it.
+  - A menu next to the Graph and Timeline switch lists each Brainmerge memory and every vault in Obsidian's own list, plus "Choose a vault…" for a folder Obsidian opened as a vault. The choice, a vault or a memory, is remembered.
+  - A vault follows its `.obsidian/graph.json`: the search filter (`path:`, `file:`, `-`, `OR`, quotes, parentheses; any other term is left out rather than guessed) and the Excluded files of `app.json`, color groups in order with the first match winning, orphans, attachments and unresolved links, and arrows.
+  - Obsidian's forces are converted from its sliders, node sizes come from their links, and line sizes, label sizes and the saved zoom are in Obsidian's own units, so the graph looks the same size.
+  - Settings changed in Obsidian show up within seconds, but a zoom Obsidian saves never moves your view.
+  - In a vault every file is its own node: no project hubs, `MEMORY.md` is an ordinary note, canvases and bases are nodes, and a link written both ways is one line.
+  - Labels fade in as you zoom, hovering a note lights its lines in the accent and fades the rest to a fifth (at once with Reduce Motion), one click opens the note in Obsidian, and a secondary click or Option-click shows the inspector.
+  - A vault shows no pulses and no account legend: its colors are its own. A Brainmerge memory keeps its look (account colors, hubs, pulses).
+  - A large node can be pointed at and clicked anywhere on it, however far you zoom in.
+  - Only what a vault shows counts toward "the most recent 2,000": files its search, its Excluded files or its attachments setting hide are neither read nor counted (notes and attachments are counted apart), and a link to one of them is not taken for a link to nothing.
+- **Check limits, on your click.** Each account's card on the Usage screen has "Check limits", Claude Code only accounts included.
+  - On your click, and only then, Brainmerge runs that account's official Claude Code (`claude -p "/usage"`, the same as typing /usage) and shows each limit it prints, the current session and the current week, as a thin bar with the percentage and the reset time, plus "Checked at" and the time.
+  - It never reads limits by itself: never on a timer, never in a capture or a demo. An account without Claude Code has no button, and a card that changes to another login drops what was found.
+- **Connections per account.** Each account's edit sheet has a Connections section.
+  - Pick the browser profile that goes with the account, from the Chrome, Arc, Brave or Edge profiles on your Mac (saved with the sheet, like its other fields). "Open Chrome (Work)" starts it: once you log that profile's Claude extension into this account, each account has its own browser, with no logging out.
+  - "Manage connectors" opens claude.ai's connectors page in that profile (or your default browser): Gmail, Calendar and Drive belong to each Claude account.
+  - The account's MCP servers are listed by name (Claude Code for all projects or one project, the Claude app and its extensions), with "Only here" on those no other account has; a long list folds.
+  - A picked profile that is gone is said as such, never opened in another profile or the default browser.
+  - The sheet opens once all of this is read, so nothing moves under the pointer, and says when no Chrome, Arc, Brave or Edge profile exists on the Mac.
+- **Health, and saves that failed.** Settings opens on Health.
+  - It says "Everything is in place." or one plain line per thing to fix, each with its one button: Repair links, Rebuild, Install command line, Choose memory folder, Repair hooks or Install Apple's tools.
+  - It is `brainmerge doctor`'s check, run off the main thread and left after 10 seconds. `brainmerge doctor --json` adds each finding's sentence and fix.
+  - "Choose memory folder" points a memory whose folder moved at where it is now, or starts it again in an empty folder, and its accounts follow.
+  - After a macOS or Claude update it runs once on its own and says one line: "Checked after the Claude update: all good." or "2 things to fix."
+  - A save that failed shows quietly on the account's card and on the Memory screen, with when and why, from a short list: "Last save failed 3 hours ago: the memory was locked by another program."
+  - Each save leaves how it went in `saves/<account>.json`, in Brainmerge's Application Support folder: a date and codes, never a path or a message.
+- **Memory Tidy.** Next to Graph and Timeline, "Tidy (4)" lists the notes Claude will not load and what else wants a look.
+  - It lists a project with notes and no index ("trailbook has 2 notes and no index, so no session loads them."), an index past the 200 lines Claude Code loads, notes missing from their project's `MEMORY.md`, notes left in a quick session's folder, copies left when an account's notes were linked, index lines that point nowhere, and changes not saved for more than a day.
+  - Nothing happens without a click. File under… suggests projects by the notes' names, previews the move ("Move 2 notes from scratch-2026-09-23-5050ce to brainmerge, with their index lines."), then moves the notes with `git mv` and their index lines as written, in one commit: "You filed 2 notes under brainmerge".
+  - Compare shows both copies with Keep this one (the other goes to the project's `_archive/`), and Hide takes empty quick session folders off the tab (`.brainmerge/hidden.json`, saved with your own edits).
+  - A note written in the last two minutes or with changes not saved yet is never moved, and no folder is ever deleted.
+  - `brainmerge brain health [--json]` mirrors the tab.
+- **Quick opener.** Settings, Quick opener (off by default) takes a shortcut, Control-Option-Space suggested (click it and type another).
+  - It brings up a small glass panel over any app, without switching to Brainmerge.
+  - Type a few letters (the start of a name first, then the start of a word in a name, then the note): Return opens or shows the account (the Accounts menu's click, Log in sheet included), Cmd-Return opens its memory in your notes app, Cmd-U shows its card on the Usage screen, and Esc or a click elsewhere closes it.
+  - It works with the window closed, and keeps Brainmerge running once the window closes, like the menu bar icon.
+  - A shortcut another app holds is said and the previous one stays; Cmd with a letter is refused, since it is every app's own command.
+  - The shortcut is kept in this Mac's preferences, not in the state, and removing Brainmerge forgets it.
+- **Accounts menu and `brainmerge://` links.**
+  - An Accounts menu in the menu bar: Open or Show each account (the cards' words), Cmd-Option-1 to Cmd-Option-9 for the first nine, Add Account… (Cmd-N) and Quit All Accounts…, which asks first and says when Claude Code sessions stop too. It works with the window closed.
+  - `brainmerge://` links: `open/<account>`, `show/<account>`, `memory`, `memory/<id>`, `usage` and `settings`, for Raycast, Stream Deck or a note.
+  - A link can only open or show, never add, edit, remove or quit; an account that still has to log in goes through the Log in sheet.
+  - Links work with the window closed too: a screen, the Log in sheet or a message opens it.
+- **Claude Code in a terminal, per account.**
+  - `brainmerge code work` starts Claude Code on that account with its memory (no more `CLAUDE_CONFIG_DIR` by hand), and `brainmerge env work` prints the line for a whole shell.
+  - Settings, Command line, "A terminal command per account" (off) adds `claude-work`, `claude-personal` and so on, and the terminal tab reads "Claude: Work".
+  - Each card's menu has Copy Terminal Command (`brainmerge code work` whenever `claude-work` is not Brainmerge's).
+  - A command is made only where nothing is in the way (never over a file or someone else's program) and never from the disk image. It follows Brainmerge when you move it, comes with an account added from the command line, and goes with the account, the switch or Brainmerge; the uninstall confirmation names them.
+- **Log in without the dance.** A card that still has to log in shows "Log in", and every card with a Claude window has "Log in…" in its menu for a session that expired.
+  - The sheet closes the other Claude windows (and says which Claude Code sessions stop), waits for each to exit, opens the account, waits for it to connect or for "I'm logged in", then reopens the others on a click, never by itself.
+  - A window that has not closed after 10 seconds is said, never forced. A card that already looked connected counts only once its session goes and comes back.
+  - Cancel at any step reopens what it closed, a window still closing once it has closed.
+  - A new account added while other windows run goes straight to this sheet instead of asking you to quit them by hand.
+  - Brainmerge never touches the browser, the link or the keychain.
+- **The creature's new life.** In the sidebar it blinks and glances, walks while an account opens, waves once it is open, hops with a few sparkles when the memory saves a note, startles at an error, and falls asleep when no account is open.
+  - It moves like the pixel sprite it is: at rest it is exactly its grid, and its eyes, arms, legs and breath change in whole cells or whole pixels.
+  - Its reactions play even while the window is in the background, where its idle holds still. Asleep, it breathes for a minute, then holds still.
+  - "Memory saved just now" shows for exactly 4 seconds after a save; it used to last anywhere from 0 to 10 seconds, and the first read of a memory never counts as a save.
+  - The glow and the aura around it are gone.
+- **A launch that lands.** The creature's pixels gather into one, it hops, then it leaps into the sidebar while the window comes in under it, along a path that never crosses words or rows.
+  - The splash never keeps a ready app waiting past 0.48 s, and "Waking up…" shows only when loading takes more than 2 seconds.
+  - On a first run it lands on the welcome creature and the words come in after it. At the end of the setup it waits beside Open Brainmerge and leaps home from there.
+- **How it works, redone.** The guided setup's second step shows three account windows, Personal, Work and Studio, and one folder on this Mac: a note saved by one drops into the Memory folder, and copies rise to the other two.
+  - A page of the setup fades where it is before the next one slides in, so two texts are never printed over each other.
+- **State changes that no longer pop.**
+  - An opening account gets a turning stroke in its own color, and its dot pops green with one ring once it is open; the cards never move or swap places.
+  - Words that change give way before the new ones come in, and work that runs shows a small spinner before its sentence.
+  - Data and results rise into place (Usage cards, chart bars), a new timeline row drops in and keeps the selection color for a moment, and a problem said twice shakes.
+  - The memory graph blooms from its projects on its first read, fades what a hover leaves out, and glides when you zoom or Fit.
+  - Keyboard paths and the sidebar's hover and press stay instant or take 0.12 s, and the menu bar icon never moves.
+  - With Reduce Motion nothing moves: colors and opacity change in 0.15 s, the launch is a short dissolve, and every scene shows a still, as captures do.
+- **The website moves too.** The hero creature wakes up and waves, and hops when you point at it or tap it.
+  - How it works plays once as it comes into view, with a One memory and One each switch and Play again.
+  - Sections come in as you scroll, the timeline lights up line by line, Studio bounces in the Dock, and the 404 creature glances around once. With Reduce Motion, the page shows stills.
+
+### Safer
+
+- **Exact saves per account.** Each account commits only what it wrote.
+  - A third hook notes each file an edit writes in a memory, and the account's save commits exactly those, under its name, with the Memory screen's words ("Work remembered 2 things about acme").
+  - Another account's notes in progress, your own edits and, in a vault, `.obsidian` and daily notes are no longer signed by whichever account finished first.
+  - The lists of projects and of accounts, and the notes moved in from an account's own memory folder when its projects are linked, are saved by that account; a removed account's notes not saved yet become your own edits.
+  - Your own edits are saved as You, in gray, once nothing changed for ten minutes and no Claude Code session runs; Settings, Memories, has "Save my own edits to the memory's history" (on).
+  - Existing accounts get the hook, and existing memories' `.gitignore` the line for the accounts' lists, at the next launch.
+  - While your own git is stopped half way in a memory (a merge, a rebase, a cherry-pick, a revert, `git am` or a bisect not finished, or conflicts left by a stash pop), or has no branch checked out, no save commits there: the notes wait until you finish, and your merge is never completed or signed in an account's name.
+  - A save that ends while another git holds the memory's index (an editor's, Obsidian Git's) is still made, and git's index catches up at the next save or within a minute, whatever the own-edits switch, so a plain `git commit` of yours never undoes it.
+  - A commit another program makes in the memory while a save runs (your git, Obsidian Git, a sync script) is kept: the save moves the branch only from the commit it was made on, and otherwise is made again on top of the new one, once it has checked again that your git is not stopped half way and a branch is checked out.
+  - A memory whose save waits never stops the account's saves in its other memories: each is saved on its own, and `sync.log` names the one that waits.
+  - Two limits: when two accounts edit the same `MEMORY.md` before either saves, the first save signs both edits; and only the edit tools (Write, Edit, MultiEdit) mark a note as an account's, so a note Claude writes or moves another way (a Bash `mv`, NotebookEdit, an MCP tool) is saved later as You.
+- **The secret guard.** Before a save commits, Brainmerge reads the lines it adds and holds back a note with a line shaped like a key; the rest is saved.
+  - It looks for a private key, an Anthropic, OpenAI, GitHub, GitLab, Slack, AWS, Google, Stripe live or npm key, or a long random password or token.
+  - The Memory screen says "1 note was not saved: it looks like it holds a key." with each place ("acme-api/deploy.md, line 12, looks like a GitHub token.") and Open, "It's not a secret" (saved from then on, for every account of that memory) and "Save anyway" (once). `sync.log` and `brainmerge doctor` say it too.
+  - The value is never shown, logged, stored or copied: only the path, the line number, the shape and the line's SHA-256 are kept.
+  - A held note's text never enters the memory's git: each save writes into an index and an object store of its own, and moves into the memory only what its commit holds.
+- **Saves isolated from your git setup.** Your global and system git config, the `GIT_` variables a session carries (such as `GIT_AUTHOR_NAME` or `GIT_INDEX_FILE`), hooks and commit signing no longer take part in a save, even where the memory's own config asks for them.
+  - With signing on, every save used to fail or ask for a passphrase or Touch ID at the end of each turn, a commit-msg hook could refuse every save, and a session's `GIT_AUTHOR_NAME` signed every account's save with your name.
+  - A git call still running after two minutes is stopped instead of holding the hook and the memory's lock.
+- **Setup that never dead-ends.** On a Mac without Apple's Command Line Tools, the guide first shows "One free Apple tool first", with "Install Apple's tools" (Apple's own installer, the download comes from Apple) and "Check again", and moves on by itself once git is there.
+  - Until then Brainmerge never starts git, so macOS never pops its install dialog, and the Memory screen says "History needs git. Install Apple's tools".
+  - Both look again every 5 seconds while they show, away from the window's main thread, so the setup moves on and the history comes back by themselves once Apple's installer is done.
+  - The All set step lists git and Claude Code (found even when it is not Anthropic's own build, which only "Check limits" needs), and `brainmerge doctor` checks git.
+  - Creating a memory without git says "History needs git" with the same button, never a terminal command.
+  - `xcode-select -p` itself runs once per run of the app or of a command that needs git, the Stop hook included, then again each time the guided setup opens, on "Check again", and every 5 seconds while a screen waits for git.
+  - A memory folder inside another git repository is refused where it is chosen (the guide, New memory, `brainmerge brain add` and `brain init`), with the reason: a second repository inside it would take these notes out of that repository's backups.
+- **Update safety.** A window opened before Claude updated says "Runs the previous Claude. Restart to use" the new version, on its card and in the sidebar's tooltip; an account with its own copy of Claude keeps its Update instead.
+  - Restart quits, waits for the exit and opens again, never twice. Restart When Idle, in the card's menu, waits until no Claude Code session runs under that window, lets go of a window reopened by hand meanwhile, and can be cancelled from the same menu.
+  - When Claude's own restart comes back on the first account's folders within a minute of another account's window closing while the first account was closed, Brainmerge says so, with "Reopen" that account or "Keep" the first one.
+  - When an account you open comes up on the first account's folders instead, it says so after 10 seconds. Nothing is quit without a click.
+  - The start time comes from the same kernel call as the RAM figures, and a Mac that slept only makes fewer windows look older than the update.
+- **Accounts never step on your files or notes.**
+  - Setting Brainmerge up again after an uninstall no longer duplicates every note or fails the second time: a copy identical to the memory's note stays out, and a real conflict gets the next free name (`deploy.work-2.md`).
+  - A new account never takes over a Claude Code or Claude app folder it did not create, so it never opens signed in as a removed account, and "delete data" only deletes what Brainmerge made.
+  - An add that fails leaves no hook, block or folder behind. A shared conversation history needs your first account's memory (the sheet and `identity add` say so).
+  - A `CLAUDE.md` that is not UTF-8 is left as it is instead of being replaced.
+  - The first account's name follows the same rules as the others (one line, not empty, not taken), and `adopt-primary` now defaults to "Me".
+- **Claude is found wherever it is installed.** `Claude.app` in `/Applications` or `~/Applications` comes first, where it updates itself, then any other copy macOS knows, the newest first, so a Finder duplicate such as "Claude copy.app" is never picked while Claude itself is there.
+  - Only a copy signed by Anthropic counts, never Brainmerge's own apps or a copy whose program is a launch script.
+  - Settings, Where Claude is, has "Choose…" for another one, refused unless it is Claude and Anthropic signed it, and used by Brainmerge from its next launch; apps already made for your accounts keep the Claude they were built with until they are rebuilt.
+- **An unreadable list of accounts never looks like a fresh install.** A damaged `state.json`, or one written by a newer Brainmerge, shows "Brainmerge can't read its list of accounts" with "Restore the previous copy", "Show in Finder" and "Quit", never the guided setup.
+  - "Restore the previous copy" shows only when that copy is one this version can read, and puts it back under the lock in one step, the unreadable file kept beside it.
+  - Each save keeps the previous copy, and the app and the command line no longer overwrite each other's changes.
+  - An account's app is rebuilt beside the old one and swapped in only once complete, so a failed rebuild leaves the account its app.
+  - A setting that cannot be saved (the command line holding the list past 10 seconds, a folder that refuses the write) says so and goes back to what is saved, and a browser picked by a newer Brainmerge reads as none rather than making the whole list unreadable.
+- **Hooks that never break a session.** A new hook links a project's memory as soon as a session starts in it, in any account, so a project opened while Brainmerge is closed already writes its first note into the memory (it used to wait for Brainmerge to be open, up to a minute).
+  - Every hook runs only if Brainmerge is still there and always ends with success: a Brainmerge moved or trashed never blocks a session or shows a hook error.
+  - From the session, the new hook reads only the folder it runs in, and prints nothing.
+  - Hooks written by an older Brainmerge are upgraded where they stand at the next launch, with no click, next to your own hooks, which are never touched.
+  - Each launch points the command line link the hooks call at the app when the Brainmerge it pointed at was moved or trashed.
+  - Settings, Command line, says "Hooks: 3 accounts, all current." or what is wrong, with "Repair hooks", and `brainmerge doctor` says each account's hooks are current, outdated or missing. `brainmerge wire --identity SLUG` links the current folder's memory by hand.
+- **Less read, nothing kept.**
+  - No command line from `ps` is kept, Claude's included: each line is read once for what it says (a Claude window, with its program and data folder, or Claude Code) and dropped, and every process keeps its number, parent and size alone.
+  - "Check limits" finds Claude Code at absolute paths (`~/.local/bin/claude`, then `/opt/homebrew/bin/claude` and `/usr/local/bin/claude`), which must be signed by Anthropic (checked with the Security framework) and be 2.1.275 or later. It gets only `HOME`, a minimal `PATH` and the account's `CLAUDE_CONFIG_DIR`, and is stopped after 20 seconds.
+  - Brainmerge reads only the text "Check limits" prints and keeps it in memory; Claude Code handles the run like any session it starts, its own records included.
+  - Connections read only profile names and server names, never a Google address or a server's settings, and nothing is copied between accounts.
+  - The quick opener's shortcut is registered with macOS's `RegisterEventHotKey`: no Accessibility or Input Monitoring permission, no event tap, no global key monitor, and a test keeps it so.
+  - A vault is only read, on your Mac: Brainmerge reads Obsidian's list of vaults for their paths, the vault's names, dates and notes, and its two settings files. It never writes to the vault, runs git there, or turns it into a memory.
+  - Opening the Memory screen never makes macOS ask: a vault in Documents, iCloud Drive or another guarded place is listed without a look and read only once you pick it, when macOS may ask you once.
+  - If access is refused, the graph says where to allow it instead of showing an empty vault, and a vault Obsidian still lists but whose folder is gone says so when picked. Every look at a vault's folder runs off the main thread, so the window never freezes while macOS asks.
+  - `SECURITY.md` and the README now say exactly what Brainmerge reads whole: Claude Code's recent transcripts for the Usage screen (and what its cache keeps), a `settings.json` rewritten to add the hooks, the text each edit hands the PostToolUse hook.
+  - They also say what a new account shares with your first one (five settings copied, the skills folder linked), and that the distinct icon's copy of Claude is modified and re-signed ad hoc, so it no longer carries Anthropic's signature.
+
+### Fixed
+
+- A save waits while the memory has no branch checked out (a commit checked out to read an old note), as it does during a merge: it used to commit there, and the notes it saved went away at the next `git checkout main`.
+- A commit another program makes while a save runs is no longer undone: the save used to go on top with the older content, which took that commit's notes out under the account's name.
+- A note the secret guard holds back no longer leaves its text in the memory's `.git/objects`, where staging it used to leave a copy, key included, that a copy or backup of the folder carried along. A memory saved with an earlier version may still hold such copies: `git gc --prune=now` in the memory's folder removes them.
+- After a save, git packs the memory's loose objects once many have piled up (`git gc --auto`, as after a commit of your own), so loose files no longer pile up without end.
+- `brainmerge doctor` and Health no longer say "git ready" while every save fails. They name a lock file a git that stopped left in a memory (older than ten minutes: saves fail until it is removed), say when saves wait for a merge, rebase, cherry-pick, revert or bisect of yours, or for a branch to be checked out again, and list each account whose last save failed.
+- A save stopped by the branch's lock ("cannot lock ref", an Obsidian Git commit at the same moment) now reads "the memory was locked by another program" instead of "something unexpected".
+- `brainmerge doctor` and Health no longer call an account's app in place when it starts another Claude than the one installed (Claude moved to another folder, or another one chosen under Where Claude is): such an app starts the old Claude on the account's data, or nothing once it is gone. They say so, with Rebuild.
+- `brainmerge brain wire` and `brain init` wire every account they can: one whose Claude Code folder is gone is named and skipped instead of stopping the accounts after it, and the command fails at the end so it is not missed. `brainmerge doctor` and Health say what to do about that folder: start Claude Code once for your first account, put the folder back or remove the account for another.
+- `brainmerge brain init` never moves a default memory that is in place: with no folder it keeps the one you have (it used to go back to `~/Brain`), and another folder is refused with what to do, since the projects would have kept writing into the old folder with nothing saving those notes. Once the old folder is gone, it points the default memory at the new one and the projects follow.
+- `brainmerge doctor` and Health now say when a project still writes into a memory Brainmerge no longer knows, instead of "kept as is".
+- `brainmerge brain relocate ID PATH` points a memory whose folder is gone at where it is now, or starts it again in an empty folder, its accounts with it: the app's "Choose memory folder" on the command line. Like `brain init`, it never moves a memory whose folder is still there.
+- `brainmerge doctor` advises `brain relocate` for a missing memory other than the default one, where it used to advise forgetting a memory an account still uses, which is refused. The folders and names in doctor's `Run:` lines are quoted, so a line pastes as printed.
+- Removing an account also takes its app out of Launch Services, where it stayed listed under its identifier after the app was gone. The command line no longer registers the apps it builds under a `BRAINMERGE_HOME` (tests, demos): every run of the test suite used to leave records on the Mac it ran on.
+- A shell's line, the way Claude Code runs its Bash commands, is never taken for Claude, so a command that names Claude's folders no longer counts as a Claude Code session or a window.
+- One main window: File > New Window is gone, and closing a second window no longer stops the updates of the first. With the window closed, Settings… and Cmd-1 to Cmd-4 open it on that screen.
+- Settings are saved after any work in progress: a switch turned during a rebuild is no longer undone when the rebuild saves.
+- A quit waits for work on an account's app (a copy being rebuilt, renamed or removed) to finish, two minutes at most, instead of leaving a half-built app.
+- The offer to move Brainmerge to Applications comes once per launch, not every time the window opens.
+- A photo that was moved or deleted keeps its icon instead of blocking every change.
+- Two projects whose names differ only in letter case get two memory folders.
+
 ## 0.5.0
 
 - Sidebar: every row is clickable across its whole width, not only on its text or icon, and lights up softly under the pointer (a neutral fill; the purple still marks the current screen). Cmd-1 to Cmd-4 switch screens, listed in the View menu, Cmd-comma opens Settings, and VoiceOver says which screen is selected and when the splash hands over.

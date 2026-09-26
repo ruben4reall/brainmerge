@@ -13,7 +13,9 @@ import BrainmergeTestSupport
         #expect(ManagedBlock.contains(claudeMD))
         #expect(try HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile))
         let root = try JSONSerialization.jsonObject(with: Data(contentsOf: e.primaryProfile.settingsFile)) as! [String: Any]
-        #expect(HookInstaller.stopCommands(root).first == "cd vault && git push")
+        #expect(HookInstaller.commands(root, event: .stop).first == "cd vault && git push")
+        // Both hooks: the memory saved when a turn ends, the project's memory linked when a session starts.
+        #expect(HookInstaller.health(settingsFile: e.primaryProfile.settingsFile, cliPath: e.cliPath, slug: "perso") == .current)
         let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "atelier").path)
         #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["perso"]?.name == "Perso")
@@ -32,7 +34,8 @@ import BrainmergeTestSupport
         #expect(profile.directory.lastPathComponent == ".claude-clientstudio")
         let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: profile.settingsFile)) as! [String: Any]
         #expect(settings["language"] as? String == "french")
-        #expect(HookInstaller.stopCommands(settings).count == 1)
+        #expect(HookInstaller.commands(settings, event: .stop).count == 1)
+        #expect(HookInstaller.commands(settings, event: .sessionStart) == [HookInstaller.wireCommand(cliPath: e.cliPath, slug: "clientstudio")])
         #expect(ManagedBlock.contains(try String(contentsOf: profile.claudeMD, encoding: .utf8)))
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: profile.skillsDir.path) == e.primaryProfile.skillsDir.path)
         #expect(FileManager.default.fileExists(atPath: identity.desktopData(in: e.home.paths).path))
@@ -68,7 +71,7 @@ import BrainmergeTestSupport
         let identity = try e.manager.add(request)
         let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: cli.appending(path: "settings.json"))) as! [String: Any]
         #expect(settings["model"] as? String == "sonnet")
-        #expect(HookInstaller.stopCommands(settings).count == 1)
+        #expect(HookInstaller.commands(settings, event: .stop).count == 1)
         #expect(FileManager.default.fileExists(atPath: data.appending(path: "Cookies").path))
         let config = try JSONDecoder().decode(LauncherConfig.self, from: Data(contentsOf:
             e.home.paths.launcherApp(name: "Client").appending(path: "Contents/Resources/brainmerge.json")))
@@ -104,7 +107,131 @@ import BrainmergeTestSupport
         #expect(FileManager.default.fileExists(atPath: e.primaryProfile.claudeMD.path))
         #expect(!ManagedBlock.contains(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)))
         #expect(try !HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile))
+        #expect(HookInstaller.health(settingsFile: e.primaryProfile.settingsFile, cliPath: e.cliPath, slug: "perso") == .missing)
         #expect(try e.store.load().identities.isEmpty)
+    }
+
+    /// An app registered with Launch Services when it was built is taken out of it when its account goes: no record is left
+    /// for a bundle that no longer exists. Launch Services itself is never asked here: the fake shell answers for it.
+    @Test func removingAnAccountUnregistersItsApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let calls = ShellCalls()
+        let shell = Shell { executable, arguments, cwd, environment in
+            if executable == LauncherBuilder.lsregister { calls.record(arguments); return ShellResult(status: 0, stdout: "", stderr: "") }
+            return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+        }
+        let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
+                                      claudeAppURL: e.claude.url, shell: shell, registerLaunchers: true,
+                                      monitor: ProcessMonitor(psOutput: { "" }))
+        _ = try manager.adoptPrimary(name: "Perso")
+        _ = try manager.add(IdentityManager.AddRequest(name: "Client"))
+        let app = e.home.paths.launcherApp(name: "Client").path
+        #expect(calls.all == [["-f", app]])
+        try manager.remove(slug: "client", deleteData: false)
+        #expect(calls.all == [["-f", app], ["-u", app]])
+    }
+
+    /// "Repair hooks" in Settings: each account's hooks are written as they are today, the person's own hooks stay, and
+    /// nothing else of the account changes.
+    @Test func repairHooksRewritesOnlyTheHooks() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let clientSettings = CLIProfile(directory: client.cliProfile(in: e.home.paths)).settingsFile
+        try Data(#"{"model":"sonnet","hooks":{"Stop":[{"hooks":[{"type":"command","command":"\"/old/brainmerge\" sync --identity client"},{"type":"command","command":"say done"}]}]}}"#.utf8).write(to: clientSettings)
+        try HookInstaller.remove(settingsFile: e.primaryProfile.settingsFile)
+        let claudeMD = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        #expect(try e.manager.hooksHealth().map(\.1) == [.missing, .outdated])
+
+        try e.manager.repairHooks()
+        #expect(try e.manager.hooksHealth().map(\.0.slug) == ["perso", "client"])
+        #expect(try e.manager.hooksHealth().allSatisfy { $0.1 == .current })
+        let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: clientSettings)) as! [String: Any]
+        #expect(settings["model"] as? String == "sonnet")
+        #expect(HookInstaller.commands(settings, event: .stop) == [HookInstaller.syncCommand(cliPath: e.cliPath, slug: "client"), "say done"])
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8) == claudeMD)
+        // An account whose Claude Code folder is gone is skipped, not recreated.
+        try FileManager.default.removeItem(at: client.cliProfile(in: e.home.paths))
+        try e.manager.repairHooks()
+        #expect(!FileManager.default.fileExists(atPath: client.cliProfile(in: e.home.paths).path))
+        #expect(try e.manager.hooksHealth().map(\.0.slug) == ["perso"])
+    }
+
+    /// One account's settings.json that is not JSON stops only that account: the ones after it are still repaired, and
+    /// the error is thrown once all were tried (the launch's silent upgrade relies on this).
+    @Test func repairHooksGoesPastAnAccountItCannotRead() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let clientSettings = CLIProfile(directory: client.cliProfile(in: e.home.paths)).settingsFile
+        try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\"/old/brainmerge\" sync --identity client"}]}]}}"#.utf8).write(to: clientSettings)
+        try Data("{ not json".utf8).write(to: e.primaryProfile.settingsFile)
+        #expect(try e.store.load().identities.map(\.slug) == ["perso", "client"])
+
+        #expect(throws: (any Error).self) { try e.manager.repairHooks() }
+        #expect(HookInstaller.health(settingsFile: clientSettings, cliPath: e.cliPath, slug: "client") == .current)
+        #expect(try String(contentsOf: e.primaryProfile.settingsFile, encoding: .utf8) == "{ not json")
+    }
+
+    /// Attaching an account writes the memory's lists of projects and accounts under the memory's lock, like the
+    /// SessionStart hook and the saves that read them: a session starting at that moment never loses a line. A lock held
+    /// too long fails the attach with "Busy saving", before anything is written.
+    @Test func attachingAnAccountTakesTheMemorysLock() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        e.manager.memoryLockTimeout = 0.2
+        let acquired = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), released = DispatchSemaphore(value: 0)
+        let git = BrainGit(brain: e.brain)
+        Thread.detachNewThread {
+            try? git.withLock(timeout: 5) { acquired.signal(); release.wait() }
+            released.signal()
+        }
+        acquired.wait()
+        let accounts = try? Data(contentsOf: e.brain.identitiesFile)
+        #expect(throws: BrainmergeError.lockTimeout) { try e.manager.adoptPrimary(name: "Perso") }
+        release.signal()
+        released.wait()
+        #expect((try? Data(contentsOf: e.brain.identitiesFile)) == accounts)
+        #expect(!ManagedBlock.contains((try? String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)) ?? ""))
+        #expect(try e.manager.adoptPrimary(name: "Perso").slug == "perso")
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["perso"] != nil)
+    }
+
+    /// The memory's list of accounts is the account's to save, like its list of projects: it never shows as "You edited
+    /// 1 file". A change to it (a new name) is the account's again.
+    @Test func theListOfAccountsIsSavedByTheAccount() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let perso = try e.manager.adoptPrimary(name: "Perso")
+        let save = AccountSave(brain: e.brain, git: BrainGit(brain: e.brain), held: HeldStore(paths: e.home.paths, memoryID: "shared"))
+        #expect(try save.run(for: perso).saved.contains(".brainmerge/identities.json"))
+        #expect(try save.run(for: perso).saved.isEmpty)
+        let renamed = try e.manager.update(slug: "perso", name: "Personal", tint: nil, logo: nil)
+        #expect(try save.run(for: renamed).saved == [".brainmerge/identities.json"])
+        #expect(try !OwnEdits(brain: e.brain, git: BrainGit(brain: e.brain), held: HeldStore(paths: e.home.paths, memoryID: "shared")).pending()
+            .contains(".brainmerge/identities.json"))
+    }
+
+    /// A removed account's lists of notes it wrote and never saved go with it, in every memory: those notes are no longer
+    /// kept out of your own edits' save.
+    @Test func removingAnAccountDropsItsLists() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let clients = Brain(root: try e.manager.addBrain(name: "Clients", path: nil, language: .en).url)
+        for brain in [e.brain, clients] {
+            let ledger = TouchedLedger(brain: brain, slug: "client")
+            try ledger.append("memory/acme/note.md")
+            _ = try ledger.take()
+            try ledger.append("memory/acme/other.md")
+        }
+        try TouchedLedger(brain: e.brain, slug: "perso").append("memory/acme/mine.md")
+        try e.manager.remove(slug: "client", deleteData: false)
+        for brain in [e.brain, clients] {
+            let ledger = TouchedLedger(brain: brain, slug: "client")
+            #expect(!FileManager.default.fileExists(atPath: ledger.file.path) && !FileManager.default.fileExists(atPath: ledger.sending.path))
+        }
+        let claimed = TouchedLedger.claimed(in: e.brain)
+        #expect(claimed.contains("memory/acme/mine.md"), "another account's list stays")
+        #expect(!claimed.contains("memory/acme/note.md") && !claimed.contains("memory/acme/other.md"))
     }
 
     @Test func addWithoutBrainCreatesNothing() throws {
@@ -240,6 +367,62 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.identityNotFound("nobody")) { try e.manager.setBrain(of: "nobody", to: "work") }
     }
 
+    /// "Choose memory folder" for a memory whose folder is gone: the folder it lives in now (moved by the person), or an
+    /// empty one to start it again. Its accounts follow; the notes are never moved.
+    @Test func aMissingMemoryIsPointedAtItsNewFolder() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        try e.manager.setBrain(of: "perso", to: "work")
+        try Data("# pricing\n".utf8).write(to: Brain(root: work.url).memoryDir(forProject: "atelier").appending(path: "pricing.md"))
+        let moved = e.home.url.appending(path: "Notes/Work", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: moved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: work.url, to: moved)
+
+        let folder = try e.manager.relocateBrain(id: "work", to: moved, language: .en)
+        #expect(folder.path == moved.path && folder.name == "Work")
+        #expect(try e.store.load().brain(id: "work")?.path == moved.path)
+        let notes = Brain(root: moved).memoryDir(forProject: "atelier")
+        #expect(FileManager.default.fileExists(atPath: notes.appending(path: "pricing.md").path))
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == notes.path)
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains(moved.path))
+
+        // A memory whose folder is in place never moves: its links would keep writing there, unsaved.
+        let fresh = e.home.url.appending(path: "Fresh", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+        #expect(throws: BrainmergeError.memoryInPlace(id: "work", path: moved.path)) { try e.manager.relocateBrain(id: "work", to: fresh, language: .en) }
+        #expect(try e.store.load().brain(id: "work")?.path == moved.path)
+        #expect(!Brain(root: fresh).isInitialized)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == notes.path)
+
+        // Its folder gone, an empty folder: the memory starts again there.
+        let aside = e.home.url.appending(path: "Aside", directoryHint: .isDirectory)
+        try FileManager.default.moveItem(at: moved, to: aside)
+        _ = try e.manager.relocateBrain(id: "work", to: fresh, language: .en)
+        #expect(Brain(root: fresh).isInitialized)
+        #expect(FileManager.default.fileExists(atPath: Brain(root: aside).memoryDir(forProject: "atelier").appending(path: "pricing.md").path), "the old folder is left as it is")
+
+        #expect(throws: BrainmergeError.brainFolderInUse(e.brain.root.path)) { try e.manager.relocateBrain(id: "work", to: e.brain.root, language: .en) }
+        #expect(throws: BrainmergeError.brainUnknown("gone")) { try e.manager.relocateBrain(id: "gone", to: fresh, language: .en) }
+        try FileManager.default.moveItem(at: fresh, to: e.home.url.appending(path: "Aside2", directoryHint: .isDirectory))
+        let inside = e.home.url.appending(path: "repo/notes", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: e.home.url.appending(path: "repo/.git"), withIntermediateDirectories: true)
+        #expect(throws: BrainmergeError.memoryInsideRepository(e.home.url.appending(path: "repo").resolvingSymlinksInPath().path)) {
+            try e.manager.relocateBrain(id: "work", to: inside, language: .en)
+        }
+        #expect(try e.store.load().brain(id: "work")?.path == fresh.path)
+    }
+
+    /// No memory at all yet: choosing a folder makes it the default one.
+    @Test func choosingAFolderWithNoMemoryMakesTheDefaultOne() throws {
+        let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
+        let folder = try e.manager.relocateBrain(id: AppState.defaultBrainID, to: e.home.paths.defaultBrain, language: .en)
+        #expect(folder.id == AppState.defaultBrainID)
+        #expect(try e.store.load().brainPath == e.home.paths.defaultBrain.path)
+        #expect(Brain(root: e.home.paths.defaultBrain).isInitialized)
+    }
+
     @Test func forgettingAMemoryInUseIsRefusedAndTheFolderStays() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")
@@ -309,6 +492,26 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.brainFolderInUse(e.brain.root.path)) { try e.manager.addBrain(name: "Again", path: e.brain.root, language: .en) }
         #expect(throws: BrainmergeError.brainNameEmpty) { try e.manager.renameBrain(id: "shared", name: "") }
         #expect(try e.store.load().brains.count == 1)
+    }
+
+    /// `brain add` inside another repository is refused with the sentence, and nothing is added to the list.
+    @Test func aMemoryInsideAnotherRepositoryIsNotAdded() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let top = e.home.url.appending(path: "code", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: top.appending(path: ".git"), withIntermediateDirectories: true)
+        #expect(throws: BrainmergeError.memoryInsideRepository(top.resolvingSymlinksInPath().path)) {
+            try e.manager.addBrain(name: "Work", path: top.appending(path: "notes"), language: .en)
+        }
+        #expect(try e.store.load().brains.count == 1)
+    }
+
+    /// Attaching (setup, repair, `brain wire`) brings an older memory's .gitignore up to date: the accounts' lists of what
+    /// they wrote stay out of its history.
+    @Test func attachingIgnoresTheListsInAnOlderMemory() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        try Data(".DS_Store\n.brainmerge/lock\n".utf8).write(to: e.brain.gitignore)
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(try String(contentsOf: e.brain.gitignore, encoding: .utf8) == ".DS_Store\n.brainmerge/lock\n.brainmerge/touched/\n")
     }
 
     // MARK: Swapping two names
@@ -396,7 +599,7 @@ import BrainmergeTestSupport
         var request = IdentityManager.AddRequest(name: "Agency")
         request.logo = try FakeIcon.orangePNG(in: e.home.url)
         let agency = try e.manager.add(request)
-        try FileManager.default.removeItem(at: try #require(request.logo))
+        try Data("not an image".utf8).write(to: try #require(request.logo)) // A photo that no longer reads: the build fails.
         let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
         let untouched = [e.home.paths.stateFile, e.primaryProfile.claudeMD, agencyMD, e.brain.identitiesFile]
         try pinDates(untouched)
@@ -421,7 +624,7 @@ import BrainmergeTestSupport
         var request = IdentityManager.AddRequest(name: "Agency")
         request.logo = try FakeIcon.orangePNG(in: e.home.url)
         let agency = try e.manager.add(request)
-        try FileManager.default.removeItem(at: try #require(request.logo))
+        try Data("not an image".utf8).write(to: try #require(request.logo)) // A photo that no longer reads: the build fails.
         let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
 
         #expect(throws: (any Error).self) { try e.manager.update(slug: "agency", name: "Agency", tint: nil, logo: nil) }
@@ -450,7 +653,7 @@ import BrainmergeTestSupport
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let photo = try FakeIcon.orangePNG(in: e.home.url)
         _ = try e.manager.update(slug: "ruben", name: nil, tint: nil, logo: photo, ownApp: true)
-        try FileManager.default.removeItem(at: photo)
+        try Data("not an image".utf8).write(to: photo) // A photo that no longer reads: the build fails.
         #expect(throws: (any Error).self) { try e.manager.update(slug: "ruben", name: "Ruben C", tint: nil, logo: nil) }
         #expect(try e.store.load().primary?.name == "Ruben")
         #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))
@@ -604,5 +807,26 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.identityNotFound("nobody")) { try e.manager.swapNames("ruben", with: "nobody") }
         try e.manager.swapNames("ruben", with: "ruben")   // with itself: nothing to do
         #expect(try e.store.load().identities.map(\.name) == ["Ruben"])
+    }
+
+    @Test func aChangeWaitsForTheStateLockAndKeepsTheOtherWrite() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let paths = e.home.paths
+        let started = DispatchSemaphore(value: 0), done = DispatchSemaphore(value: 0)
+        // Another process (the command line) holds the lock through its own load, change and save.
+        Thread.detachNewThread {
+            try? StateStore(paths: paths).update { state in
+                started.signal()
+                usleep(300_000)
+                state.notesApp = "md.obsidian"
+            }
+            done.signal()
+        }
+        started.wait()
+        try e.manager.renameBrain(id: "shared", name: "Everyone")
+        done.wait()
+        let state = try e.store.load()
+        #expect(state.notesApp == "md.obsidian")
+        #expect(state.brains.first?.name == "Everyone")
     }
 }

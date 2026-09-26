@@ -13,9 +13,14 @@ public enum OpenTarget {
     public static let anthropicTeam = "Q6L2SF6YDW"
 
     /// Claude's own designated requirement: a Developer ID app from Anthropic's team, with Claude's identifier.
-    static let requirement = "identifier \"\(claudeBundleIdentifier)\" and anchor apple generic"
-        + " and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
-        + " and certificate leaf[subject.OU] = \"\(anthropicTeam)\""
+    static let requirement = requirement(identifier: claudeBundleIdentifier)
+
+    /// Code signed with Anthropic's Developer ID (team `Q6L2SF6YDW`) under exactly this identifier.
+    static func requirement(identifier: String) -> String {
+        "identifier \"\(identifier)\" and anchor apple generic"
+            + " and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
+            + " and certificate leaf[subject.OU] = \"\(anthropicTeam)\""
+    }
 
     public enum Refusal: Equatable, Sendable {
         /// Not an absolute path to an app bundle, or a path that climbs out with `..`.
@@ -47,7 +52,7 @@ public enum OpenTarget {
     }
 
     /// The bundle identifier its Info.plist declares.
-    static func bundleIdentifier(of app: String) -> String? {
+    public static func bundleIdentifier(of app: String) -> String? {
         let plist = URL(fileURLWithPath: app, isDirectory: true).appending(path: "Contents/Info.plist")
         guard let data = try? Data(contentsOf: plist),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return nil }
@@ -57,9 +62,17 @@ public enum OpenTarget {
     /// Anthropic's signature on the app, checked by the Security framework (no subprocess). The resources are not hashed
     /// again on every click: the signature of the main executable and the Info.plist identifies the app.
     public static func isSignedByAnthropic(_ app: String) -> Bool {
+        isSigned(URL(fileURLWithPath: app, isDirectory: true), requirement: requirement)
+    }
+
+    /// The same check for any code, an app or a single program such as Claude Code, under the identifier it must carry.
+    public static func isSignedByAnthropic(_ path: String, identifier: String) -> Bool {
+        isSigned(URL(fileURLWithPath: path), requirement: requirement(identifier: identifier))
+    }
+
+    static func isSigned(_ url: URL, requirement: String) -> Bool {
         var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: app, isDirectory: true) as CFURL, [], &code) == errSecSuccess,
-              let code else { return false }
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
         var required: SecRequirement?
         guard SecRequirementCreateWithString(requirement as CFString, [], &required) == errSecSuccess, let required else { return false }
         return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSDoNotValidateResources), required) == errSecSuccess

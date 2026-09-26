@@ -24,6 +24,9 @@ public struct AddAccountForm: Equatable, Sendable {
         if existing.contains(where: { $0.bundleDisplayName.caseInsensitiveCompare(candidate) == .orderedSame }) {
             return "There is already an account called \(trimmedName). Pick another name."
         }
+        if sharedHistory, memory != .shared {
+            return "A shared conversation history needs the memory shared with your other accounts. Turn one of them off."
+        }
         return nil
     }
 

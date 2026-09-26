@@ -4,11 +4,20 @@ import BrainmergeCore
 
 public struct MemoryView: View {
     @Bindable var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public init(model: AppModel) { self.model = model }
 
-    public enum Mode: String, CaseIterable, Identifiable { case graph = "Graph", timeline = "Timeline"; public var id: String { rawValue } }
-    /// BRAINMERGE_MEMORY=timeline opens on the timeline (screenshots); the graph otherwise.
-    @State private var mode: Mode = ProcessInfo.processInfo.environment["BRAINMERGE_MEMORY"] == "timeline" ? .timeline : .graph
+    public enum Mode: String, CaseIterable, Identifiable {
+        case graph = "Graph", timeline = "Timeline", tidy = "Tidy"
+        public var id: String { rawValue }
+    }
+    /// BRAINMERGE_MEMORY=timeline or tidy opens on that tab (screenshots); the graph otherwise.
+    @State private var mode: Mode = Mode(rawValue: (ProcessInfo.processInfo.environment["BRAINMERGE_MEMORY"] ?? "").capitalized) ?? .graph
+
+    /// A tab's name; Tidy carries how many rows it has, "Tidy (4)", and no number when there is nothing to tidy.
+    static func title(of mode: Mode, tidyCount: Int) -> String {
+        mode == .tidy && tidyCount > 0 ? "\(mode.rawValue) (\(tidyCount))" : mode.rawValue
+    }
 
     var installedApps: [NotesApp] { NotesApps.installed() }
     var target: NotesTarget { NotesApps.target(for: model.notesApp, installed: installedApps) }
@@ -47,22 +56,129 @@ public struct MemoryView: View {
                 }
             }
             HStack(spacing: 12) {
-                Picker("View", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize().tint(Theme.Colors.accent)
-                // The graph carries its own legend; the timeline keeps the counts of saves.
-                if mode == .timeline { chips }
+                Picker("View", selection: $mode) {
+                    ForEach(Mode.allCases) { Text(Self.title(of: $0, tidyCount: model.memoryTidy.count)).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().tint(Theme.Colors.accent)
+                // The graph carries its own legend and can show an Obsidian vault; the timeline keeps the counts of saves.
+                switch mode {
+                case .graph: sourceMenu
+                case .timeline: chips
+                case .tidy: EmptyView()
+                }
             }
+            // Without Apple's tools there is no history to show, and nothing starts git to find out. Once they are in, the
+            // line goes and the history slides up in its place.
+            if !model.gitAvailable {
+                HStack(spacing: 10) {
+                    Text(AppModel.historyNeedsGit).font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted)
+                    Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass)
+                }
+                .modifier(ReducedFadeIn())
+                .transition(.banner(reduceMotion))
+                // Checks again every 5 seconds while it shows: once Apple's installer is done, the history comes back.
+                .task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(5))
+                        if Task.isCancelled { return }
+                        await model.checkGit()
+                    }
+                }
+            }
+            // An account of this memory whose last save failed and that has not saved since: when, and why, quietly.
+            ForEach(model.memorySaveFailures, id: \.self) { line in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.circle").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                    Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                }
+            }
+            if let summary = AppModel.heldSummary(model.heldNotes) { heldBanner(summary) }
             switch mode {
             case .graph:
                 MemoryGraphView(graph: model.memoryGraph, app: model)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .timeline:
                 ScrollView { timeline.padding(.bottom, 8) }
+            case .tidy:
+                MemoryTidyView(model: model)
             }
         }
         .padding(Theme.Layout.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { model.refreshMemory() }
+        .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.gitAvailable)
+        // Obsidian's list is only read while the graph shows, where its menu is.
+        .onAppear { model.refreshMemory(); if mode == .graph { Task { await model.refreshVaults() } } }
+        .onChange(of: mode) { _, mode in if mode == .graph { Task { await model.refreshVaults() } } }
+        // The tab's count stays current on every tab while the screen shows, for the memory shown; reading only.
+        .task(id: model.selectedBrain?.root) {
+            while !Task.isCancelled {
+                await model.refreshTidy()
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
+    }
+
+    /// Notes a save held back because they look like they hold a key: where and what they look like, never the value, and
+    /// the answers. Glass buttons only: the screen's one purple button stays the notes app's.
+    func heldBanner(_ summary: String) -> some View {
+        GlassCard(radius: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(summary).font(Theme.Fonts.body).fontWeight(.semibold)
+                ForEach(model.heldNotes) { note in
+                    HStack(spacing: 10) {
+                        Text(note.sentence).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                            .lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Button("Open") { if let url = model.heldNoteURL(note) { NotesApps.open(url, with: target) } }
+                            .buttonStyle(.glass).controlSize(.small)
+                        Button("It's not a secret") { Task { await model.notASecret(note) } }.buttonStyle(.glass).controlSize(.small)
+                            .help("Saves this line from now on, in every account attached to this memory.")
+                        Button("Save anyway") { Task { await model.saveAnyway(note) } }.buttonStyle(.glass).controlSize(.small)
+                            .help("Saves this note once, the next time it is saved.")
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+    }
+
+    /// What the graph shows: each Brainmerge memory, each vault Obsidian lists, or a vault picked by hand. Vaults are
+    /// only read.
+    var sourceMenu: some View {
+        let menu = GraphSources.menu(brains: model.brains, vaults: model.obsidianVaults, chosen: model.graphVault)
+        let selection = Binding(get: { model.graphSource }, set: { model.selectGraphSource($0) })
+        return Menu {
+            Picker("Graph of", selection: selection) {
+                if menu.memories.count > 1 {
+                    Section("Brainmerge memory") { ForEach(menu.memories) { Text($0.name).tag($0.source) } }
+                } else {
+                    ForEach(menu.memories) { Text($0.name).tag($0.source) }
+                }
+                if !menu.vaults.isEmpty {
+                    Section("Obsidian vaults") {
+                        ForEach(menu.vaults) { Text($0.name).tag($0.source) }
+                    }
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button("Choose a vault…") { chooseVault() }
+        } label: {
+            Text(GraphSources.title(of: model.graphSource, brains: model.brains))
+        }
+        .menuStyle(.button).buttonStyle(.glass).fixedSize()
+        .help("Show a Brainmerge memory, or an Obsidian vault the way Obsidian shows it (read only)")
+    }
+
+    /// A folder picker for a vault Obsidian does not list: the folder must be one Obsidian opened as a vault.
+    func chooseVault() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = false
+        panel.message = "Choose a folder you open in Obsidian as a vault. Brainmerge only reads it."
+        panel.prompt = "Show this vault"
+        if panel.runModal() == .OK, let url = panel.url { model.chooseVault(url) }
     }
 
     var timeline: some View {
@@ -73,11 +189,18 @@ public struct MemoryView: View {
                         Text("Nothing remembered yet. Open an account and work on a project: what it learns shows up here.")
                             .foregroundStyle(Theme.Colors.textMuted).padding(22)
                     }
+                    // The rows under a new save slide down to make its room; once it is made, the new save drops in, its
+                    // divider with it, and wears the selection color for a moment. With Reduce Motion, only the color.
                     ForEach(Array(model.memoryEvents.enumerated()), id: \.element.id) { index, event in
-                        row(event)
-                        if index < model.memoryEvents.count - 1 { Divider().overlay(Theme.Colors.surfaceLine).padding(.leading, Self.rowInset) }
+                        let arrived = model.memoryArrivals[event.id]
+                        VStack(alignment: .leading, spacing: 0) {
+                            row(event, arrived: arrived)
+                            if index < model.memoryEvents.count - 1 { Divider().overlay(Theme.Colors.surfaceLine).padding(.leading, Self.rowInset) }
+                        }
+                        .arrives(.row, from: reduceMotion ? nil : arrived)
                     }
                 }
+                .animation(reduceMotion ? nil : Theme.Motion.settle, value: model.memoryEvents.first?.id)
             }
             .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
             if installedApps.isEmpty, target == .folder {
@@ -132,19 +255,41 @@ public struct MemoryView: View {
         .glassEffect(.regular, in: Capsule())
     }
 
-    func row(_ event: MemoryEvent) -> some View {
+    /// A save; a new one (seen `arrived`) fades from the selection color.
+    func row(_ event: MemoryEvent, arrived: Date?) -> some View {
         HStack(alignment: .center, spacing: 14) {
             OrbView(name: event.name, tint: event.tint, size: 30)
             VStack(alignment: .leading, spacing: 3) {
+                // In the theme's cream, like the rest of the row: in the primary color, inside the glass, the words were
+                // drawn apart (vibrant) and slid on their own, faster than their detail line, over it.
                 Text("\(Text(event.name).fontWeight(.semibold)) \(event.sentence)")
-                    .font(Theme.Fonts.body)
+                    .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.text)
                 Text(event.detail).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
             }
             Spacer()
             Text(Self.relative(event.date)).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+        // One piece as it slides down under a new save: its words, their detail line, its orb and its date move together.
+        // Each on its own, the words ran ahead of their detail line and were drawn over it.
+        .geometryGroup()
+        // Inset like the sidebar's selection, so the first row's color stays inside the card's rounded corners.
+        .background {
+            BeatView(start: arrived, duration: Self.highlightDuration(reduceMotion: reduceMotion)) { elapsed in
+                RoundedRectangle(cornerRadius: Theme.Layout.rowRadius, style: .continuous)
+                    .fill(Theme.Colors.selection.opacity(Highlight.opacity(elapsed: Self.highlightElapsed(elapsed, reduceMotion: reduceMotion))))
+                    .padding(.horizontal, 4).padding(.vertical, 2)
+            }
+        }
     }
+
+    /// A new save's color counts from the moment its row comes in, once the rows under it have made its room: on the
+    /// row's own clock (`elapsed` since the save, or since a first frame that came late), so it never runs ahead of the
+    /// row. With Reduce Motion, from the save: the row is there at once.
+    static func highlightElapsed(_ elapsed: Double?, reduceMotion: Bool) -> Double? {
+        reduceMotion ? elapsed : elapsed.map { max(0, $0 - Arrival.row.delay) }
+    }
+    static func highlightDuration(reduceMotion: Bool) -> Double { (reduceMotion ? 0 : Arrival.row.delay) + Highlight.duration }
 
     static func relative(_ date: Date) -> String {
         if Date().timeIntervalSince(date) < 60 { return "just now" }

@@ -42,9 +42,160 @@ import BrainmergeTestSupport
         #expect(snapshot.mains.map(\.pid) == [401, 403, 404, 406])
         #expect(snapshot.all.count == 9)
         // 403 plus its GPU (407) plus the GPU utility (408) plus its Claude Code (409), nothing from the other instances.
-        #expect(snapshot.residentBytes(of: 403) == Int64(120_000 + 300_000 + 50_000 + 200_000) * 1024)
-        #expect(snapshot.residentBytes(of: 401) == Int64(100_000 + 700_000) * 1024)
-        #expect(snapshot.residentBytes(of: 406) == Int64(130_000) * 1024)
+        #expect(snapshot.memoryBytes(of: 403) == Int64(120_000 + 300_000 + 50_000 + 200_000) * 1024)
+        #expect(snapshot.memoryBytes(of: 401) == Int64(100_000 + 700_000) * 1024)
+        #expect(snapshot.memoryBytes(of: 406) == Int64(130_000) * 1024)
+    }
+
+    // MARK: RAM as Activity Monitor counts it
+
+    static let mb: Int64 = 1024 * 1024
+
+    /// The footprint of each process when the kernel gave one, its resident size otherwise; the tree only.
+    @Test func memorySumsFootprintsOfTheTreeAndFallsBackToResident() {
+        let snapshot = ProcessMonitor.snapshot(psOutput: ps, footprints: [403: 90 * Self.mb, 407: 400 * Self.mb, 401: 7 * Self.mb])
+        // 408 and 409 have no footprint: their resident size counts. 401's footprint is another tree.
+        #expect(snapshot.memoryBytes(of: 403) == 90 * Self.mb + 400 * Self.mb + Int64(50_000 + 200_000) * 1024)
+        #expect(snapshot.memoryBytes(of: 406) == Int64(130_000) * 1024)
+    }
+
+    @Test func footprintIsAskedOfTheKernel() {
+        #expect((ProcessMonitor.footprint(of: getpid()) ?? 0) > 0)
+        #expect(ProcessMonitor.footprint(of: 99_999_999) == nil)
+    }
+
+    /// Measuring asks the kernel about Claude's processes only, never about any other process on the Mac.
+    @Test func measuringAsksOnlyAboutClaudeProcesses() throws {
+        let asked = PidRecorder()
+        let monitor = ProcessMonitor(psOutput: { self.ps + "\n  501 1 3000 /bin/zsh -l\n  502 501 80000 claude --resume\n  503 502 20000 /usr/local/bin/mcp-server\n" },
+                                     footprint: { pid in asked.record(pid); return pid == 502 ? 64 * Self.mb : nil })
+        _ = try monitor.snapshot()
+        #expect(asked.pids.isEmpty)
+        let measured = try monitor.snapshot(measuring: true)
+        // Every account tree (401 to 409 but vim, 405) and the terminal session's tree (502, 503); not vim, not the shell.
+        #expect(asked.pids == [401, 402, 403, 404, 406, 407, 408, 409, 502, 503])
+        #expect(measured.footprints == [502: 64 * Self.mb])
+    }
+
+    /// One kernel call per process and snapshot: a window's start and its footprint come from the same call, and a
+    /// snapshot that does not measure asks about the windows only.
+    @Test func oneKernelCallPerProcess() throws {
+        final class Calls: @unchecked Sendable {
+            private let lock = NSLock()
+            private var list: [Int32] = []
+            func record(_ pid: Int32) { lock.lock(); list.append(pid); lock.unlock() }
+            var pids: [Int32] { lock.lock(); defer { lock.unlock() }; return list }
+            func reset() { lock.lock(); list = []; lock.unlock() }
+        }
+        let calls = Calls()
+        let monitor = ProcessMonitor(psOutput: { self.ps }, usage: { pid in
+            calls.record(pid)
+            return ProcessMonitor.Usage(footprint: Int64(pid) * Self.mb, startAbstime: UInt64(pid))
+        })
+        let measured = try monitor.snapshot(measuring: true)
+        #expect(calls.pids.count == Set(calls.pids).count, "\(calls.pids.sorted())")
+        #expect(Set(calls.pids) == [401, 402, 403, 404, 406, 407, 408, 409])
+        #expect(measured.mains.first { $0.pid == 403 }?.startAbstime == 403)
+        #expect(measured.footprints[403] == 403 * Self.mb)
+        calls.reset()
+        let plain = try monitor.snapshot()
+        #expect(calls.pids.sorted() == [401, 403, 404, 406])
+        #expect(plain.footprints.isEmpty)
+        #expect(plain.mains.first { $0.pid == 406 }?.startAbstime == 406)
+        let mine = try #require(ProcessMonitor.usage(of: getpid()))
+        #expect((mine.footprint ?? 0) > 0 && (mine.startAbstime ?? 0) > 0 && (mine.startAbstime ?? .max) <= mach_absolute_time())
+        #expect(ProcessMonitor.usage(of: 99_999_999) == nil)
+    }
+
+    /// Other programs keep their number, parent and size, and nothing of their command line.
+    @Test func otherProcessesKeepOnlyTheirNumbers() {
+        let snapshot = ProcessMonitor.snapshot(psOutput: ps + "\n  510 1 100 /usr/bin/curl -H secret\n")
+        let curl = snapshot.all.first { $0.pid == 510 }
+        #expect(curl == ProcessMonitor.Running(pid: 510, ppid: 1, residentBytes: 102_400, commandLine: ""))
+        #expect(snapshot.all.first { $0.pid == 405 } == ProcessMonitor.Running(pid: 405, ppid: 1, residentBytes: 5_120_000, commandLine: ""))
+        // The Code tab's Claude Code is known by its folder; a window by its program and its data folder.
+        #expect(snapshot.all.first { $0.pid == 409 }?.runsFromClaudeCodeFolder == true)
+        let client = snapshot.all.first { $0.pid == 403 }
+        #expect(client?.claudeProgram == "/Applications/Claude.app/Contents/MacOS/Claude")
+        #expect(client?.userDataDir == "/Users/r/Library/Application Support/Claude-client")
+        #expect(snapshot.all.first { $0.pid == 404 }?.claudeProgram == "/Users/r/Applications/Brainmerge/Client (Claude).app/Contents/MacOS/Claude-bin")
+    }
+
+    /// Claude Code runs each Bash command as `zsh -c source ~/.claude/shell-snapshots/… && eval '…'`, and a session or an
+    /// extension can be started with a key in its arguments: no command line is kept, Claude's own included, only what the
+    /// monitor needs to know of it.
+    @Test func noCommandLineIsKeptNotEvenClaudes() {
+        let secret = "ghp_SENTINEL0123456789abcdef"
+        let lines = ps + """
+
+              600 409 2000 /bin/zsh -c source /Users/r/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'curl -H "Authorization: Bearer \(secret)" https://api.github.com/user'
+              601 1 80000 claude --settings {"env":{"ANTHROPIC_API_KEY":"\(secret)"}}
+              602 1 9000 node /Users/r/Library/Application Support/Claude/Claude Extensions/ant.dir.gh/server/index.js --token \(secret)
+              603 1 120000 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/r/Library/Application Support/Claude-work --flag=\(secret)
+            """
+        let snapshot = ProcessMonitor.snapshot(psOutput: lines)
+        var kept = ""
+        dump(snapshot, to: &kept)
+        #expect(!kept.contains(secret), "\(kept)")
+        // What the monitor needs still comes through: the session is Claude Code, each window is its account's.
+        #expect(snapshot.terminalSessions.map(\.pid) == [601])
+        #expect(snapshot.mains.map(\.pid) == [401, 403, 404, 406, 603])
+        let paths = Paths(home: URL(fileURLWithPath: "/Users/r"))
+        let claude = ClaudeApp(url: URL(fileURLWithPath: "/Applications/Claude.app"), version: "2.7032.0", bundleIdentifier: ClaudeApp.bundleIdentifier)
+        let work = Identity(slug: "work", name: "Work")
+        #expect(snapshot.mains.filter { ProcessMonitor.matches($0, identity: work, paths: paths, claude: claude) }.map(\.pid) == [603])
+    }
+
+    /// A shell's command line is never Claude, whatever it mentions: Claude Code's own Bash commands name its folders.
+    @Test func aShellIsNeverTakenForClaude() {
+        let shells = """
+          700 1 2000 /bin/zsh -c source /Users/r/.claude/shell-snapshots/snapshot-zsh-1.sh && eval 'ls "/Users/r/Library/Application Support/Claude/claude-code/2.1.0/claude"'
+          701 1 2000 /bin/bash -c node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js --version
+          702 1 2000 /bin/zsh -c open /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/Users/r/Library/Application Support/Claude-client
+          703 1 2000 sh -c claude --resume
+        """
+        let snapshot = ProcessMonitor.snapshot(psOutput: shells)
+        #expect(!snapshot.hasClaudeCodeSession)
+        #expect(snapshot.terminalSessions.isEmpty)
+        #expect(snapshot.mains.isEmpty)
+    }
+
+    // MARK: Claude Code in a terminal
+
+    @Test func isClaudeCodeCases() {
+        let yes: [String] = ["claude", "claude -p x", "claude --resume", "/Users/r/.local/bin/claude", "/Users/r/.local/bin/claude --continue",
+                   "/opt/homebrew/bin/claude mcp serve",
+                   "node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                   "node /opt/homebrew/bin/claude", "/usr/local/bin/node /usr/local/bin/claude -p hi", "bun /Users/r/.bun/bin/claude"]
+        let no: [String] = ["claude-code-helper", "/Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer)",
+                  "/Applications/Claude.app/Contents/MacOS/Claude", "vim /tmp/claude notes", "less claude", "git -C /Users/r/claude status",
+                  "node /Users/r/server.js claude", "/usr/bin/python3 /Users/r/claude.py", ""]
+        for line in yes { #expect(ProcessMonitor.isClaudeCode(arguments: line), "\(line)") }
+        for line in no { #expect(!ProcessMonitor.isClaudeCode(arguments: line), "\(line)") }
+    }
+
+    /// A terminal session is Claude Code with no Claude window and no other session above it; its whole tree counts.
+    @Test func terminalSessionsAreClaudeCodeOutsideAnyAccount() {
+        let terminal = ps + """
+
+              501 1 3000 /bin/zsh -l
+              502 501 80000 claude --resume
+              503 502 20000 claude mcp serve
+              504 503 10000 /usr/local/bin/some-mcp-server
+              505 501 5000 vim /tmp/claude notes
+              510 1 3000 -zsh
+              511 510 60000 /Users/r/.local/bin/claude
+              520 1 90000 node /opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js
+            """
+        let snapshot = ProcessMonitor.snapshot(psOutput: terminal, footprints: [511: 30 * Self.mb])
+        // The Code tab's Claude Code (409) stays with its account; 503 is part of 502's session.
+        #expect(snapshot.terminalSessions.map(\.pid) == [502, 511, 520])
+        let use = snapshot.terminalUse
+        #expect(use.sessions == 3)
+        let firstSession: Int64 = (80_000 + 20_000 + 10_000) * 1024
+        let npmSession: Int64 = 90_000 * 1024
+        #expect(use.bytes == firstSession + 30 * Self.mb + npmSession)
+        #expect(ProcessMonitor.snapshot(psOutput: ps).terminalUse == ProcessMonitor.TerminalUse(sessions: 0, bytes: 0))
     }
 
     @Test func memoryPressureLevelsReadTheKernelValue() {
@@ -57,4 +208,11 @@ import BrainmergeTestSupport
     @Test func realPsRuns() throws {
         _ = try ProcessMonitor().claudeProcesses()
     }
+}
+
+final class PidRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: Set<Int32> = []
+    func record(_ pid: Int32) { lock.lock(); recorded.insert(pid); lock.unlock() }
+    var pids: Set<Int32> { lock.lock(); defer { lock.unlock() }; return recorded }
 }

@@ -10,7 +10,10 @@ public struct NewMemorySheet: View {
     let attach: Account?
     @State private var name: String
     @State private var folder: URL?
-    @State private var problem: String?
+    @State private var problem = InlineProblem()
+    /// The button that goes with the problem, when it has one (git missing: Apple's installer).
+    @State private var problemAction: UserMessage.Action?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     public init(model: AppModel, isPresented: Binding<Bool>, attach: Account? = nil) {
         self.model = model; _isPresented = isPresented; self.attach = attach
@@ -51,9 +54,14 @@ public struct NewMemorySheet: View {
                 Text("Created if missing. A folder you already have is used as is: nothing in it is renamed.")
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
             }
-            if let problem { Text(problem).foregroundStyle(Theme.Colors.accentLight).font(Theme.Fonts.secondary) }
+            ProblemLine(problem: problem)
+            if problem.text != nil, Self.offersAppleTools(problemAction) {
+                Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass).controlSize(.small)
+                    .transition(AnyTransition.line(reduceMotion)
+                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion)))
+            }
             HStack(spacing: 10) {
-                if let working = model.working { Text(working).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                WorkingLine(text: model.working)
                 Spacer()
                 Button("Cancel") { isPresented = false }.buttonStyle(.glass).keyboardShortcut(.cancelAction)
                 Button("Create") { create() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
@@ -62,18 +70,26 @@ public struct NewMemorySheet: View {
         }
         .padding(22)
         .frame(width: 440)
-        .background(WarmBackground(accents: [.purple]))
+        .background(WarmBackground())
     }
+
+    /// Git missing: the sheet offers Apple's installer itself, like the Memory screen, since its message is not shown.
+    nonisolated static func offersAppleTools(_ action: UserMessage.Action?) -> Bool { action == .installAppleTools }
 
     func create() {
         let clean = name.trimmingCharacters(in: .whitespaces)
-        guard !clean.isEmpty else { problem = "Give this memory a name."; return }
+        problemAction = nil
+        guard !clean.isEmpty else { problem.show("Give this memory a name."); return }
         // An open account cannot move: say so before creating anything.
-        if let attach, attach.isRunning { problem = "Quit \(attach.identity.name) first, then try again."; return }
+        if let attach, attach.isRunning { problem.show("Quit \(attach.identity.name) first, then try again."); return }
         Task {
-            guard let created = await model.addBrain(name: clean, path: folder) else { problem = model.message?.detail; model.message = nil; return }
+            guard let created = await model.addBrain(name: clean, path: folder) else {
+                problemAction = model.message?.action; problem.show(model.message?.detail); model.message = nil; return
+            }
             if let attach {
-                if let failure = await model.setBrain(of: attach.id, to: created.id) { problem = failure.detail; model.dismiss(failure); return }
+                if let failure = await model.setBrain(of: attach.id, to: created.id) {
+                    problemAction = failure.action; problem.show(failure.detail); model.dismiss(failure); return
+                }
             }
             isPresented = false
         }
@@ -83,6 +99,11 @@ public struct NewMemorySheet: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
         panel.prompt = "Use this folder"
-        if panel.runModal() == .OK { folder = panel.url }
+        if panel.runModal() == .OK, let url = panel.url {
+            folder = url
+            // Said as soon as it is chosen: a folder inside another repository is refused.
+            problemAction = nil
+            problem.show(model.folderProblem(url))
+        }
     }
 }

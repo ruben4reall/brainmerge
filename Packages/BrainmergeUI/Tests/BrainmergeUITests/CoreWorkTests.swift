@@ -179,18 +179,88 @@ import BrainmergeTestSupport
         #expect(try e.store.load().identity(slug: "client") == nil)
     }
 
-    /// A newer "Opening…" is never cleared by the fallback timer of an older click.
+    /// A newer "Opening…" is never cleared by the fallback timer of an older click. The newer mark's own fallback is an
+    /// hour away: however long a loaded machine keeps the main actor from this test, only the older timer can fire here.
     @Test func anOldOpeningTimerLeavesANewerMarkAlone() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
         m.markOpening("client", fallback: .milliseconds(30))
-        // An hour: the newer mark must outlive the whole test even on a slow CI runner.
         m.markOpening("client", fallback: .seconds(3600))
         try await Task.sleep(for: .milliseconds(150))
         #expect(m.opening == ["client"])
         m.markOpening("other", fallback: .milliseconds(30))
         try await waitUntil { !m.opening.contains("other") }
         #expect(m.opening == ["client"])
+    }
+
+    /// A `ps` whose output a test changes as it goes, from any thread.
+    final class FakePS: @unchecked Sendable {
+        private let lock = NSLock()
+        private var text: String
+        init(_ text: String) { self.text = text }
+        var output: String {
+            get { lock.lock(); defer { lock.unlock() }; return text }
+            set { lock.lock(); text = newValue; lock.unlock() }
+        }
+    }
+
+    /// "Open" answers at once: the account reads Opening before Claude is launched, and the launch (an `open` of its app,
+    /// some 100 to 200 ms) and the list read again after it run off the main thread.
+    @Test func openSaysOpeningAtOnceAndLaunchesOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let seen = OnboardingModelTests.Threads()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { seen.record(Thread.isMainThread); return "" }))
+        m.reload()
+        seen.clear()
+        let gate = DispatchSemaphore(value: 0), launched = Log()
+        m.launchAccount = { _, slug in seen.record(Thread.isMainThread); launched.add(slug); gate.wait() }
+        let task = m.open("client")
+        #expect(m.opening == ["client"])
+        #expect(launched.entries.isEmpty || launched.entries == ["client"])
+        gate.signal()
+        await task?.value
+        #expect(launched.entries == ["client"] && m.message == nil)
+        #expect(!seen.all.isEmpty && !seen.all.contains(true), "\(seen.all)")
+    }
+
+    /// A launch that fails says why, and the account stops reading Opening at once.
+    @Test func aLaunchThatFailsSaysWhy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let m = model(e, monitor: ProcessMonitor(psOutput: { "" }))
+        m.reload()
+        m.launchAccount = { _, _ in throw BrainmergeError.claudeAppNotFound("/Applications/Claude.app") }
+        await m.open("client")?.value
+        #expect(m.opening.isEmpty && m.message != nil)
+    }
+
+    /// "Quit Claude and open": the waiting line says so at once; the other accounts quit off the main thread, Brainmerge
+    /// waits until they are gone (not a fixed two seconds), then the new account opens, reading Opening from then on.
+    @Test func quittingTheOthersSaysSoThenOpensOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let ps = FakePS("  900 1 120000 \(e.claude.executable.path)\n")
+        let seen = OnboardingModelTests.Threads()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { seen.record(Thread.isMainThread); return ps.output }))
+        m.reload()
+        #expect(m.openAccounts.map(\.id) == ["ruben"])
+        // However long a loaded machine keeps this test, the Opening mark outlives it.
+        m.openingFallback = .seconds(3600)
+        seen.clear()
+        let quit = Log(), launched = Log()
+        // Never a real signal: the pid in this `ps` belongs to someone else on the test Mac.
+        m.quitAccount = { _, identity in seen.record(Thread.isMainThread); quit.add(identity.slug); ps.output = "" }
+        m.launchAccount = { _, slug in seen.record(Thread.isMainThread); launched.add(slug) }
+        let task = m.quitOthers(then: "client")
+        #expect(m.working == "Quitting Claude for Ruben…")
+        await task.value
+        #expect(quit.entries == ["ruben"] && launched.entries == ["client"])
+        #expect(m.opening == ["client"] && m.openAccounts.isEmpty && m.working == nil && m.message == nil)
+        #expect(!seen.all.contains(true), "\(seen.all)")
     }
 
     /// The sidebar's "Rebuild" builds the missing app; "Opening…" and "Updating…" do nothing.

@@ -12,10 +12,20 @@ extension EnvironmentValues {
 struct SidebarRowStyle: ButtonStyle {
     var selected = false
 
-    /// The fill's color change; none with Reduce Motion.
-    static let fade: TimeInterval = 0.12
     /// A disabled row (an account opening or being updated) looks inactive instead of silently ignoring clicks.
     static let disabledOpacity = 0.75
+
+    /// The pointer's fill: a press shows at once (it answers the click), its release and the hover take 0.12 s. Nothing
+    /// with Reduce Motion: a color that follows the pointer needs no fade.
+    nonisolated static func fillAnimation(pressed: Bool, reduceMotion: Bool) -> Animation? {
+        pressed || reduceMotion ? nil : Theme.Motion.out(Theme.Motion.hover)
+    }
+    /// The selection moves with the screen, at once: the pill never lags behind the screen it names.
+    nonisolated static let selectionAnimation: Animation? = nil
+    /// The fill under the pointer: pressed, hovered, or none.
+    nonisolated static func pointerFill(pressed: Bool, hovering: Bool) -> Color {
+        pressed ? Theme.Colors.rowPressed : hovering ? Theme.Colors.rowHover : .clear
+    }
 
     func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration, selected: selected) }
 
@@ -26,12 +36,8 @@ struct SidebarRowStyle: ButtonStyle {
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-        var fill: Color {
-            if selected { return Theme.Colors.selection }
-            if configuration.isPressed { return Theme.Colors.rowPressed }
-            if hovering { return Theme.Colors.rowHover }
-            return .clear
-        }
+        /// Under the selection, nothing: the purple keeps its one shade.
+        var pointer: Color { selected ? .clear : SidebarRowStyle.pointerFill(pressed: configuration.isPressed, hovering: hovering) }
 
         var body: some View {
             let shape = RoundedRectangle(cornerRadius: Theme.Layout.rowRadius, style: .continuous)
@@ -39,10 +45,16 @@ struct SidebarRowStyle: ButtonStyle {
                 .environment(\.sidebarRowHovered, hovering)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(shape)
-                .background { shape.fill(fill).animation(reduceMotion ? nil : .easeOut(duration: SidebarRowStyle.fade), value: fill) }
+                .background {
+                    ZStack {
+                        shape.fill(pointer).animation(SidebarRowStyle.fillAnimation(pressed: configuration.isPressed, reduceMotion: reduceMotion), value: pointer)
+                        shape.fill(Theme.Colors.selection).opacity(selected ? 1 : 0).animation(SidebarRowStyle.selectionAnimation, value: selected)
+                    }
+                }
                 .opacity(isEnabled ? 1 : SidebarRowStyle.disabledOpacity)
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: isEnabled)
                 // Screenshots never show a stray highlight where the pointer happens to rest.
-                .onHover { inside in hovering = inside && isEnabled && !MemoryGraphView.capturing }
+                .onHover { inside in hovering = inside && isEnabled && !Theme.Motion.isCapture }
                 // A click hands the focus to Claude: the exit event may never come, so the highlight goes with the click.
                 .onChange(of: configuration.isPressed) { wasPressed, pressed in if wasPressed, !pressed { hovering = false } }
                 .onChange(of: isEnabled) { _, enabled in if !enabled { hovering = false } }
@@ -51,17 +63,20 @@ struct SidebarRowStyle: ButtonStyle {
 }
 
 /// The word at the end of an account row ("Open", "Show"): readable at rest, so a click's effect is never a guess,
-/// and full cream under the pointer. It never truncates: the account's name gives way first.
+/// and full cream under the pointer, in step with the row's fill. It never truncates: the account's name gives way first.
+/// A new word ("Opening…" to "Show") comes in once the old one has gone (`SwappingText`), never printed over it.
 struct SidebarRowHint: View {
     static let resting = Theme.Colors.textMuted
     static let pointed = Theme.Colors.text
     let text: String
     @Environment(\.sidebarRowHovered) private var hovered
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Text(text)
+        SwappingText(text: text, alignment: .trailing)
             .font(Theme.Fonts.caption)
             .foregroundStyle(hovered ? Self.pointed : Self.resting)
+            .animation(reduceMotion ? nil : Theme.Motion.out(Theme.Motion.hover), value: hovered)
             .fixedSize()
     }
 }

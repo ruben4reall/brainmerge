@@ -16,7 +16,8 @@ public enum CLIInstaller {
         _NSGetExecutablePath(nil, &size)
         var buffer = [CChar](repeating: 0, count: Int(size) + 1)
         guard _NSGetExecutablePath(&buffer, &size) == 0 else { return nil }
-        return URL(fileURLWithPath: String(cString: buffer)).resolvingSymlinksInPath()
+        let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+        return URL(fileURLWithPath: path).resolvingSymlinksInPath()
     }
 
     /// Volume mounted read-only (disk image, sealed system volume). `URLResourceValues.volumeIsReadOnly`
@@ -33,6 +34,31 @@ public enum CLIInstaller {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path),
               names.contains(embeddedExecutableName) else { return nil }
         return dir.appending(path: embeddedExecutableName)
+    }
+
+    /// A link Brainmerge made: to the command line inside a Brainmerge app, or under the command line's own name.
+    public static func madeByBrainmerge(destination: String) -> Bool {
+        destination.contains("/Brainmerge.app/") || destination.hasSuffix("/\(embeddedExecutableName)")
+    }
+
+    /// At each launch of the app, for the hooks that call the link: made when missing, and pointed at `target` when
+    /// Brainmerge made it and the Brainmerge it pointed at is gone (trashed or moved). A link that works (a development
+    /// build's), someone else's link and a file are left as they are; from a read-only disk (the disk image, about to go
+    /// away) nothing is linked.
+    public static func linkAtLaunch(paths: Paths, target: URL) throws {
+        let fm = FileManager.default
+        let link = link(in: paths)
+        let resolved = target.resolvingSymlinksInPath()
+        if isOnReadOnlyVolume(resolved.path) { return }
+        if let existing = try? fm.destinationOfSymbolicLink(atPath: link.path) {
+            let pointed = URL(fileURLWithPath: existing, relativeTo: link.deletingLastPathComponent()).path
+            guard !fm.isExecutableFile(atPath: pointed), madeByBrainmerge(destination: existing) else { return }
+            try fm.removeItem(at: link)
+        } else if fm.fileExists(atPath: link.path) {
+            return
+        }
+        try fm.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: resolved)
     }
 
     /// Creates the link. A valid link to another binary is kept unless `replaceValid` (the "Install command line" button
@@ -52,5 +78,48 @@ public enum CLIInstaller {
             throw BrainmergeError.cliLinkOccupied(link.path)
         }
         try fm.createSymbolicLink(at: link, withDestinationURL: resolved)
+    }
+
+    // MARK: One command per account
+
+    /// `~/.local/bin/claude-<slug>`, a link to the command line, which runs `brainmerge code <slug>`.
+    public static func accountLink(in paths: Paths, slug: String) -> URL {
+        paths.localBin.appending(path: ClaudeCodeTerminal.linkPrefix + slug)
+    }
+
+    /// Made only where nothing exists: never over a file or someone else's link. The same rules as the brainmerge link:
+    /// Brainmerge's own link to a Brainmerge that was moved or trashed is pointed at `target`, and nothing is linked from
+    /// a read-only disk (the disk image). `target` must be Brainmerge's command line, or the link could never be
+    /// recognized, and removed, later. True when the link is there and ours.
+    @discardableResult
+    public static func linkAccount(paths: Paths, slug: String, target: URL, readOnly: (String) -> Bool = isOnReadOnlyVolume) throws -> Bool {
+        let fm = FileManager.default
+        let link = accountLink(in: paths, slug: slug)
+        let resolved = target.resolvingSymlinksInPath()
+        if let existing = try? fm.destinationOfSymbolicLink(atPath: link.path) {
+            guard madeByBrainmerge(destination: existing) else { return false }
+            let pointed = URL(fileURLWithPath: existing, relativeTo: link.deletingLastPathComponent()).path
+            if fm.isExecutableFile(atPath: pointed) { return true }
+            guard madeByBrainmerge(destination: resolved.path), !readOnly(resolved.path) else { return true }
+            try fm.removeItem(at: link)
+        } else if fm.fileExists(atPath: link.path) {
+            return false
+        }
+        guard madeByBrainmerge(destination: resolved.path), !readOnly(resolved.path) else { return false }
+        try fm.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: resolved)
+        return true
+    }
+
+    /// The account's command is there and is Brainmerge's.
+    public static func hasAccountLink(paths: Paths, slug: String) -> Bool {
+        guard let existing = try? FileManager.default.destinationOfSymbolicLink(atPath: accountLink(in: paths, slug: slug).path) else { return false }
+        return madeByBrainmerge(destination: existing)
+    }
+
+    /// Removed only after checking that the link points at Brainmerge's command line.
+    public static func unlinkAccount(paths: Paths, slug: String) {
+        guard hasAccountLink(paths: paths, slug: slug) else { return }
+        try? FileManager.default.removeItem(at: accountLink(in: paths, slug: slug))
     }
 }

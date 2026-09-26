@@ -34,6 +34,13 @@ public struct LauncherBuilder: Sendable {
         return exe.deletingLastPathComponent().appending(path: "launcher")
     }
 
+    /// Whether the apps built for this home go into Launch Services: only for the real home. A home forced by
+    /// BRAINMERGE_HOME is a test's or a demo's, thrown away with its apps; registering them would leave records under real
+    /// accounts' identifiers long after their folder is gone.
+    public static func registersApps(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        (environment["BRAINMERGE_HOME"] ?? "").isEmpty
+    }
+
     /// `register: false` avoids registering the disposable test bundles with Launch Services.
     @discardableResult
     public func build(for identity: Identity, claude: ClaudeApp, icon: URL?, register: Bool = true) throws -> URL {
@@ -54,35 +61,43 @@ public struct LauncherBuilder: Sendable {
 
     func makeBundle(for identity: Identity, config: LauncherConfig, plist extra: [String: Any], icon: URL?, register: Bool) throws -> URL {
         let fm = FileManager.default
-        let app = paths.launcherApp(name: identity.bundleDisplayName)
+        let final = paths.launcherApp(name: identity.bundleDisplayName)
+        // Built beside the old app and swapped in once complete: a failure leaves the account its app.
+        let app = BundleSwap.staging(for: final)
         let contents = app.appending(path: "Contents", directoryHint: .isDirectory)
         let macos = contents.appending(path: "MacOS", directoryHint: .isDirectory)
         let resources = contents.appending(path: "Resources", directoryHint: .isDirectory)
         if fm.fileExists(atPath: app.path) { try fm.removeItem(at: app) }
-        try fm.createDirectory(at: macos, withIntermediateDirectories: true)
-        try fm.createDirectory(at: resources, withIntermediateDirectories: true)
-        try fm.copyItem(at: launcherBinary, to: macos.appending(path: "launcher"))
-        try JSONEncoder().encode(config).write(to: resources.appending(path: "brainmerge.json"), options: .atomic)
+        do {
+            try fm.createDirectory(at: macos, withIntermediateDirectories: true)
+            try fm.createDirectory(at: resources, withIntermediateDirectories: true)
+            try fm.copyItem(at: launcherBinary, to: macos.appending(path: "launcher"))
+            try JSONEncoder().encode(config).write(to: resources.appending(path: "brainmerge.json"), options: .atomic)
 
-        var plist: [String: Any] = [
-            "CFBundleIdentifier": "ch.rubencatalao.brainmerge.launch.\(identity.slug)",
-            "CFBundleName": identity.bundleDisplayName,
-            "CFBundleDisplayName": identity.bundleDisplayName,
-            "CFBundleExecutable": "launcher",
-            "CFBundlePackageType": "APPL",
-            "CFBundleShortVersionString": "1.0",
-            "CFBundleVersion": "1",
-            "LSMinimumSystemVersion": "13.0",
-            "NSHighResolutionCapable": true,
-        ]
-        plist.merge(extra) { _, new in new }
-        if let icon {
-            try fm.copyItem(at: icon, to: resources.appending(path: "icon.icns"))
-            plist["CFBundleIconFile"] = "icon"
+            var plist: [String: Any] = [
+                "CFBundleIdentifier": "ch.rubencatalao.brainmerge.launch.\(identity.slug)",
+                "CFBundleName": identity.bundleDisplayName,
+                "CFBundleDisplayName": identity.bundleDisplayName,
+                "CFBundleExecutable": "launcher",
+                "CFBundlePackageType": "APPL",
+                "CFBundleShortVersionString": "1.0",
+                "CFBundleVersion": "1",
+                "LSMinimumSystemVersion": "13.0",
+                "NSHighResolutionCapable": true,
+            ]
+            plist.merge(extra) { _, new in new }
+            if let icon {
+                try fm.copyItem(at: icon, to: resources.appending(path: "icon.icns"))
+                plist["CFBundleIconFile"] = "icon"
+            }
+            try Plist.write(plist, to: contents.appending(path: "Info.plist"))
+            try shell.check("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
+            try BundleSwap.install(app, at: final)
+        } catch {
+            try? fm.removeItem(at: app)
+            throw error
         }
-        try Plist.write(plist, to: contents.appending(path: "Info.plist"))
-        try shell.check("/usr/bin/codesign", ["--force", "--sign", "-", app.path])
-        if register { _ = try? shell.run(Self.lsregister, ["-f", app.path]) }
-        return app
+        if register { _ = try? shell.run(Self.lsregister, ["-f", final.path]) }
+        return final
     }
 }

@@ -5,6 +5,17 @@ import LauncherGuard
 @testable import BrainmergeCore
 
 @Suite struct LauncherBuilderTests {
+    /// The command line's apps are registered with Launch Services only for the real home: a home forced by
+    /// BRAINMERGE_HOME is a test's or a demo's, whose disposable apps would otherwise stay listed under real accounts'
+    /// identifiers long after their folder is gone (every CLI smoke test used to add some to the developer's Mac).
+    @Test func theCommandLineRegistersAppsOnlyForTheRealHome() throws {
+        let context = try String(contentsOf: SecurityGuardTests.repo.appending(path: "Packages/BrainmergeCore/Sources/brainmerge/Context.swift"), encoding: .utf8)
+        #expect(context.contains("registerLaunchers: LauncherBuilder.registersApps()"))
+        #expect(LauncherBuilder.registersApps(environment: [:]))
+        #expect(LauncherBuilder.registersApps(environment: ["BRAINMERGE_HOME": ""]))
+        #expect(!LauncherBuilder.registersApps(environment: ["BRAINMERGE_HOME": "/tmp/demo-home"]))
+    }
+
     @Test func buildsSignedBundleWithConfigAndPlist() throws {
         let home = try TempHome(); defer { home.remove() }
         let claude = try FakeClaudeApp.make(in: home.url)
@@ -175,5 +186,25 @@ import LauncherGuard
         #expect(branch.contains("for name in command.unset { unsetenv(name) }"))
         #expect(branch.contains("exec(command.path, command.arguments)"))
         #expect(!branch.contains("CommandLine") && !branch.contains("setenv(\"") && !branch.contains("\"/usr/bin/open\""))
+    }
+
+    @Test func aFailedSignatureLeavesTheOldLauncherAndNoBuildingFolder() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        let identity = Identity(slug: "client", name: "Client")
+        let app = try LauncherBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .build(for: identity, claude: claude, icon: nil, register: false)
+        let marker = app.appending(path: "Contents/Resources/old-build")
+        try Data().write(to: marker)
+        let failingSign = Shell { executable, arguments, cwd, environment in
+            if executable == "/usr/bin/codesign" { return ShellResult(status: 1, stdout: "", stderr: "failed") }
+            return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+        }
+        #expect(throws: (any Error).self) {
+            try LauncherBuilder(paths: home.paths, launcherBinary: Products.launcher, shell: failingSign)
+                .build(for: identity, claude: claude, icon: nil, register: false)
+        }
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: home.paths.launchersDir.path) == ["Client.app"])
     }
 }

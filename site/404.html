@@ -28,7 +28,11 @@
 
   <main id="main">
     <section class="wrap lost" aria-labelledby="lost-title">
-      <img src="/assets/icon-512.webp" width="512" height="512" alt="The Brainmerge app icon: a small purple pixel creature on a dark rounded square.">
+      <svg class="creature" viewBox="0 -3 16 15" role="img" aria-label="The Brainmerge creature, a small purple pixel figure, looking around." shape-rendering="crispEdges">
+        <path d="M2 8h1v3H2zM5 8h1v3H5zM10 8h1v3h-1zM13 8h1v3h-1z" fill="#A06BE0"/>
+        <path d="M2 0h12v8H2zM0 3h2v3H0zM14 3h2v3h-2z" fill="#A06BE0"/>
+        <g class="cr-eyes" fill="#1E1430"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g>
+      </svg>
       <h1 class="h2" id="lost-title">This page does not&nbsp;exist.</h1>
       <p class="lead">The address may be mistyped, or the page has moved. Everything about Brainmerge is on one&nbsp;page.</p>
       <a class="more" href="/">Back to Brainmerge</a>
@@ -38,7 +42,7 @@
   <footer class="footer">
     <div class="wrap">
       <p class="legal">Works with Claude. Not made by Anthropic. Not affiliated with Anthropic. Claude is a trademark of&nbsp;Anthropic.</p>
-      <p class="legal">MIT license <span aria-hidden="true">·</span> Version&nbsp;0.4.0</p>
+      <p class="legal">MIT license <span aria-hidden="true">·</span> Version&nbsp;0.6.0</p>
     </div>
   </footer>
 </body>

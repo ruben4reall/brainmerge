@@ -15,6 +15,7 @@ public struct AccountsView: View {
     /// The apps the person made that open the account being edited, found before its sheet opens.
     @State private var editingApps: [ExistingApp] = []
     @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Two to four cards per row that always fill the width (300 to 400 wide).
     let columns = [GridItem(.adaptive(minimum: 300, maximum: 400), spacing: 12)]
 
@@ -25,28 +26,54 @@ public struct AccountsView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if let warning = model.memoryWarning { memoryBanner(warning) }
-                if let banner = model.updateBanner { updateBanner(banner) }
-                ScreenHeader("Accounts", subtitle: subtitle) {
+                // Every word, orb and button here is an obstacle the launch's leap flies around; the cards' empty edges are
+                // not, so the leap can rise from the splash just under them. A banner drops in and the grid slides down.
+                if let warning = model.memoryWarning {
+                    memoryBanner(warning).launchObstacle("accounts.memoryBanner").modifier(ReducedFadeIn()).transition(.banner(reduceMotion))
+                }
+                if let banner = model.updateBanner {
+                    updateBanner(banner).launchObstacle("accounts.updateBanner").modifier(ReducedFadeIn()).transition(.banner(reduceMotion))
+                }
+                if let note = model.healthNote {
+                    healthBanner(note).launchObstacle("accounts.healthBanner").modifier(ReducedFadeIn()).transition(.banner(reduceMotion))
+                }
+                ScreenHeader("Accounts", subtitle: subtitle, busy: model.working != nil, changeKey: subtitleWords) {
                     HStack(spacing: 10) {
                         searchField
                         Button("Add account") { showAdd = true }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
                     }
                 }
+                .launchObstacle("accounts.header")
+                // A card added or removed scales a touch and fades while the others make room; a search filters at once
+                // (only the accounts themselves animate the grid, never the query). With Reduce Motion the cards take their
+                // new places at once and the card itself fades in or out where it is.
+                // The cards keep the sidebar's order: an account that opens never moves (AccountsFilter). Any reflow left
+                // (an account added or removed) slides.
                 GlassEffectContainer(spacing: 12) {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(shown) { account in card(account) }
+                        ForEach(shown) { account in
+                            card(account).transition(reduceMotion ? .fade(true) : .opacity.combined(with: .scale(scale: 0.96)))
+                        }
                     }
                 }
+                .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: query.isEmpty ? shown.map(\.id) : [])
                 if shown.isEmpty, !query.isEmpty {
                     Text("No account matches “\(query)”.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
             .padding(Theme.Layout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // With Reduce Motion the grid moves at once and the banner only fades (ReducedFadeIn).
+            .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.memoryWarning)
+            .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.updateBanner)
+            .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.healthNote)
         }
-        .sheet(isPresented: $showAdd) { AddAccountSheet(model: model, isPresented: $showAdd) }
+        .onChange(of: model.requestedAdd, initial: true) { _, asked in
+            if asked { showAdd = true; model.requestedAdd = false }
+        }
+        .sheet(isPresented: $showAdd, onDismiss: { model.beginPendingLogin() }) { AddAccountSheet(model: model, isPresented: $showAdd) }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory, attach: newMemoryFor) }
+        .sheet(isPresented: Binding(get: { model.login != nil }, set: { if !$0 { model.cancelLogin() } })) { LoginSheet(model: model) }
         .sheet(item: $editing) { account in
             EditAccountSheet(model: model, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }), account: account, otherApps: editingApps)
         }
@@ -77,8 +104,13 @@ public struct AccountsView: View {
         let open = model.openAccounts
         if let a = model.accounts.first(where: { model.opening.contains($0.id) }) { return "Opening \(a.identity.name)…" }
         if open.isEmpty { return "\(model.accounts.count) accounts, none open" }
-        let memory = model.totalResidentBytes > 0 ? ", \(ByteCountFormatter.string(fromByteCount: model.totalResidentBytes, countStyle: .memory))" : ""
+        let memory = model.totalRAMBytes > 0 ? ", \(ByteFormat.ram(model.totalRAMBytes))" : ""
         return open.count == 1 ? "1 account open\(memory)" : "\(open.count) accounts open\(memory)"
+    }
+
+    /// The subtitle without its RAM figure: the figure moves every few seconds and never animates (a new state crossfades).
+    var subtitleWords: String {
+        model.working ?? model.accounts.first(where: { model.opening.contains($0.id) }).map { "opening \($0.id)" } ?? "\(model.openAccounts.count) open"
     }
 
     var searchField: some View {
@@ -92,58 +124,118 @@ public struct AccountsView: View {
     }
 
     /// A compact card: swatch, name, note, status; the primary action and the "more" menu on the right.
+    /// While its account opens, a stroke in its own color turns around it; once open, its dot pops sage and rings once.
     func card(_ account: Account) -> some View {
         let opening = model.opening.contains(account.id)
-        let memory = model.residentBytes(of: account.id)
+        let memory = model.ramBytes(of: account.id)
         let sameAs = model.duplicateCodeAccount(of: account.id)?.identity.name
-        let othersOpen = model.openAccounts.contains { $0.id != account.id }
-        let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
-                                             othersOpen: othersOpen, appExists: model.appURL(of: account.id) != nil)
+        let action = action(of: account)
+        let tint = Theme.color(for: account.identity.tint)
+        let status = Self.status(of: account, memory: memory)
         return ZStack {
-            AuraView(state: opening ? .full : .off, cornerRadius: Theme.Layout.cardRadius).padding(-3)
-            HStack(spacing: 12) {
-                OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 40)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
-                        Text(account.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
-                            .help(Self.nameHelp(of: account) ?? "")
-                        // One Claude account used twice: a small mark, the whole sentence on hover and for VoiceOver.
-                        if let sameAs {
-                            Image(systemName: "person.2.fill").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
-                                .help(Self.duplicateHelp(sameAs: sameAs))
-                                .accessibilityLabel(Self.duplicateHelp(sameAs: sameAs))
+            // The row, then the lines that need room (a failed save, a window on the previous Claude) under it, the whole
+            // width of the card, lined up under the name: at the default window a card is 330 points wide, and its text
+            // column beside the buttons holds a status, not a sentence.
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 40)
+                        // A card added while the app runs: one ring in its color around the orb.
+                        .overlay { RingPulseView(ring: .added, start: model.addedAt[account.id], color: tint) }
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 5) {
+                            Text(account.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
+                                .help(Self.nameHelp(of: account) ?? "")
+                            // One Claude account used twice: a small mark, the whole sentence on hover and for VoiceOver.
+                            if let sameAs {
+                                Image(systemName: "person.2.fill").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                                    .help(Self.duplicateHelp(sameAs: sameAs))
+                                    .accessibilityLabel(Self.duplicateHelp(sameAs: sameAs))
+                            }
+                        }
+                        // The note or email keeps a few characters at least; the memory's name gives way after it.
+                        HStack(spacing: 0) {
+                            Text(Self.subtitle(of: account)).lineLimit(1)
+                                .truncationMode(account.identity.note == nil ? .middle : .tail)
+                                .frame(minWidth: 44, alignment: .leading)
+                                .layoutPriority(1)
+                            let suffix = memorySuffix(account)
+                            if !suffix.isEmpty { Text(suffix).lineLimit(1) }
+                        }
+                        .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                        .help(Self.subtitleHelp(of: account) ?? "")
+                        HStack(spacing: 5) {
+                            statusDot(account, updating: action == .updating, opened: model.openedAt[account.id])
+                            // Open, closed, opening: the new words come in once the old ones have gone; the RAM figure that follows
+                            // moves at once, never rolls.
+                            SwappingText(text: status, key: Self.status(of: account, memory: 0))
+                                .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                         }
                     }
-                    // The note or email gives way; the memory's name stays whole after it.
-                    HStack(spacing: 0) {
-                        Text(Self.subtitle(of: account)).lineLimit(1)
-                            .truncationMode(account.identity.note == nil ? .middle : .tail)
-                        let suffix = memorySuffix(account)
-                        if !suffix.isEmpty { Text(suffix).lineLimit(1).fixedSize() }
+                    Spacer(minLength: 8)
+                    // One width for Open, Opening…, Show, Update and Log in: a new word never reflows the text beside it. The
+                    // old word goes before the new one comes. An account that still has to log in gets "Log in" here, its Open
+                    // in the menu.
+                    let button = Self.cardButton(for: account, action: action)
+                    if let button {
+                        ZStack(alignment: .trailing) {
+                            cardButton(button, for: account, action: action).id(button.label).transition(SwapText.transition(reduceMotion))
+                        }
+                        .frame(minWidth: Self.buttonSlot, alignment: .trailing)
+                        .animation(Theme.Motion.layout(Theme.Motion.out(SwapText.insertion), reduceMotion), value: button.label)
                     }
-                    .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                    .help(Self.subtitleHelp(of: account) ?? "")
-                    HStack(spacing: 5) {
-                        Circle().fill(account.isRunning ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 6, height: 6)
-                        Text(Self.status(of: account, memory: memory))
-                            .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
-                    }
+                    moreMenu(account)
                 }
-                Spacer(minLength: 8)
-                if let button = Self.cardButton(for: account, action: action) { cardButton(button, for: account, action: action) }
-                moreMenu(account)
+                // Its last save failed and it has not saved since: when, and why, quietly.
+                if let failure = model.saveFailureSentence(of: account.id) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: "exclamationmark.circle").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                        Text(failure).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.leading, Self.linesInset)
+                    .help(failure)
+                }
+                if let version = model.staleVersion(of: account.id) {
+                    let waiting = model.restartingWhenIdle.contains(account.id)
+                    HStack(spacing: 6) {
+                        Text(Self.staleLine(version: version, waiting: waiting)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.accentLight)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Restart") { Task { await model.restart(account.id) } }.buttonStyle(.glass).controlSize(.mini)
+                            .disabled(waiting || model.restarting.contains(account.id))
+                            .help("Quits this window, waits for it to close, then opens it again on Claude \(version)")
+                    }
+                    .padding(.leading, Self.linesInset)
+                }
             }
+            .launchObstacle("accounts.card.\(account.id)")
             .padding(14)
+            // Inside the card's glass, as its content: drawn over by the glass container, the stroke did not show.
+            .overlay {
+                ZStack { if opening { OpeningStrokeView(tint: tint).transition(.opacity) } }
+                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(opening ? OpeningStroke.fadeIn : OpeningStroke.fadeOut), reduceMotion),
+                               value: opening)
+            }
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
         }
         .contextMenu { actions(account) }
+        // The apps made by hand for the account are looked for as the pointer comes (never its connections): "Edit…" then
+        // reads only those before its sheet opens.
+        .onHover { inside in if inside { Task { await model.prefetchOtherApps(account.id) } } }
     }
 
-    /// The sheet opens once the apps made by hand for the account are known (a few milliseconds): it opens at its full
-    /// size, and nothing moves under the pointer afterwards.
+    /// What a click on the account does, in the sidebar's words.
+    func action(of account: Account) -> SidebarAccountAction {
+        SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
+                                othersOpen: model.openAccounts.contains { $0.id != account.id }, appExists: model.appURL(of: account.id) != nil)
+    }
+
+    /// The sheet opens once the apps made by hand for the account and its connections are known: at its full size, nothing
+    /// moving under the pointer afterwards. The apps are looked for as the pointer comes over the card; the connections
+    /// (the browsers' profiles, the server names) only now, as "Edit…" is chosen (SECURITY.md), a few milliseconds.
+    /// Nothing known yet (the keyboard, the edit screen at launch): both are found first.
     func startEditing(_ account: Account) {
         Task {
-            editingApps = await model.otherApps(opening: account.id)
+            editingApps = await model.prepareEdit(account.id)
             editing = account
         }
     }
@@ -154,11 +246,17 @@ public struct AccountsView: View {
             switch button.run {
             case .update: Task { await model.updateAccount(account.id) }
             case .rebuild, .open: Task { await model.perform(action, on: account.id) }
+            case .logIn: model.beginLogin(account.id)
             }
         }
-        let help = button.run == .update
-            ? (account.isRunning ? "Quits this account, rebuilds its copy of Claude for the version installed, and opens it again" : "Rebuilds this account's copy of Claude for the version installed, then you can open it")
-            : action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id })
+        let help = switch button.run {
+        case .update:
+            account.isRunning ? "Quits this account, rebuilds its copy of Claude for the version installed, and opens it again" : "Rebuilds this account's copy of Claude for the version installed, then you can open it"
+        case .logIn:
+            "Closes your other Claude windows, opens \(account.identity.name) to log in, then reopens the others on your click"
+        case .open, .rebuild:
+            action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id }, staleVersion: model.staleVersion(of: account.id))
+        }
         if button.isProminent {
             Button(button.label, action: run).buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
                 .disabled(!button.isEnabled).help(help)
@@ -194,7 +292,18 @@ public struct AccountsView: View {
     }
 
     @ViewBuilder func actions(_ account: Account) -> some View {
+        // "Log in" holds the card's button: its Open (or Show) is here.
+        let action = action(of: account)
+        if let open = Self.menuAction(for: account, action: action), let label = open.label {
+            Button(label) { Task { await model.perform(open, on: account.id) } }.disabled(!open.isEnabled)
+        }
         Button("Edit…") { startEditing(account) }
+        // brainmerge code <slug>, or claude-<slug> with the per-account commands on: never a hand-typed CLAUDE_CONFIG_DIR.
+        Button("Copy Terminal Command") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(model.terminalCommand(for: account.id), forType: .string)
+        }
+        if Self.offersLogIn(account) { Button("Log in…") { model.beginLogin(account.id) }.disabled(model.accountsBusy.contains(account.id)) }
         Menu("Memory") {
             let current = model.brainName(of: account.identity)
             ForEach(model.brains) { folder in
@@ -209,6 +318,11 @@ public struct AccountsView: View {
         if account.isOutdated { Button("Update for Claude") { Task { await model.updateAccount(account.id) } } }
         if !account.identity.isPrimary { Button(account.identity.iconMode == .tintedClone ? "Rebuild icon" : "Rebuild launcher") { Task { await model.rebuild(account.id) } } }
         else if account.identity.appURL(in: model.paths) != nil { Button("Rebuild app") { Task { await model.rebuild(account.id) } } }
+        if model.restartingWhenIdle.contains(account.id) {
+            Button("Cancel Restart When Idle") { model.cancelRestartWhenIdle(account.id) }
+        } else if model.staleVersion(of: account.id) != nil, !model.restarting.contains(account.id) {
+            Button("Restart When Idle") { model.restartWhenIdle(account.id) }
+        }
         if account.isRunning { Button("Quit") { model.quit(account.id) } }
         Divider()
         Button("Remove from Brainmerge…", role: .destructive) { pendingRemoval = account }
@@ -234,19 +348,56 @@ public struct AccountsView: View {
         }
         switch (account.isRunning, account.needsLogin) {
         case (true, true): return "Open · log in from its window"
-        case (true, false): return memory > 0 ? "Open · \(ByteCountFormatter.string(fromByteCount: memory, countStyle: .memory))" : "Open"
+        case (true, false): return memory > 0 ? "Open · \(ByteFormat.ram(memory))" : "Open"
         case (false, true): return "Not logged in yet"
         case (false, false): return "Closed"
         }
     }
 
+    /// The room for the card's button, as wide as its widest word ("Opening…").
+    static let buttonSlot: CGFloat = 76
+    /// The lines under a card's row start under its name: past the orb (40) and the space after it (12).
+    static let linesInset: CGFloat = 52
+
+    /// "Log in" on the card: an account that has not logged in, or whose session is gone.
+    nonisolated static func showsLogInButton(_ account: Account, opening: Bool) -> Bool { account.needsLogin && !opening }
+    /// "Log in…" in the card's menu: every account with a Claude window, since an expired session can keep the files
+    /// Brainmerge looks at, and then only the person knows.
+    nonisolated static func offersLogIn(_ account: Account) -> Bool { account.identity.surfaces.desktop }
+
+    /// Under the status of a window that started before Claude was updated.
+    nonisolated static func staleLine(version: String, waiting: Bool = false) -> String {
+        waiting ? "Runs the previous Claude. Restarts when its Claude Code sessions end." : "Runs the previous Claude. Restart to use \(version)."
+    }
+
     /// The card's main button.
     struct CardButton: Equatable {
-        enum Run: Equatable { case open, rebuild, update }
+        enum Run: Equatable { case open, rebuild, update, logIn }
         let label: String
         let run: Run
         let isEnabled: Bool
         let isProminent: Bool
+    }
+
+    /// Open or closed: sage or faint, 0.2 s either way. The moment its account opens from here, the dot pops from 0.4 of its
+    /// size and one sage ring spreads from it; while its app is being updated, a small spinner takes its place.
+    func statusDot(_ account: Account, updating: Bool, opened: Date?) -> some View {
+        ZStack {
+            if updating {
+                ProgressView().controlSize(.mini).transition(.opacity)
+            } else {
+                BeatView(start: opened, duration: PopIn.duration) { elapsed in
+                    Circle().fill(account.isRunning ? Theme.Colors.sage : Theme.Colors.textFaint)
+                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: account.isRunning)
+                        .scaleEffect(PopIn.scale(elapsed: elapsed, reduceMotion: reduceMotion))
+                        .opacity(PopIn.opacity(elapsed: elapsed, reduceMotion: reduceMotion))
+                }
+                .overlay { RingPulseView(ring: .opened, start: opened, color: Theme.Colors.sage) }
+                .transition(.opacity)
+            }
+        }
+        .frame(width: 6, height: 6)
+        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: updating)
     }
 
     /// The sidebar's word for the account (see SidebarAccountAction), with its disabled states: the card never offers a
@@ -256,8 +407,19 @@ public struct AccountsView: View {
         if account.isOutdated, action != .opening, action != .updating {
             return CardButton(label: "Update", run: .update, isEnabled: true, isProminent: true)
         }
+        if logInHoldsTheButton(account, action: action) { return CardButton(label: "Log in", run: .logIn, isEnabled: true, isProminent: true) }
         guard let label = action.label else { return nil }
         return CardButton(label: label, run: action == .rebuild ? .rebuild : .open, isEnabled: action.isEnabled, isProminent: action != .show)
+    }
+
+    /// An account that still has to log in, ready to open or already open: "Log in" is what to do, and takes the button.
+    nonisolated static func logInHoldsTheButton(_ account: Account, action: SidebarAccountAction) -> Bool {
+        (action == .open || action == .show) && !account.isOutdated && showsLogInButton(account, opening: false)
+    }
+
+    /// The Open (or Show) that "Log in" moved from the card's button to its menu; nil when the button still holds it.
+    nonisolated static func menuAction(for account: Account, action: SidebarAccountAction) -> SidebarAccountAction? {
+        logInHoldsTheButton(account, action: action) ? action : nil
     }
 
     /// The mark next to the name of an account whose Claude Code uses the same email as another one.
@@ -280,6 +442,22 @@ public struct AccountsView: View {
             Text(text).font(Theme.Fonts.secondary)
             Spacer()
             Button("Update all") { Task { await model.updateAll() } }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    /// The line after the check a macOS or Claude update started: "Show" opens Settings, where Health lists what to fix.
+    func healthBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.shield").foregroundStyle(Theme.Colors.textMuted)
+            Text(text).font(Theme.Fonts.secondary)
+            Spacer()
+            if model.healthProblems.isEmpty {
+                Button("OK") { model.dismissHealthNote() }.buttonStyle(.glass).controlSize(.small)
+            } else {
+                Button("Show") { model.dismissHealthNote(); model.requestedScreen = .settings }.buttonStyle(.glass).controlSize(.small)
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10, style: .continuous))

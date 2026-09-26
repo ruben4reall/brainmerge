@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import BrainmergeCore
 
 public struct SettingsView: View {
@@ -8,6 +9,14 @@ public struct SettingsView: View {
 
     @State private var showNewMemory = false
     @State private var showUninstall = false
+    /// What the last "Choose…" found: it drops in under the path, and the same refusal again shakes it (never the
+    /// sentence that says the choice worked).
+    @State private var claudeNote = InlineProblem()
+    @State private var repairingHooks = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let ownEditsTitle = "Save my own edits to the memory's history"
+    static let ownEditsCaption = "Changes you make yourself in the notes, outside Claude, are saved as You."
 
     func label(_ path: String) -> String {
         let home = model.paths.home.path
@@ -50,13 +59,28 @@ public struct SettingsView: View {
                 ScreenHeader("Settings")
                 GlassCard {
                     VStack(alignment: .leading, spacing: 0) {
-                        section("Claude app") {
+                        // First: what the doctor found, each with the button that mends it.
+                        section("Health") { HealthSection(model: model) }
+                        section("Where Claude is") {
                             if let claude = model.claude {
                                 Text("\(claude.url.path) · version \(claude.version)").foregroundStyle(Theme.Colors.textMuted)
+                                Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
+                                ProblemLine(problem: claudeNote, color: Theme.Colors.textMuted)
                             } else {
                                 Text("Not found. Brainmerge needs the Claude app to open accounts.").foregroundStyle(Theme.Colors.textMuted)
                                 Button("Get Claude") { if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) } }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                                Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
+                                ProblemLine(problem: claudeNote, color: Theme.Colors.textMuted)
                             }
+                        }
+                        section("Menu bar") {
+                            Toggle(MenuBarMenu.settingTitle, isOn: Binding(get: { model.menuBarIcon }, set: { model.setMenuBarIcon($0) })).toggleStyle(.switch).tint(Theme.Colors.accent)
+                            Text(MenuBarMenu.settingFootnote)
+                                .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                        }
+                        // Per Mac, set by the app delegate: absent in previews and tests.
+                        if let opener = model.quickOpener {
+                            section(QuickOpener.sectionTitle) { QuickOpenerSetting(opener: opener) }
                         }
                         section("Distinct icons") {
                             Toggle("Rebuild tinted copies after each Claude update", isOn: Binding(get: { model.autoRebuild }, set: { model.setAutoRebuild($0) })).toggleStyle(.switch).tint(Theme.Colors.accent)
@@ -71,6 +95,9 @@ public struct SettingsView: View {
                             }
                             Text("Every account writes to one memory. Give an account its own from its card's menu: what it learns then stays there.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                            Toggle(Self.ownEditsTitle, isOn: Binding(get: { model.saveOwnEdits }, set: { model.setSaveOwnEdits($0) }))
+                                .toggleStyle(.switch).tint(Theme.Colors.accent).padding(.top, 6)
+                            Text(Self.ownEditsCaption).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
                         section("Notes app") {
                             NotesAppPicker(selection: Binding(get: { model.notesApp }, set: { model.setNotesApp($0) }))
@@ -88,17 +115,47 @@ public struct SettingsView: View {
                         }
                         section("Command line") {
                             HStack(spacing: 10) {
-                                Circle().fill(model.commandLineInstalled ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 8, height: 8)
+                                statusDot(model.commandLineInstalled)
                                 Text(model.commandLineInstalled ? "Installed at ~/.local/bin/brainmerge" : "Not installed").foregroundStyle(Theme.Colors.textMuted)
+                                    .contentTransition(.opacity)
                                 Button("Install command line") { model.installCommandLine() }.buttonStyle(.glass)
                             }
+                            .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.commandLineInstalled)
+                            // Read when Settings opens: the line drops in once known. While "Repair hooks" works, a small
+                            // spinner takes the dot's place; the new sentence then crossfades over the old one.
+                            if let hooks = model.hooks, let sentence = hooks.sentence {
+                                HStack(spacing: 10) {
+                                    ZStack {
+                                        if repairingHooks { ProgressView().controlSize(.mini).transition(.opacity) }
+                                        else { statusDot(hooks.allCurrent).transition(.opacity) }
+                                    }
+                                    .frame(width: 8, height: 8)
+                                    // Only the dot and the spinner: the sentence that comes with the end of a repair moves
+                                    // the button at once under Reduce Motion.
+                                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: repairingHooks)
+                                    Text(sentence).foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
+                                    Button("Repair hooks") {
+                                        repairingHooks = true
+                                        Task { await model.repairHooks(); repairingHooks = false }
+                                    }
+                                    .buttonStyle(.glass).disabled(repairingHooks)
+                                }
+                                .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: sentence)
+                                .transition(.line(reduceMotion))
+                            }
+                            Toggle("A terminal command per account", isOn: Binding(get: { model.terminalCommands }, set: { model.setTerminalCommands($0) }))
+                                .toggleStyle(.switch).tint(Theme.Colors.accent)
+                            Text("Adds claude-work, claude-personal and so on next to the brainmerge command. Each one starts Claude Code on that account, with its memory.")
+                                .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                             Text("Optional. Everything here can be done from a terminal with the brainmerge command.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
+                        .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: model.hooks?.sentence)
                         section("About", last: true) {
                             Text("Brainmerge \(BrainmergeUIInfo.version) · Works with Claude. Not made by Anthropic.").foregroundStyle(Theme.Colors.textMuted)
                             HStack(spacing: 14) {
-                                Link("GitHub", destination: URL(string: "https://github.com/ruben4reall/brainmerge")!)
+                                // Opens the page in the browser, nothing more: no count fetched, never asked for on its own.
+                                Link(MenuBarMenu.starTitle, destination: BrainmergeLinks.repository)
                                 Text("MIT license").foregroundStyle(Theme.Colors.textFaint)
                             }
                             .font(Theme.Fonts.secondary)
@@ -118,8 +175,32 @@ public struct SettingsView: View {
             .frame(maxWidth: Theme.Layout.formWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .task { await model.refreshHooks(); await model.checkHealth() }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory) }
         .sheet(isPresented: $showUninstall) { UninstallSheet(model: model, isPresented: $showUninstall) }
+    }
+
+    /// Picks another Claude app: refused unless Anthropic signed it, used by Brainmerge from its next launch.
+    func chooseClaude() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            if let refusal = await model.chooseClaude(url) {
+                claudeNote.show(refusal.detail)
+            } else {
+                // An account's app keeps the path of the Claude it was built with: only a rebuild moves it.
+                claudeNote.note("Brainmerge uses this Claude from its next launch. Apps already made for your accounts keep the Claude they were built with until you rebuild them.")
+            }
+        }
+    }
+
+    /// Sage when in place, faint when not: the color changes in 0.2 s.
+    func statusDot(_ on: Bool) -> some View {
+        Circle().fill(on ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 8, height: 8)
+            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: on)
     }
 
     func section<Content: View>(_ title: String, last: Bool = false, @ViewBuilder content: () -> Content) -> some View {
@@ -130,5 +211,62 @@ public struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20).padding(.vertical, 16)
         .overlay(alignment: .bottom) { if !last { Divider().overlay(Theme.Colors.surfaceLine).padding(.horizontal, 20) } }
+    }
+}
+
+/// Settings, Quick opener: the switch, the shortcut (click it, then type the new one), and what went wrong, if anything.
+struct QuickOpenerSetting: View {
+    @Bindable var opener: QuickOpener
+    @State private var recorder = KeyRecorder()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Toggle(QuickOpener.settingTitle, isOn: Binding(get: { opener.isOn }, set: { opener.setOn($0) }))
+                    .toggleStyle(.switch).tint(Theme.Colors.accent)
+                Button(opener.isRecording ? QuickOpener.recordingLabel : opener.shortcut.display) {
+                    if opener.isRecording { stop() } else { recorder.start(opener) }
+                }
+                .buttonStyle(.glass).controlSize(.small)
+                .help(opener.isRecording ? "Esc keeps the current shortcut" : "Click, then type a new shortcut")
+                .accessibilityLabel(opener.isRecording ? QuickOpener.recordingLabel : "Shortcut \(opener.shortcut.display)")
+            }
+            if let problem = opener.problem {
+                Text(problem).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.accentLight)
+            }
+            Text(QuickOpener.caption).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+        }
+        .onDisappear { stop() }
+    }
+
+    func stop() {
+        if opener.isRecording { opener.cancelRecording() }
+        recorder.stop()
+    }
+}
+
+/// While a shortcut is recorded, the keys typed in Brainmerge's own window go to the recorder and nowhere else. A local
+/// monitor: it hears this app's keys only, and needs no permission.
+@MainActor final class KeyRecorder {
+    private var monitor: Any?
+
+    func start(_ opener: QuickOpener) {
+        opener.beginRecording()
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let code = event.keyCode, characters = event.charactersIgnoringModifiers, modifiers = event.modifierFlags
+            let taken = MainActor.assumeIsolated { () -> Bool in
+                guard opener.isRecording else { return false }
+                // Removed on the next turn, not from inside its own callback.
+                if opener.record(keyCode: code, characters: characters, modifiers: modifiers) { Task { @MainActor in self?.stop() } }
+                return true
+            }
+            return taken ? nil : event
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }

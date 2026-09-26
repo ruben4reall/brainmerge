@@ -27,14 +27,18 @@ public struct Uninstaller: Sendable {
 
     public func plan() throws -> Plan {
         let state = try store.load()
-        let fm = FileManager.default
         var removed: [String] = []
         let profiles = state.identities.filter { CLIProfile(directory: $0.cliProfile(in: paths)).exists }.count
-        if profiles > 0 { removed.append("The memory hook and the Brainmerge block in \(profiles) Claude Code profile\(profiles > 1 ? "s" : "")") }
+        if profiles > 0 { removed.append("The memory hooks and the Brainmerge block in \(profiles) Claude Code profile\(profiles > 1 ? "s" : "")") }
         let launchers = state.identities.filter { $0.appURL(in: paths) != nil }.count
         if launchers > 0 { removed.append("\(launchers) account app\(launchers > 1 ? "s" : "") in \(paths.launchersDir.path)") }
         if Self.isOurCommandLineLink(paths.localBin.appending(path: "brainmerge")) {
             removed.append("The command line link \(paths.localBin.appending(path: "brainmerge").path)")
+        }
+        let commands = state.identities.map(\.slug).filter { CLIInstaller.hasAccountLink(paths: paths, slug: $0) }
+        if !commands.isEmpty {
+            let names = commands.map { ClaudeCodeTerminal.linkPrefix + $0 }.joined(separator: ", ")
+            removed.append("The terminal command\(commands.count > 1 ? "s" : "") \(names) in \(paths.localBin.path)")
         }
         removed.append("Brainmerge's settings, icons and usage cache in \(paths.appSupport.path)")
         var kept: [String] = []
@@ -74,6 +78,7 @@ public struct Uninstaller: Sendable {
         }
         let link = paths.localBin.appending(path: "brainmerge")
         if Self.isOurCommandLineLink(link) { try fm.removeItem(at: link) }
+        for identity in state.identities { CLIInstaller.unlinkAccount(paths: paths, slug: identity.slug) }
         for dir in [paths.appSupport, paths.logsDir] where fm.fileExists(atPath: dir.path) { try fm.removeItem(at: dir) }
         if let entries = try? fm.contentsOfDirectory(atPath: paths.launchersDir.path), entries.allSatisfy({ $0.hasPrefix(".") }) {
             try? fm.removeItem(at: paths.launchersDir)
@@ -84,7 +89,7 @@ public struct Uninstaller: Sendable {
     /// The link in ~/.local/bin is ours when it points at the command line inside a Brainmerge app bundle.
     static func isOurCommandLineLink(_ link: URL) -> Bool {
         guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) else { return false }
-        return destination.contains("/Brainmerge.app/") || destination.hasSuffix("/brainmerge-cli")
+        return CLIInstaller.madeByBrainmerge(destination: destination)
     }
 
     /// Every `projects/<slug>/memory` link that points into one of Brainmerge's memories becomes a real folder holding

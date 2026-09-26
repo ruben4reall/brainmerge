@@ -6,10 +6,13 @@ import BrainmergeTestSupport
 
 /// Which account Claude Code uses, shown on each account: read from the profiles, shown in the window, stored nowhere.
 @MainActor @Suite struct ClaudeCodeEmailTests {
+    /// Hermetic: no process of the real Mac and no real RAM figure, which move between two reloads.
     func model(_ e: ManagerEnv, monitor: ProcessMonitor? = nil) -> AppModel {
         let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
-                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor)
-        return AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+                                      claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor ?? ProcessMonitor(psOutput: { "" }))
+        let model = AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+        model.readMacMemory = { _ in nil }
+        return model
     }
 
     /// Writes the account entry Claude Code keeps for display, next to what else the file holds.

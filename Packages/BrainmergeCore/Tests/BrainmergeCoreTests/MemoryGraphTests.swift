@@ -107,9 +107,48 @@ import BrainmergeTestSupport
         #expect(result.truncated)
     }
 
+    /// The graph as built, before any view filters it, never has a line or a link to a note it does not draw: not to one
+    /// the cap left out, not to one the vault hides.
+    @Test func noLineEndsOnANoteThatIsNotDrawn() throws {
+        let home = try TempHome(); defer { home.remove() }
+        func dangling(_ graph: MemoryGraph) -> [String] {
+            let ids = Set(graph.nodes.map(\.id))
+            return graph.edges.flatMap { [$0.from, $0.to] }.filter { !ids.contains($0) }
+                + graph.links.flatMap { [$0.source, $0.target] }.filter { !ids.contains($0) }
+        }
+        let memory = home.url.appending(path: "Brain", directoryHint: .isDirectory)
+        for i in 0..<30 { try write(memory, "memory/site/n\(i).md", "[[n\((i + 1) % 30)]] [n](n\((i + 2) % 30).md)\n") }
+        let capped = MemoryGraphBuilder(root: memory, maxNotes: 20).build()
+        #expect(capped.truncated)
+        #expect(!capped.graph.edges.isEmpty)
+        #expect(dangling(capped.graph).isEmpty, "\(dangling(capped.graph))")
+
+        let vault = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        try write(vault, "Notes/A.md", "[[B]] [[Secret]] [c](../Private/C.md)\n")
+        try write(vault, "Notes/B.md", "[[A]]\n")
+        try write(vault, "Private/Secret.md", "[[A]]\n")
+        try write(vault, "Private/C.md", "[[A]]\n")
+        let hidden = MemoryGraphBuilder(root: vault, style: .vault).build(showing: { path, _ in !path.hasPrefix("Private/") })
+        #expect(Set(hidden.graph.nodes.map(\.id)) == ["Notes/A.md", "Notes/B.md"])
+        #expect(dangling(hidden.graph).isEmpty, "\(dangling(hidden.graph))")
+    }
+
+    /// Attachments are capped on their own and said apart: a vault that hides its images is not cut short by them.
+    @Test func tooManyAttachmentsAreSaidApartFromNotes() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        try write(root, "Plan.md", "![[a0.png]]\n")
+        for i in 0..<5 { try write(root, "assets/a\(i).png", "png") }
+        let result = MemoryGraphBuilder(root: root, style: .vault, maxNotes: 3).build()
+        #expect(!result.truncated && result.attachmentsTruncated)
+        #expect(result.graph.nodes.filter { $0.kind == .attachment }.count == 3)
+        #expect(result.graph.node("Plan.md") != nil)
+    }
+
     @Test func linkTargetsAreParsed() {
         let text = "See [[A note]], [[folder/B|alias]], [[C#Heading]], ![[image.png]], [x](d%20e.md#top), [web](https://x.y/z.md), [mail](mailto:a@b.c) and `[[code]]`."
-        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("A note"), .wiki("folder/B"), .wiki("C"), .markdown("d e.md")])
+        // Embeds are kept: a vault draws attachments, a memory has none to resolve them to.
+        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("A note"), .wiki("folder/B"), .wiki("C"), .wiki("image.png"), .markdown("d e.md")])
     }
 
     @Test func linkTargetsSkipCodeAndReadEveryMarkdownForm() {
@@ -124,8 +163,11 @@ import BrainmergeTestSupport
         ~~~
         [spaced](<My Note.md>) and [titled](plain.md "A title") and [x](../up/one.md)
         """
-        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("Table link"), .wiki("Node.js"), .wiki("Brainmerge 0.3.0"),
-                                                      .markdown("My Note.md"), .markdown("plain.md"), .markdown("../up/one.md")])
+        #expect(MemoryGraph.linkTargets(in: text) == [.wiki("Table link"), .wiki("Node.js"), .wiki("Brainmerge 0.3.0"), .wiki("scan.PDF"),
+                                                      .wiki("board.canvas"), .markdown("My Note.md"), .markdown("plain.md"), .markdown("../up/one.md")])
+        // Markdown links reach canvases, bases and attachments too; a folder or a page on the web is not a file of the vault.
+        #expect(MemoryGraph.linkTargets(in: "[a](Board.canvas) [b](Tasks.base) [c](img/a%20b.png) [d](folder) [e](http://x.y/a.png)")
+                == [.markdown("Board.canvas"), .markdown("Tasks.base"), .markdown("img/a b.png")])
     }
 
     @Test func aLineFullOfUnclosedBracketsIsParsedQuickly() {
@@ -162,6 +204,23 @@ import BrainmergeTestSupport
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
         let graph = MemoryGraphBuilder(root: link).build().graph
         #expect(graph.node("memory/website/decision.md") != nil)
+    }
+
+    /// Making a builder touches no disk: its folder is looked at by the first build, which the app runs off the main
+    /// thread (a vault in Documents can make macOS ask, and wait for the answer, on the first look).
+    @Test func theFolderIsFirstLookedAtByTheBuild() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let first = home.url.appending(path: "Dropbox/One", directoryHint: .isDirectory)
+        let second = home.url.appending(path: "Dropbox/Two", directoryHint: .isDirectory)
+        try write(first, "one.md", "One.\n")
+        try write(second, "two.md", "Two.\n")
+        let link = home.url.appending(path: "Vault")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: first)
+        let builder = MemoryGraphBuilder(root: link, style: .vault)
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: second)
+        let graph = builder.build().graph
+        #expect(graph.node("two.md") != nil && graph.node("one.md") == nil)
     }
 
     @Test func noteSymlinksAreNeverFollowed() throws {

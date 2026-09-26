@@ -29,5 +29,7 @@ public struct OrbView: View {
             }
         }
         .frame(width: size, height: size)
+        // A new color crossfades (a color change, so Reduce Motion keeps it).
+        .animation(Theme.Motion.out(0.2), value: tint)
     }
 }

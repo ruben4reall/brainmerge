@@ -9,6 +9,15 @@ import Testing
         #expect(found.map(\.name) == ["Obsidian", "Zed"])
         #expect(NotesApps.installed { _ in nil }.isEmpty)
     }
+    /// Each tile's icon is looked up once with the apps (a tile never asks macOS for its icon as it draws).
+    @Test func findGivesEveryTileItsIcon() throws {
+        let found = NotesApps.find { $0 == "md.obsidian" ? URL(fileURLWithPath: "/Applications/Obsidian.app") : nil }
+        #expect(found.apps.map(\.name) == ["Obsidian"])
+        let obsidian = try #require(found.apps.first)
+        #expect(found.icon(for: .folder) != nil && found.icon(for: .app(obsidian)) != nil)
+        #expect(found.icon(for: .custom(URL(fileURLWithPath: "/Applications/Nova.app"))) == nil)
+    }
+
     @Test func settingsResolveToATarget() {
         let obsidian = NotesApp(name: "Obsidian", bundleIdentifier: "md.obsidian", website: URL(string: "https://obsidian.md")!, location: URL(fileURLWithPath: "/Applications/Obsidian.app"))
         #expect(NotesApps.target(for: nil, installed: [obsidian]) == .folder)

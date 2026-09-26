@@ -13,6 +13,8 @@ public struct AccountEdit: Equatable, Sendable {
     public var ownApp: Bool
     /// The memory the account writes to (a MemoryFolder id).
     public var memory: String
+    /// The browser profile that goes with the account (Connections): saved with the rest, never before Save.
+    public var browser: BrowserChoice?
 
     public init(account: Account, memory: String) {
         name = account.identity.name
@@ -22,6 +24,7 @@ public struct AccountEdit: Equatable, Sendable {
         distinctIcon = account.identity.iconMode == .tintedClone
         ownApp = account.identity.ownApp == true
         self.memory = memory
+        browser = account.identity.browser
     }
 
     var trimmedName: String { NameRules.clean(name) }

@@ -7,6 +7,9 @@ import BrainmergeCore
 /// saves them. Hover lights a note and its neighbors; click shows it; double-click opens it in your notes app.
 /// Drag the background to move around, drag a bubble to pull it, pinch or use the mouse wheel to zoom.
 /// With keyboard navigation on, the arrow keys go from note to note, Return opens one, Escape closes it.
+///
+/// An Obsidian vault is drawn the way Obsidian draws it: its colors, sizes, forces and zoom, labels that fade in as you
+/// zoom, one click to open a note in Obsidian, a secondary click (or Option-click) for the inspector.
 struct MemoryGraphView: View {
     @Bindable var graph: MemoryGraphModel
     let app: AppModel
@@ -15,23 +18,23 @@ struct MemoryGraphView: View {
     @State private var panOrigin: CGPoint?
     @State private var magnifyBase: GraphCamera?
     @State private var monitor: Any?
+    @State private var clickMonitor: Any?
     @State private var host = WindowBox()
     /// An account clicked in the legend: its notes stay lit until it is clicked again.
     @State private var pinnedAccount: String?
     @State private var preview = ""
-    /// Set by the capture script: the pointer may rest over the window by chance, and a screenshot should show the graph unlit.
-    static let capturing = ProcessInfo.processInfo.environment["BRAINMERGE_CAPTURE"] != nil
 
     var tints: [String: Color] {
         Dictionary(app.accounts.map { ($0.id, Theme.color(for: $0.identity.tint)) }, uniquingKeysWith: { a, _ in a })
     }
 
     var noteCount: Int { graph.graph.nodes.reduce(0) { $0 + ($1.kind == .note ? 1 : 0) } }
+    var isVault: Bool { graph.style == .vault }
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                GraphCanvas(graph: graph, tints: tints, focus: focus, reduceMotion: reduceMotion)
+                canvas
                     .contentShape(Rectangle())
                     .gesture(dragGesture(size: geo.size))
                     .simultaneousGesture(magnifyGesture(size: geo.size))
@@ -40,7 +43,8 @@ struct MemoryGraphView: View {
                         switch phase {
                         case .active(let point):
                             graph.pointer = point
-                            if !Self.capturing { graph.hovered = note(at: point, size: geo.size) }
+                            // A capture: the pointer may rest over the window by chance, and a screenshot shows the graph unlit.
+                            if !Theme.Motion.isCapture { graph.hover(note(at: point, size: geo.size)) }
                         case .ended: graph.pointerLeft()
                         }
                     }
@@ -49,18 +53,34 @@ struct MemoryGraphView: View {
                     .accessibilityLabel("Memory graph")
                     .accessibilityValue(summary)
                     .accessibilityChildren { accessibleNotes }
-                if noteCount == 0 { emptyState }
+                // Only once the folder was read: before that, the screen says nothing about it.
+                if Self.showsEmptyState(hasRead: graph.hasRead, noteCount: noteCount, awaitingFirstLayout: graph.awaitingFirstLayout) {
+                    emptyState.transition(AnyTransition.opacity.animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion)))
+                }
                 VStack {
-                    HStack(alignment: .top) { legend; Spacer(); if let id = graph.selected { inspector(id).transition(.opacity) } }
+                    HStack(alignment: .top) {
+                        // A vault has no accounts: Obsidian's graph has no legend either.
+                        if !isVault { legend }
+                        Spacer()
+                        if let id = graph.selected { inspector(id).transition(inspectorTransition) }
+                    }
                     Spacer()
                     HStack(alignment: .bottom) { status; Spacer(); controls(size: geo.size) }
                 }
                 .padding(12)
             }
+            .background(isVault ? Theme.Colors.vaultBackground : Color.clear)
             .background(WindowReader(box: host))
-            .onAppear { graph.viewSize = geo.size; graph.reduceMotion = reduceMotion; installScrollMonitor() }
+            .onAppear {
+                graph.viewSize = geo.size; graph.reduceMotion = reduceMotion
+                graph.backingScale = host.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+                installScrollMonitor()
+            }
             .onChange(of: geo.size) { _, size in graph.viewSize = size }
             .onChange(of: reduceMotion) { _, value in graph.reduceMotion = value }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeBackingPropertiesNotification)) { note in
+                if let window = note.object as? NSWindow, window === host.window { graph.backingScale = window.backingScaleFactor }
+            }
             .onDisappear {
                 removeScrollMonitor()
                 graph.pointerLeft()
@@ -71,24 +91,36 @@ struct MemoryGraphView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous).strokeBorder(Theme.Colors.surfaceLine, lineWidth: 1))
-        .task(id: app.selectedBrain?.root.path) {
+        .task(id: app.graphTarget.key) {
             pinnedAccount = nil
-            await graph.refresh(root: app.selectedBrain?.root)
+            let target = app.graphTarget
+            if let window = host.window { graph.backingScale = window.backingScaleFactor }
+            await graph.refresh(root: target.root, style: target.style)
             while !Task.isCancelled {
                 // Two seconds between reads; longer for a folder so large that one read takes a while.
                 try? await Task.sleep(for: .seconds(max(2, graph.lastRefreshDuration * 4)))
                 if Task.isCancelled { break }
                 // A minimized or hidden window does not read the folder; it catches up as soon as it shows again.
                 if let window = host.window, !window.occlusionState.contains(.visible) { continue }
-                await graph.refresh(root: app.selectedBrain?.root)
+                await graph.refresh(root: target.root, style: target.style)
             }
         }
-        // The inspector's text, read off the main thread, and read again when the note changes while it is open.
+        // The inspector's text, read off the main thread, and read again when the note changes while it is open: the panel
+        // eases to its new height and the text fades in, rather than the panel jumping by a dozen lines.
         .task(id: previewKey) {
             var text = ""
             if let id = graph.selected { text = await graph.loadPreview(id) }
-            if !Task.isCancelled { preview = text }
+            if !Task.isCancelled { withAnimation(reduceMotion ? nil : Theme.Motion.out(0.18)) { preview = text } }
         }
+    }
+
+    /// The inspector comes in from its corner, 8 points and a touch small, in 0.2 s, and goes by a fade in 0.12 s. Arrow
+    /// keys that move the selection keep it in place: only its coming and going moves.
+    var inspectorTransition: AnyTransition {
+        if reduceMotion { return AnyTransition.opacity.animation(Theme.Motion.reduced) }
+        return .asymmetric(insertion: AnyTransition.opacity.combined(with: .offset(x: 8)).combined(with: .scale(scale: 0.98, anchor: .topTrailing))
+                                .animation(Theme.Motion.out(0.2)),
+                           removal: AnyTransition.opacity.animation(Theme.Motion.out(0.12)))
     }
 
     var previewKey: String {
@@ -96,24 +128,35 @@ struct MemoryGraphView: View {
         return "\(id)|\(graph.graph.node(id)?.modified?.timeIntervalSinceReferenceDate ?? 0)"
     }
 
-    /// The notes that stay lit: the hovered note and its neighbors, else an account's notes, else the selected note's.
-    var focus: Set<String>? {
-        if let id = graph.hovered { return graph.neighbors(of: id).union([id]) }
-        if let slug = graph.highlightedAccount { return graph.notes(savedBy: slug) }
-        if let id = graph.selected { return graph.neighbors(of: id).union([id]) }
-        return nil
+    /// Nothing is drawn while the first layout settles out of sight; with Reduce Motion it then fades in over 0.15 s.
+    @ViewBuilder var canvas: some View {
+        if isVault {
+            VaultCanvas(graph: graph)
+        } else if !graph.awaitingFirstLayout {
+            BeatView(start: graph.revealedAt, duration: Theme.Motion.reducedDuration) { elapsed in
+                GraphCanvas(graph: graph, tints: tints, focus: graph.focus, reduceMotion: reduceMotion, chrome: graph.chrome)
+                    .opacity(elapsed.map { Ease.progress($0, from: 0, over: Theme.Motion.reducedDuration) } ?? 1)
+            }
+        } else {
+            Color.clear
+        }
     }
 
     // MARK: Pointer and keyboard
 
-    func note(at point: CGPoint, size: CGSize) -> String? {
-        // Measured on screen: a bubble is grabbed within a finger's width of its center, whatever the zoom.
-        graph.layout.nearest(to: graph.camera.toWorld(point, in: size), within: 14 / graph.camera.scale)
-    }
+    func note(at point: CGPoint, size: CGSize) -> String? { graph.node(at: point, in: size) }
 
     /// One click selects, a double click opens: one gesture, so a single click is not held back by the double-click delay.
+    /// In a vault, as in Obsidian, one click opens the note; Option- or Control-click shows the inspector.
     func tap(at point: CGPoint, size: CGSize) {
         let id = note(at: point, size: size)
+        if isVault {
+            let event = NSApp.currentEvent
+            if let flags = event?.modifierFlags, flags.contains(.option) || flags.contains(.control) { select(id); return }
+            guard (event?.clickCount ?? 1) == 1 else { return }
+            if let id { open(id) } else { select(nil) }
+            return
+        }
         if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
             if let id { open(id) }
             return
@@ -122,13 +165,17 @@ struct MemoryGraphView: View {
     }
 
     func select(_ id: String?) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { graph.selected = id }
+        withAnimation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion)) { graph.selected = id }
     }
 
     /// Every bubble in a stable order for the keyboard and VoiceOver: projects first, then notes, by name.
-    var orderedNodes: [MemoryGraph.Node] {
-        graph.graph.nodes.sorted {
-            if $0.kind != $1.kind { return $0.kind == .project }
+    var orderedNodes: [MemoryGraph.Node] { Self.ordered(graph.graph.nodes) }
+
+    static func ordered(_ nodes: [MemoryGraph.Node]) -> [MemoryGraph.Node] {
+        nodes.sorted {
+            // Hubs first; every other kind shares one order by name, so the order stays total with a vault's kinds.
+            let hub0 = $0.kind == .project, hub1 = $1.kind == .project
+            if hub0 != hub1 { return hub0 }
             let order = $0.title.localizedStandardCompare($1.title)
             return order == .orderedSame ? $0.id < $1.id : order == .orderedAscending
         }
@@ -164,8 +211,7 @@ struct MemoryGraphView: View {
                 if let id = dragTarget {
                     graph.drag(id, to: graph.camera.toWorld(value.location, in: size))
                 } else if let origin = panOrigin {
-                    graph.camera.center = CGPoint(x: origin.x - value.translation.width / graph.camera.scale,
-                                                  y: origin.y - value.translation.height / graph.camera.scale)
+                    graph.camera.center = graph.camera.dragged(from: origin, by: value.translation)
                 }
             }
             .onEnded { _ in
@@ -189,6 +235,7 @@ struct MemoryGraphView: View {
     /// Trackpad scrolling moves around (the graph follows the fingers, like a map), a mouse wheel zooms around the
     /// pointer. Only while the pointer is over this graph, in this window: every other scroll goes where it belongs.
     func installScrollMonitor() {
+        installClickMonitor()
         guard monitor == nil else { return }
         let graph = self.graph, host = self.host
         monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
@@ -208,7 +255,26 @@ struct MemoryGraphView: View {
         }
     }
 
-    func removeScrollMonitor() { if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil }
+    func removeScrollMonitor() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        monitor = nil; clickMonitor = nil
+    }
+
+    /// In a vault, a secondary click on a note shows the inspector, since a plain click opens the note in Obsidian.
+    func installClickMonitor() {
+        guard clickMonitor == nil else { return }
+        let graph = self.graph, host = self.host
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { event in
+            let windowNumber = event.windowNumber
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard graph.style == .vault, let pointer = graph.pointer, let window = host.window, window.windowNumber == windowNumber else { return false }
+                graph.selected = graph.node(at: pointer, in: graph.viewSize)
+                return true
+            }
+            return handled ? nil : event
+        }
+    }
 
     // MARK: Opening
 
@@ -216,10 +282,16 @@ struct MemoryGraphView: View {
 
     func open(_ id: String) {
         guard let url = graph.fileURL(id) else { return }
+        if isVault {
+            // A vault's note opens where it lives: in Obsidian, whatever app opens the memory.
+            if let link = NotesApps.obsidianURL(for: url) { NSWorkspace.shared.open(link) }
+            return
+        }
         NotesApps.open(url, with: target)
     }
 
     func openLabel(for id: String) -> String {
+        if isVault { return "Open in Obsidian" }
         if case .folder = target { return graph.graph.node(id)?.file == nil ? "Open folder" : "Open note" }
         return target.label
     }
@@ -227,7 +299,9 @@ struct MemoryGraphView: View {
     // MARK: Accessibility
 
     var summary: String {
-        let projects = graph.graph.nodes.count - noteCount, links = graph.graph.edges.count
+        let links = graph.graph.edges.count
+        if isVault { return "\(noteCount) note\(noteCount == 1 ? "" : "s"), \(links) link\(links == 1 ? "" : "s")" }
+        let projects = graph.graph.nodes.count - noteCount
         return "\(noteCount) note\(noteCount == 1 ? "" : "s"), \(projects) project\(projects == 1 ? "" : "s"), \(links) link\(links == 1 ? "" : "s")"
     }
 
@@ -255,8 +329,28 @@ struct MemoryGraphView: View {
 
     // MARK: Overlays
 
+    /// What an empty graph says: why nothing shows, and what to do when macOS refused to let Brainmerge read the folder.
+    static func emptyText(vault: Bool, refused: Bool) -> String {
+        if refused {
+            return "Brainmerge may not read this \(vault ? "vault" : "memory folder"). Allow it in System Settings, Privacy & Security, Files & Folders."
+        }
+        return vault ? "Nothing to show. This vault has no notes yet, or its graph filters in Obsidian hide them all."
+                     : "No notes yet. Open an account and work on a project: what Claude Code remembers appears here as it happens."
+    }
+
+    static func showsEmptyState(hasRead: Bool, noteCount: Int, awaitingFirstLayout: Bool) -> Bool {
+        hasRead && noteCount == 0 && !awaitingFirstLayout
+    }
+
+    /// The status's counts, once the folder was read (before, the status says "Live" alone).
+    static func statusCounts(hasRead: Bool, notes: Int, projects: Int, links: Int, vault: Bool, truncated: Bool) -> String? {
+        guard hasRead else { return nil }
+        let projectCount = vault ? "" : " · \(projects) project\(projects == 1 ? "" : "s")"
+        return "\(notes) note\(notes == 1 ? "" : "s")\(projectCount) · \(links) link\(links == 1 ? "" : "s")\(truncated ? " · the most recent 2,000" : "")"
+    }
+
     var emptyState: some View {
-        Text("No notes yet. Open an account and work on a project: what Claude Code remembers appears here as it happens.")
+        Text(Self.emptyText(vault: isVault, refused: graph.refused))
             .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
             .frame(maxWidth: 380)
     }
@@ -267,6 +361,8 @@ struct MemoryGraphView: View {
         let present = Set(graph.graph.nodes.filter { $0.kind == .note }.map(\.id))
         let slugs = Dictionary(grouping: graph.authors.filter { present.contains($0.key) }.values.compactMap(\.slug), by: { $0 }).mapValues(\.count)
         let ordered = app.accounts.filter { slugs[$0.id] != nil }.sorted { (slugs[$0.id] ?? 0) > (slugs[$1.id] ?? 0) }
+        // Each account's pill drops in (4 points, 0.22 s) as its notes come; the others slide over.
+        let arrival: AnyTransition = reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -4))
         return HStack(spacing: 6) {
             ForEach(ordered) { account in
                 let pinned = pinnedAccount == account.id
@@ -289,30 +385,28 @@ struct MemoryGraphView: View {
                 .help(pinned ? "Show every note again" : "Light the notes \(account.identity.name) saved")
                 .accessibilityLabel("\(account.identity.name): \(count) note\(count == 1 ? "" : "s")")
                 .accessibilityAddTraits(pinned ? .isSelected : [])
+                .transition(arrival)
             }
         }
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.22), reduceMotion), value: ordered.map(\.id))
     }
 
-    /// "Live", or "Changed just now" for four seconds after a change: redrawn once more when those seconds are over.
+    /// "Live", or "Changed just now" for four seconds after a change: redrawn once more when those seconds are over. The
+    /// dot turns accentLight and rings once; the words swap where they are and the capsule eases to its new width, the
+    /// counts with its edge (GraphStatusLine); four seconds later the dot goes back to sage over 0.3 s.
     var status: some View {
-        TimelineView(.explicit(graph.lastChange.map { [$0.addingTimeInterval(4.05)] } ?? [])) { context in
-            let recent = graph.lastChange.map { context.date.timeIntervalSince($0) < 4 } ?? false
-            let projects = graph.graph.nodes.count - noteCount, links = graph.graph.edges.count
-            let counts = "\(noteCount) note\(noteCount == 1 ? "" : "s") · \(projects) project\(projects == 1 ? "" : "s") · \(links) link\(links == 1 ? "" : "s")\(graph.truncated ? " · the most recent 2,000" : "")"
-            HStack(spacing: 6) {
-                Circle().fill(recent ? Theme.Colors.accentLight : Theme.Colors.sage).frame(width: 6, height: 6)
-                Text("\(Text(recent ? "Changed just now" : "Live").foregroundStyle(Theme.Colors.textMuted)) · \(counts)")
-                    .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .glassEffect(.regular, in: Capsule())
+        ChangedRecently(since: graph.lastChange) { recent in
+            GraphStatusLine(recent: recent, change: graph.lastChange,
+                            counts: Self.statusCounts(hasRead: graph.hasRead, notes: noteCount, projects: graph.graph.nodes.count - noteCount,
+                                                      links: graph.graph.edges.count, vault: isVault, truncated: graph.truncated))
         }
     }
 
     func controls(size: CGSize) -> some View {
         HStack(spacing: 6) {
-            control("minus", "Zoom out") { graph.fitted = true; graph.camera.zoom(by: 0.8, around: CGPoint(x: size.width / 2, y: size.height / 2), in: size) }
-            control("plus", "Zoom in") { graph.fitted = true; graph.camera.zoom(by: 1.25, around: CGPoint(x: size.width / 2, y: size.height / 2), in: size) }
+            // They glide (0.2 s, 0.35 s for Fit); a drag, a pinch or the wheel meanwhile takes over at once.
+            control("minus", "Zoom out") { graph.zoom(by: 0.8) }
+            control("plus", "Zoom in") { graph.zoom(by: 1.25) }
             control("arrow.up.left.and.arrow.down.right", "Fit the whole graph") { graph.fitNow() }
         }
     }
@@ -355,6 +449,8 @@ struct MemoryGraphView: View {
             }
             if node?.kind == .project {
                 Text("Project · \(notes) note\(notes == 1 ? "" : "s")").font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+            } else if node?.kind == .unresolved {
+                Text("Linked, but no file has this name yet.").font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
             } else {
                 Text(id).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint).lineLimit(1).truncationMode(.middle)
             }
@@ -368,11 +464,14 @@ struct MemoryGraphView: View {
                 Text(preview).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10).background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .transition(.opacity)
             }
-            HStack(spacing: 8) {
-                Button(openLabel(for: id)) { open(id) }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
-                Button("Show in Finder") { if let url = graph.fileURL(id) { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
-                    .buttonStyle(.glass).controlSize(.small)
+            if graph.fileURL(id) != nil {
+                HStack(spacing: 8) {
+                    Button(openLabel(for: id)) { open(id) }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
+                    Button("Show in Finder") { if let url = graph.fileURL(id) { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
+                        .buttonStyle(.glass).controlSize(.small)
+                }
             }
         }
         .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 10)
@@ -382,13 +481,29 @@ struct MemoryGraphView: View {
 }
 
 /// The drawing itself: the only part of the screen that redraws on every animation frame.
-private struct GraphCanvas: View {
+struct GraphCanvas: View {
     let graph: MemoryGraphModel
     let tints: [String: Color]
     let focus: Set<String>?
     let reduceMotion: Bool
+    /// The strips the view's chrome covers, top and bottom: no label goes there, and bubbles step back under it.
+    var chrome: (top: CGFloat, bottom: CGFloat) = (0, 0)
 
     struct Label { let priority: Int; let text: Text; let at: CGPoint; let owner: Int; let forced: Bool }
+
+    /// How strong a label is: a note's goes with its bubble; a hub's names its project and stays readable, but steps back
+    /// with its bubble when another note is in focus (never below 45%).
+    static func labelAlpha(hub: Bool, fade: Double, bloom: Double) -> Double {
+        if hub { return bloom * max(0.45, fade) }
+        return Ease.clamp01((fade * bloom - MemoryGraphModel.memoryDimmed) / (1 - MemoryGraphModel.memoryDimmed))
+    }
+
+    /// Under the legend, the status or the controls, which float over the graph.
+    static func underChrome(_ rect: CGRect, size: CGSize, top: CGFloat, bottom: CGFloat) -> Bool {
+        rect.minY < top || rect.maxY > size.height - bottom
+    }
+    /// A bubble under the chrome, faded so the glass over it stays clean.
+    static let underChromeOpacity = 0.3
 
     static func radius(_ node: MemoryGraph.Node, degree: Int) -> CGFloat {
         let d = CGFloat(degree).squareRoot()
@@ -397,57 +512,86 @@ private struct GraphCanvas: View {
 
     var body: some View {
         let _ = graph.frame   // redraw on every animation frame
-        let camera = graph.camera, layout = graph.layout, nodes = graph.graph.nodes
+        let camera = graph.camera, layout = graph.layout, nodes = graph.graph.nodes, lines = graph.lineIndices
         let pulses = graph.pulses, authors = graph.authors, selected = graph.selected, hovered = graph.hovered
-        let tints = self.tints, focus = self.focus, reduceMotion = self.reduceMotion
-        let now = Date()
+        let tints = self.tints, focus = self.focus, reduceMotion = self.reduceMotion, chrome = self.chrome
+        let now = graph.clock()
         let showAllLabels = camera.scale >= 1.25 || nodes.count <= 40
+        // Where each note is drawn (on its way out of its hub while the first read blooms) and how visible it is: the
+        // hover's fade, eased a quarter of the way per frame, times the bloom's.
+        let count = layout.count == nodes.count ? nodes.count : 0
+        let world = (0..<count).map { graph.drawnPosition(at: $0, now: now) }
+        let blooming = graph.bloom != nil
+        let fades = (0..<count).map { graph.fade(nodes[$0].id) }, blooms = (0..<count).map { graph.bloomOpacity(at: $0, now: now) }
+        let shown = (0..<count).map { fades[$0] * blooms[$0] }
+        let threads = blooming ? lines.map { graph.threadOpacity($0.0, $0.1, now: now) } : []
+        // Threads: faint ones dim with the hover; lit ones fade in over them, and fade back out with the last focus.
+        let lineFade = graph.lineFade, dimmedThreads = MemoryGraphModel.memoryThreadsDimmed
+        let lit = focus ?? (lineFade < 1 ? graph.lastFocus : nil)
+        let litAlpha = Ease.clamp01((1 - lineFade) / (1 - dimmedThreads))
         Canvas { context, size in
-            guard layout.count == nodes.count, !nodes.isEmpty else { return }
+            guard count > 0 else { return }
             let degree = layout.degree
-            func screen(_ i: Int) -> CGPoint { camera.toScreen(layout.position(at: i), in: size) }
+            func screen(_ i: Int) -> CGPoint { camera.toScreen(world[i], in: size) }
             // Threads first, under the bubbles.
-            var faint = Path(), lit = Path()
-            for (a, b) in layout.linkIndices {
-                let isLit = focus.map { $0.contains(nodes[a].id) && $0.contains(nodes[b].id) } ?? false
-                if isLit { lit.move(to: screen(a)); lit.addLine(to: screen(b)) } else { faint.move(to: screen(a)); faint.addLine(to: screen(b)) }
+            var faint = Path(), bright = Path()
+            for (k, (a, b)) in lines.enumerated() {
+                let isLit = lit.map { $0.contains(nodes[a].id) && $0.contains(nodes[b].id) } ?? false
+                if blooming {
+                    // While the first read blooms, each thread draws once both its ends are most of their way out.
+                    guard threads[k] > 0 else { continue }
+                    var one = Path(); one.move(to: screen(a)); one.addLine(to: screen(b))
+                    context.stroke(one, with: .color(Theme.Colors.graphLink.opacity(threads[k])), lineWidth: 1)
+                    continue
+                }
+                if isLit { bright.move(to: screen(a)); bright.addLine(to: screen(b)) } else { faint.move(to: screen(a)); faint.addLine(to: screen(b)) }
             }
-            context.stroke(faint, with: .color(Theme.Colors.graphLink.opacity(focus == nil ? 1 : 0.5)), lineWidth: 1)
-            context.stroke(lit, with: .color(Theme.Colors.graphLinkLit), lineWidth: 1.3)
+            context.stroke(faint, with: .color(Theme.Colors.graphLink.opacity(lineFade)), lineWidth: 1)
+            context.stroke(bright, with: .color(Theme.Colors.graphLink.opacity(1 - litAlpha)), lineWidth: 1)
+            context.stroke(bright, with: .color(Theme.Colors.graphLinkLit.opacity(litAlpha)), lineWidth: 1.3)
             // Bubbles and pulses; labels are gathered and placed afterwards, above every bubble.
             var labels: [Label] = []
             var bubbles = RectIndex()
             for (i, node) in nodes.enumerated() {
                 let p = screen(i)
-                let r = max(Self.radius(node, degree: degree[i]) * min(max(camera.scale, 0.6), 1.6), 2)
+                var r = max(Self.radius(node, degree: degree[i]) * min(max(camera.scale, 0.6), 1.6), 2)
                 if p.x < -40 || p.y < -40 || p.x > size.width + 40 || p.y > size.height + 40 { continue }
-                let dimmed = focus.map { !$0.contains(node.id) } ?? false
                 let fill: Color = node.kind == .project ? Theme.Colors.text
                     : authors[node.id]?.slug.flatMap { tints[$0] } ?? Theme.color(for: .gray)
                 if let pulse = pulses[node.id] {
-                    let t = min(max(now.timeIntervalSince(pulse.start) / MemoryGraphModel.pulseDuration, 0), 1)
+                    let elapsed = Beat.elapsed(since: pulse.start, at: now) ?? 0
+                    let saved = pulse.slug != nil
                     let tint = pulse.slug.flatMap { tints[$0] } ?? Theme.Colors.accentLight
                     if !reduceMotion {
-                        let ring = r + 4 + CGFloat(t) * 22
-                        context.stroke(Path(ellipseIn: CGRect(x: p.x - ring, y: p.y - ring, width: ring * 2, height: ring * 2)),
-                                       with: .color(tint.opacity(0.9 * (1 - t))), lineWidth: 2)
+                        for ring in GraphPulse.rings(elapsed: elapsed, saved: saved) {
+                            let radius = r + ring.offset
+                            context.stroke(Path(ellipseIn: CGRect(x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2)),
+                                           with: .color(tint.opacity(ring.opacity)), lineWidth: GraphPulse.lineWidth)
+                        }
+                        // A save by an account: the bubble pops and settles like a hop.
+                        if saved { r *= 1 + CGFloat(GraphPulse.pop * GraphPulse.bump(elapsed: elapsed)) }
                     }
-                    context.fill(Path(ellipseIn: CGRect(x: p.x - r - 3, y: p.y - r - 3, width: (r + 3) * 2, height: (r + 3) * 2)),
-                                 with: .color(tint.opacity(0.35 * (1 - t))))
+                    let halo = r + 3
+                    context.fill(Path(ellipseIn: CGRect(x: p.x - halo, y: p.y - halo, width: halo * 2, height: halo * 2)),
+                                 with: .color(tint.opacity(GraphPulse.haloOpacity(elapsed: elapsed))))
                 }
                 let bubble = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
-                context.fill(Path(ellipseIn: bubble), with: .color(fill.opacity(dimmed ? 0.28 : (node.kind == .project ? 0.92 : 1))))
+                let covered = Self.underChrome(CGRect(origin: p, size: .zero), size: size, top: chrome.top, bottom: chrome.bottom)
+                let strength = shown[i] * (node.kind == .project ? 0.92 : 1) * (covered ? Self.underChromeOpacity : 1)
+                context.fill(Path(ellipseIn: bubble), with: .color(fill.opacity(strength)))
                 if selected == node.id {
                     context.stroke(Path(ellipseIn: bubble.insetBy(dx: -3.5, dy: -3.5)), with: .color(Theme.Colors.accentLight), lineWidth: 2)
                 }
                 bubbles.insert(bubble, owner: i)
+                // A note's label fades with its bubble; a hub's steps back with it, never out of sight: it names the project.
                 let labelled = node.kind == .project || showAllLabels || (focus?.contains(node.id) ?? false)
-                if labelled, !dimmed || node.kind == .project {
+                let alpha = Self.labelAlpha(hub: node.kind == .project, fade: fades[i], bloom: blooms[i])
+                if labelled, alpha > 0.02 {
                     let pointed = hovered == node.id || selected == node.id
                     let emphasis = pointed || node.kind == .project
                     let text = Text(node.title)
                         .font(.system(size: node.kind == .project ? 12 : 11, weight: emphasis ? .semibold : .regular))
-                        .foregroundStyle(emphasis ? Theme.Colors.text : Theme.Colors.textMuted)
+                        .foregroundStyle((emphasis ? Theme.Colors.text : Theme.Colors.textMuted).opacity(alpha))
                     // The pointed note first, then hubs, then the most linked notes.
                     let priority = pointed ? Int.max : (node.kind == .project ? 1_000_000 : 0) + degree[i]
                     labels.append(Label(priority: priority, text: text, at: CGPoint(x: p.x, y: p.y + r + 9), owner: i, forced: emphasis))
@@ -464,11 +608,163 @@ private struct GraphCanvas: View {
                     let box = CGRect(x: label.at.x - measured.width / 2, y: label.at.y - measured.height / 2,
                                      width: measured.width, height: measured.height).insetBy(dx: -3, dy: -1)
                     if placed.intersects(box) { continue }
+                    if Self.underChrome(box, size: size, top: chrome.top, bottom: chrome.bottom) { continue }
                     if !label.forced, bubbles.intersects(box, except: label.owner) { continue }
                     placed.insert(box)
                     layer.draw(resolved, at: label.at, anchor: .center)
                 }
             }
+        }
+    }
+}
+
+/// A vault drawn the way Obsidian 1.13.7 draws it: node sizes from their links, lines one screen pixel wide from edge to
+/// edge, a label under every node that fades in with the zoom, the hovered node in the accent with its lines, the rest
+/// faded to a fifth. Everything is measured in Obsidian's units, the screen's pixels: `camera.unit` turns them into points.
+private struct VaultCanvas: View {
+    let graph: MemoryGraphModel
+
+    var body: some View {
+        let _ = graph.frame   // redraw on every animation frame
+        let camera = graph.camera, layout = graph.layout, nodes = graph.graph.nodes
+        let lines = graph.lineIndices, arrows = graph.arrowIndices
+        let settings = graph.settings, colors = graph.groupColors, weights = graph.weights
+        let hovered = graph.hovered, selected = graph.selected, center = graph.focusCenter
+        let fades = nodes.map { graph.fade($0.id) }, lineFade = graph.lineFade
+        // A node is drawn at its size times the square root of the zoom, as in Obsidian.
+        let root = camera.scale.squareRoot(), unit = camera.unit
+        let labelAlpha = ObsidianGraphSettings.labelAlpha(scale: Double(camera.scale), fade: settings.textFadeMultiplier)
+        Canvas { context, size in
+            guard layout.count == nodes.count, !nodes.isEmpty else { return }
+            let sizes = nodes.map { CGFloat(ObsidianGraphSettings.nodeSize(weight: weights[$0.id] ?? 0, multiplier: settings.nodeSizeMultiplier)) }
+            let points = (0..<nodes.count).map { camera.toScreen(layout.position(at: $0), in: size) }
+            let radius = sizes.map { $0 * root * unit }
+            // Lines first, from one node's edge to the other's.
+            var faint = Path(), lit = Path()
+            for (a, b) in lines {
+                let p = points[a], q = points[b]
+                let dx = q.x - p.x, dy = q.y - p.y, d = hypot(dx, dy)
+                guard d > radius[a] + radius[b] else { continue }
+                let from = CGPoint(x: p.x + dx / d * radius[a], y: p.y + dy / d * radius[a])
+                let to = CGPoint(x: q.x - dx / d * radius[b], y: q.y - dy / d * radius[b])
+                if let center, nodes[a].id == center || nodes[b].id == center { lit.move(to: from); lit.addLine(to: to) }
+                else { faint.move(to: from); faint.addLine(to: to) }
+            }
+            let width = CGFloat(settings.lineSizeMultiplier) * unit
+            context.stroke(faint, with: .color(Theme.Colors.vaultLine.opacity(lineFade)), lineWidth: width)
+            context.stroke(lit, with: .color(Theme.Colors.vaultHighlight), lineWidth: width)
+            if settings.showArrow {
+                // Arrows fade in between zoom 0.3 and 0.8, at half the labels' color, as in Obsidian.
+                let alpha = min(max(2 * (camera.scale - 0.3), 0), 1) * 0.5
+                let length = 8 * CGFloat(settings.lineSizeMultiplier).squareRoot() * unit, half = length / 2
+                var heads = Path()
+                for (a, b) in arrows where alpha > 0 {
+                    let p = points[a], q = points[b]
+                    let dx = q.x - p.x, dy = q.y - p.y, d = hypot(dx, dy)
+                    guard d > radius[a] + radius[b] + length else { continue }
+                    let ux = dx / d, uy = dy / d
+                    let tip = CGPoint(x: q.x - ux * radius[b], y: q.y - uy * radius[b])
+                    let base = CGPoint(x: tip.x - ux * length, y: tip.y - uy * length)
+                    heads.move(to: tip)
+                    heads.addLine(to: CGPoint(x: base.x - uy * half, y: base.y + ux * half))
+                    heads.addLine(to: CGPoint(x: base.x + uy * half, y: base.y - ux * half))
+                    heads.closeSubpath()
+                }
+                context.fill(heads, with: .color(Theme.Colors.vaultText.opacity(alpha * lineFade)))
+            }
+            for (i, node) in nodes.enumerated() {
+                let p = points[i], r = radius[i]
+                if p.x < -r || p.y < -r || p.x > size.width + r || p.y > size.height + r { continue }
+                let bubble = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
+                let fill = node.id == hovered ? Theme.Colors.vaultHighlight : Self.color(of: node, colors: colors)
+                context.fill(Path(ellipseIn: bubble), with: .color(fill.opacity(fades[i])))
+                if node.id == hovered || node.id == selected {
+                    context.stroke(Path(ellipseIn: bubble.insetBy(dx: -2 * unit, dy: -2 * unit)), with: .color(Theme.Colors.vaultFocused), lineWidth: 2 * unit)
+                }
+            }
+            // Labels above every node: no culling, as in Obsidian, where zooming out is what makes them go.
+            for (i, node) in nodes.enumerated() {
+                let pointed = node.id == hovered
+                let alpha = pointed ? 1 : labelAlpha * fades[i]
+                guard alpha > 0.01 else { continue }
+                let p = points[i]
+                if p.x < -300 || p.y < -80 || p.x > size.width + 300 || p.y > size.height + 20 { continue }
+                // The hovered label is whole, a little lower, and never shrunk by a zoom out.
+                let font = (14 + sizes[i] / 4) * (pointed ? max(root, 1) : root) * unit
+                let y = p.y + (sizes[i] + 5) * root * unit + (pointed ? 15 * unit : 0)
+                context.draw(Text(node.title).font(.system(size: font)).foregroundStyle(Theme.Colors.vaultText.opacity(alpha)),
+                             at: CGPoint(x: p.x, y: y), anchor: .top)
+            }
+        }
+    }
+
+    /// A node's own color: its group's, else by kind, as Obsidian falls back.
+    static func color(of node: MemoryGraph.Node, colors: [String: ObsidianGraphSettings.GroupColor]) -> Color {
+        if let group = colors[node.id] { return Theme.color(group: group) }
+        switch node.kind {
+        case .attachment: return Theme.Colors.vaultAttachment
+        case .unresolved: return Theme.Colors.vaultUnresolved
+        case .note, .project: return Theme.Colors.vaultNode
+        }
+    }
+}
+
+/// The graph's status capsule at one moment: its dot, "Live" or "Changed just now", and the counts once the folder was read.
+struct GraphStatusLine: View {
+    let recent: Bool
+    /// The last change: the dot rings once from it.
+    let change: Date?
+    let counts: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let dot = recent ? Theme.Colors.accentLight : Theme.Colors.sage
+        let word = recent ? "Changed just now" : "Live"
+        HStack(spacing: 6) {
+            Circle().fill(dot).frame(width: 6, height: 6)
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(recent ? Theme.Motion.quick : 0.3), reduceMotion), value: dot)
+                .overlay { RingPulseView(ring: .changed, start: change, color: Theme.Colors.accentLight) }
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                // The words swap where they are (SwapText) inside a slot that eases to the new words' width and clips them:
+                // the counts ride its edge, so they never pass over a word, the old one going or the new one coming. As one
+                // text rolling as numbers, the counts slid across "Changed just now" while it still faded.
+                ZStack(alignment: .leading) {
+                    Text(word).foregroundStyle(Theme.Colors.textMuted).fixedSize()
+                        .id(word).transition(SwapText.transition(reduceMotion))
+                }
+                .clipShape(SideClip())
+                // The counts roll to their new figures; with Reduce Motion they change in place, and the layout at once.
+                if let counts {
+                    Text(" · \(counts)").foregroundStyle(Theme.Colors.textFaint)
+                        .contentTransition(reduceMotion ? .opacity : .numericText())
+                }
+            }
+            .font(Theme.Fonts.caption)
+            .accessibilityElement(children: .combine)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .glassEffect(.regular, in: Capsule())
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: recent)
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: counts)
+    }
+}
+
+/// A clip on the sides only: a word lifting away as it swaps keeps its top.
+private struct SideClip: Shape {
+    func path(in rect: CGRect) -> Path { Path(rect.insetBy(dx: 0, dy: -2 * SwapText.lift)) }
+}
+
+/// The graph's status over time: `recent` for the four seconds after a change, drawn once more when they are over.
+struct ChangedRecently<Content: View>: View {
+    let since: Date?
+    var duration: TimeInterval = 4
+    @ViewBuilder let content: (_ recent: Bool) -> Content
+
+    /// The footer's schedule (`GlowSchedule`): now, then just past the end, then nothing. An explicit schedule of the end
+    /// alone was drawn at once, with the end's date: "Changed just now" never showed.
+    var body: some View {
+        TimelineView(GlowSchedule(ends: since?.addingTimeInterval(duration))) { context in
+            content(since.map { context.date >= $0 && context.date.timeIntervalSince($0) < duration } ?? false)
         }
     }
 }

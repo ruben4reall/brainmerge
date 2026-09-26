@@ -9,7 +9,8 @@ public struct EditAccountSheet: View {
     @Binding var isPresented: Bool
     let account: Account
     @State private var edit: AccountEdit
-    @State private var problem: String?
+    @State private var problem = InlineProblem()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Apps the person made that also open this account, read before the sheet opens (never run, never touched): the
     /// sheet opens at its full size, nothing moves under the pointer.
     @State private var otherApps: [ExistingApp]
@@ -48,16 +49,22 @@ public struct EditAccountSheet: View {
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
-            // Past its limit the sections scroll, so Save and Cancel always stay on screen.
-            ScrollView {
-                sections.frame(maxWidth: .infinity, alignment: .leading)
+            // Past its limit the sections scroll, so Save and Cancel always stay on screen. What opens below the fold (a
+            // profile's buttons, the list of servers) is brought into view.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    sections { id in
+                        withAnimation(Theme.Motion.layout(Theme.Motion.out(0.3), reduceMotion)) { proxy.scrollTo(id, anchor: .bottom) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: Self.maxSectionsHeight)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(maxHeight: Self.maxSectionsHeight)
-            .fixedSize(horizontal: false, vertical: true)
-            if let problem { Text(problem).foregroundStyle(Theme.Colors.accentLight).font(Theme.Fonts.secondary) }
+            ProblemLine(problem: problem)
             HStack(spacing: 10) {
-                if let working = model.working { Text(working).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                WorkingLine(text: model.working)
                 Spacer()
                 Button("Cancel") { isPresented = false }.buttonStyle(.glass).keyboardShortcut(.cancelAction)
                 Button("Save") { save() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
@@ -66,7 +73,7 @@ public struct EditAccountSheet: View {
         }
         .padding(22)
         .frame(width: 480)
-        .background(WarmBackground(accents: [edit.tint]))
+        .background(WarmBackground())
         .confirmationDialog(pendingSwap?.swapQuestion(thisName: current.identity.name) ?? "",
                             isPresented: Binding(get: { pendingSwap != nil }, set: { if !$0 { pendingSwap = nil } }), presenting: pendingSwap) { note in
             Button("Swap names") { if let other = note.swapWith { swapNames(with: other) } }
@@ -76,7 +83,7 @@ public struct EditAccountSheet: View {
         }
     }
 
-    @ViewBuilder var sections: some View {
+    @ViewBuilder func sections(reveal: @escaping (String) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             labeled("Name") {
                 TextField("Name", text: $edit.name).textFieldStyle(.plain).font(Theme.Fonts.body)
@@ -87,12 +94,7 @@ public struct EditAccountSheet: View {
             labeled("Color") {
                 HStack(spacing: 8) {
                     ForEach(Theme.pickableTints, id: \.self) { t in
-                        Button { edit.tint = t; edit.logo = nil } label: {
-                            Circle().fill(Theme.color(for: t)).frame(width: 24, height: 24)
-                                .overlay(Circle().strokeBorder(Theme.Colors.text, lineWidth: edit.tint == t && edit.logo == nil ? 2.5 : 0))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(t.rawValue.capitalized)
+                        TintSwatch(tint: t, selected: edit.tint == t && edit.logo == nil) { edit.tint = t; edit.logo = nil }
                     }
                     Spacer()
                     Button(edit.logo == nil ? "Use a photo…" : "Change the photo…") { choosePhoto() }.buttonStyle(.glass).controlSize(.small)
@@ -134,10 +136,12 @@ public struct EditAccountSheet: View {
                     }
                 }
             }
+            labeled("Connections") { ConnectionsSection(model: model, account: current, choice: $edit.browser, reveal: reveal) }
             if let note = otherAppNote {
                 labeled("Apps you made") { otherAppLines(note) }
             }
         }
+        .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: swapProblem?.id)
     }
 
     /// The apps the person made that also open this account, found before the sheet opened: each once with its own
@@ -188,6 +192,7 @@ public struct EditAccountSheet: View {
             }
         }
         // A swap that could not be done says why right here, with the way out when there is one (quitting a secondary).
+        // It drops in like any problem line.
         if let swapProblem {
             HStack(spacing: 10) {
                 Text(swapProblem.detail).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.accentLight)
@@ -198,6 +203,7 @@ public struct EditAccountSheet: View {
                     Button(label) { model.quit(slug); self.swapProblem = nil }.buttonStyle(.glass).controlSize(.small)
                 }
             }
+            .transition(.line(reduceMotion))
         }
         Text(CodeAccountNote.privacy).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
             .fixedSize(horizontal: false, vertical: true)
@@ -252,10 +258,10 @@ public struct EditAccountSheet: View {
         }
     }
 
+    /// The problem line stays while it saves: the same failure again shakes it, a success closes the sheet.
     func save() {
-        problem = nil
         Task {
-            if let failure = await model.apply(edit, to: account.id) { problem = failure.detail; model.dismiss(failure) }
+            if let failure = await model.apply(edit, to: account.id) { problem.show(failure.detail); model.dismiss(failure) }
             else { isPresented = false }
         }
     }

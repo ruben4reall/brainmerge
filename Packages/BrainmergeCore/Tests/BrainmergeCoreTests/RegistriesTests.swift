@@ -34,4 +34,15 @@ import BrainmergeTestSupport
         try reg.save(to: file)
         #expect(try IdentityRegistry.load(file).identities["client"] == IdentityRegistry.Entry(name: "ClientStudio", tint: "blue"))
     }
+
+    /// On a Mac's usual disk, `memory/Website` and `memory/website` are one folder: two projects never get names that
+    /// differ only in letter case, and a name seen from another Mac keeps its spelling.
+    @Test func projectNamesThatDifferOnlyInCaseNeverShareAFolder() {
+        var registry = ProjectRegistry()
+        #expect(registry.register(preferredName: "Website", path: "/a/Website", machineID: "m1") == "Website")
+        #expect(registry.register(preferredName: "website", path: "/b/website", machineID: "m1") == "website-2")
+        var seen = ProjectRegistry(projects: ["API": .init(paths: ["m2": "/x/API"])])
+        #expect(seen.register(preferredName: "api", path: "/y/api", machineID: "m1") == "API")
+        #expect(seen.projects.keys.sorted() == ["API"])
+    }
 }

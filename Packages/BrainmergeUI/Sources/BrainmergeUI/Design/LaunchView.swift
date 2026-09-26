@@ -1,69 +1,93 @@
 import SwiftUI
 
-/// The launch splash, shown while the first load runs: the creature walks in place on the window's background,
-/// with its flat shadow. "Waking up…" appears only when the load is slow. With Reduce Motion the creature stands still.
+/// The launch splash, an overlay on the window until its creature has landed: the pixels gather into the creature, the
+/// wordmark rises, and once the app is ready the creature leaps into the sidebar while the screens fade in underneath
+/// (LaunchScene.swift). A click or any key hurries it once the app is ready. It draws the frames of a `LaunchClock` and
+/// nothing else; the same overlay draws the leap that ends the guided setup. The display drives it: each of its frames
+/// hands the clock the moment it is shown (`DisplayFrames`), and the overlay draws the clock's frame for that moment.
 /// VoiceOver reads one element: "Brainmerge is starting".
 public struct LaunchView: View {
     /// Said to VoiceOver when the splash hands over: its only element goes away and the accounts appear.
     static let readyAnnouncement = "Brainmerge is ready"
 
+    let clock: LaunchClock
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var start = Date()
-    @State private var slow = false
+    @FocusState private var focused: Bool
 
-    public init() {}
+    public init(clock: LaunchClock) { self.clock = clock }
 
     public var body: some View {
+        GeometryReader { geo in
+            let frame = clock.drawnFrame(size: geo.size)
+            splash(frame, size: geo.size)
+                .onChange(of: frame.finished, initial: true) { _, done in if done { clock.finish() } }
+        }
+        .background {
+            DisplayFrames(running: !clock.finished) { clock.show(frameAt: $0) }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        // The frames are worked out for the window's size (the overlay fills it).
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { clock.windowSize = $0 }
+        .onAppear { clock.begin(at: Date(), reduceMotion: reduceMotion) }
+    }
+
+    private func splash(_ frame: LaunchFrame, size: CGSize) -> some View {
+        let launching = clock.mode == .launch
+        let listening = launching && !frame.handingOff
+        return LaunchPicture(frame: frame, size: size, words: launching)
+            .contentShape(Rectangle())
+            .onTapGesture { clock.skip(at: Date()) }
+            .focusable(listening)
+            .focusEffectDisabled()
+            .focused($focused)
+            .onKeyPress { press in
+                clock.skip(at: Date())
+                return press.modifiers.contains(.command) ? .ignored : .handled   // menu shortcuts (Quit) still work
+            }
+            .onAppear { focused = listening }
+            // From the hand-off on, clicks go through to the screens underneath, once they show.
+            .allowsHitTesting(listening || frame.screensHeld)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Brainmerge is starting")
+            .accessibilityHidden(!listening)
+    }
+}
+
+/// One frame of the overlay, drawn: the ground shadow and the creature in one Canvas, the wordmark and "Waking up…" under
+/// them (the launch only). Transparent everywhere else: the screens show through.
+struct LaunchPicture: View {
+    var frame: LaunchFrame
+    var size: CGSize
+    var words: Bool
+    @Environment(\.displayScale) private var displayScale
+
+    var body: some View {
+        let feet = AssembleScene.splashFeet(in: size)
         ZStack {
-            WarmBackground(accents: [])
-            GeometryReader { geo in
-                let frame = Self.creatureFrame(in: geo.size)
-                if reduceMotion {
-                    creature(Creature.walkFrame(0), in: frame)
-                } else {
-                    TimelineView(.periodic(from: start, by: Theme.Launch.frameDuration)) { context in
-                        let index = Creature.walkIndex(at: context.date, since: start, frameDuration: Theme.Launch.frameDuration, frozen: false)
-                        creature(Creature.walkFrame(index), in: frame)
-                    }
+            Canvas { context, _ in
+                if frame.shadowOpacity > 0.001 {
+                    var shadow = context
+                    shadow.opacity = frame.shadowOpacity
+                    shadow.fill(Path(AssembleScene.shadowRect(feet: feet, inset: frame.shadowInset)), with: .color(Theme.Colors.selection))
                 }
+                var ctx = context
+                Creature.draw(&ctx, pose: frame.pose, feet: frame.feet, unit: frame.unit, displayScale: displayScale)
+            }
+            if words {
+                Text("Brainmerge")
+                    .font(Theme.Fonts.screenTitle)
+                    .foregroundStyle(Theme.Colors.text)
+                    .blur(radius: frame.wordmarkBlur)
+                    .opacity(frame.wordmarkOpacity)
+                    .position(x: feet.x, y: feet.y + AssembleScene.unit + 30 + frame.wordmarkRise)
                 Text("Waking up…")
                     .font(Theme.Fonts.secondary)
                     .foregroundStyle(Theme.Colors.textMuted)
-                    .position(x: frame.midX, y: frame.maxY + 24)
-                    .opacity(slow ? 1 : 0)
+                    .opacity(frame.captionOpacity)
+                    .position(x: feet.x, y: feet.y + AssembleScene.unit + 64)
             }
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Brainmerge is starting")
-        .task {
-            try? await Task.sleep(for: .seconds(Theme.Launch.slowCaptionAfter))
-            withAnimation(reduceMotion ? nil : .easeOut(duration: Theme.Launch.fade)) { slow = true }
-        }
-    }
-
-    /// Where the walk is drawn: centered, a little above the middle, on whole points so the pixel edges stay crisp.
-    nonisolated static func creatureFrame(in size: CGSize) -> CGRect {
-        let width = CGFloat(Creature.columns) * Theme.Launch.unit
-        let height = CGFloat(Creature.walkRows) * Theme.Launch.unit
-        let x = ((size.width - width) / 2).rounded(.down)
-        let y = ((size.height - height) / 2 - Theme.Launch.lift).rounded(.down)
-        return CGRect(x: x, y: y, width: width, height: height)
-    }
-
-    /// One frame: the shadow, then the body as a single path (rectangles filled one by one leave seams), then the eyes.
-    private func creature(_ walk: Creature.WalkFrame, in frame: CGRect) -> some View {
-        Canvas { context, _ in
-            let unit = Theme.Launch.unit
-            func cell(_ x: Int, _ y: Int, height: CGFloat = 1) -> CGRect {
-                CGRect(x: frame.minX + CGFloat(x) * unit, y: frame.minY + CGFloat(y) * unit, width: unit, height: unit * height)
-            }
-            var shadow = Path()
-            for p in walk.shadow { shadow.addRect(cell(p.x, p.y)) }
-            context.fill(shadow, with: .color(Theme.Colors.selection))
-            var body = Path()
-            for p in walk.body { body.addRect(cell(p.x, p.y)) }
-            context.fill(body, with: .color(Theme.Colors.creature))
-            for e in walk.eyes { context.fill(Path(cell(e.x, e.y, height: e.height)), with: .color(Theme.Colors.creatureEye)) }
-        }
+        .frame(width: size.width, height: size.height)
     }
 }
