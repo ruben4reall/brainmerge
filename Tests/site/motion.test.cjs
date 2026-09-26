@@ -412,7 +412,7 @@ test('the pages hold no inline style or script: the CSP forbids them', () => {
 test('the illustrations\' numbers add up', () => {
   const css = read('styles.css'), html = read('index.html');
   const scale = sel => Number(new RegExp(sel.replace(/\./g, '\\.') + ' \\{ transform: scaleX\\(([\\d.]+)\\)').exec(css)[1]);
-  // RAM of a 16 GB Mac: Personal 1.9, Studio 1.2, a terminal session 0.6, other apps 7.5 (11.2 in all, 70%).
+  // RAM of a 16 GB Mac: Personal 1.9, Studio 1.2, a terminal session 0.6, macOS and other apps 7.5 (11.2 in all, 70%).
   const ram = { 'acc-p': 1.9, 'acc-s': 1.2, term: 0.6, other: 7.5 };
   close(scale('.meter i'), 11.2 / 16);
   close(Object.values(ram).reduce((a, b) => a + b, 0), 11.2);

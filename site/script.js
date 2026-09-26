@@ -656,47 +656,81 @@
   }
 
   // ---------- The download: the page's finale ----------
-  // The creature assembles as the app does at launch; "Get Brainmerge." rises as the app's wordmark does; the button
-  // rings once as the creature lands. Pointing at the button makes it look down; pressing it makes it hop with sparkles.
+  // The companion (companion.js) leaps into it and lands here, and the button rings once as it lands; it leaps back to
+  // its perch when the finale leaves the screen. Without the companion (none yet on a visit that opens here), the
+  // creature assembles as the app does at launch. "Get Brainmerge." rises as the app's wordmark does. Pointing at the
+  // button makes the creature look down; pressing it makes it hop with sparkles.
   var finale = document.querySelector('.download');
   var finaleSvg = finale && finale.querySelector('.cv');
   if (finaleSvg) {
     var finaleDraw = creatureView(finaleSvg);
     finaleDraw.lookDown = 0;
     finaleDraw(Motion.assembleFrame(0).pose, Motion.assembleFrame(0).shadow);
-    var landed = false, assembled = false;
+    var assembled = false, stopFinale = null;
     var ring = finale.querySelector('.btn-ring');
-    var startFinale = function () {
-      if (finale.classList.contains('b-go')) return;
-      goFinale.disconnect();
-      finale.classList.add('b-go');
-      run(Motion.ASSEMBLE.end, function (t) {
-        var f = Motion.assembleFrame(t);
-        if (!landed && t >= Motion.ASSEMBLE.hopLand) {
-          landed = true;
-          // The ring grows 8 px on every side, whatever the button's size.
-          if (ring && ring.offsetWidth) {
-            ring.style.setProperty('--ring-x', r3(1 + 16 / ring.offsetWidth));
-            ring.style.setProperty('--ring-y', r3(1 + 16 / ring.offsetHeight));
-          }
-          finale.classList.add('b-land');
-        }
-        finaleDraw(f.pose, f.shadow);
-      }, function () { assembled = true; finale.classList.add('is-done'); });
+    var rise = function () { finale.classList.add('b-go'); };
+    var ringOnce = function () {
+      // The ring grows 8 px on every side, whatever the button's size.
+      if (ring && ring.offsetWidth) {
+        ring.style.setProperty('--ring-x', r3(1 + 16 / ring.offsetWidth));
+        ring.style.setProperty('--ring-y', r3(1 + 16 / ring.offsetHeight));
+      }
+      finale.classList.remove('b-land');
+      void finale.offsetWidth; // ring again on a second landing
+      finale.classList.add('b-land');
     };
+    var play = function (end, frame, landAt) {
+      if (stopFinale) stopFinale();
+      assembled = false;
+      finaleSvg.classList.remove('is-away');
+      var rung = false;
+      stopFinale = run(end, function (t) {
+        if (!rung && t >= landAt) { rung = true; ringOnce(); }
+        var f = frame(t);
+        finaleDraw(f.pose, f.shadow);
+      }, function () { stopFinale = null; assembled = true; finale.classList.add('is-done'); });
+    };
+    var assemble = function () {
+      if (finale.classList.contains('is-done') || stopFinale) return;
+      rise();
+      play(Motion.ASSEMBLE.end, Motion.assembleFrame, Motion.ASSEMBLE.hopLand);
+    };
+    var led = function () { return finale.hasAttribute('data-cm'); };
     var goFinale = new IntersectionObserver(function (entries) {
-      if (entries.some(function (e) { return e.isIntersecting; })) startFinale();
+      if (!entries.some(function (e) { return e.isIntersecting; })) return;
+      goFinale.disconnect();
+      // With the companion the words rise now and the creature comes by itself.
+      if (led()) rise(); else assemble();
     }, { rootMargin: '0px 0px -30% 0px', threshold: 0 });
     goFinale.observe(finaleSvg);
+    finale.addEventListener('cm-assemble', assemble);
+    finale.addEventListener('cm-arrive', function (e) {
+      var d = e.detail;
+      rise();
+      play(d.end, function (t) { return { pose: d.frame(t), shadow: { opacity: 1, inset: 0 } }; }, 0);
+    });
+    finale.addEventListener('cm-depart', function () {
+      if (stopFinale) { stopFinale(); stopFinale = null; }
+      assembled = false;
+      finaleSvg.classList.add('is-away');
+    });
+    finale.addEventListener('cm-still', function () {
+      if (stopFinale) { stopFinale(); stopFinale = null; }
+      finaleSvg.classList.remove('is-away');
+      rise();
+      assembled = true;
+      finaleDraw(Motion.restPose(), { opacity: 1, inset: 0 });
+    });
     // On paper, the creature stands whole even if the finale was never reached.
     window.addEventListener('beforeprint', function () {
-      if (!finale.classList.contains('b-go')) finaleDraw(Motion.restPose(), { opacity: 1, inset: 0 });
+      if (!assembled) { finaleSvg.classList.remove('is-away'); finaleDraw(Motion.restPose(), { opacity: 1, inset: 0 }); }
     });
-    // A keyboard reaching the finale first: what has the focus shows within a frame, and the creature assembles anyway.
+    // A keyboard reaching the finale first: what has the focus shows within a frame, and the creature comes anyway.
     finale.addEventListener('focusin', function () {
       if (finale.classList.contains('b-go')) return;
       finale.classList.add('b-now');
-      startFinale();
+      goFinale.disconnect();
+      if (led()) rise(); else assemble();
     });
     var finaleHop = saver(finaleDraw, Motion.ALLSET.hopHeight, true);
     var finaleBtn = finale.querySelector('.btn-primary');

@@ -214,8 +214,9 @@
   .mdock-name { background: #1F1C24; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6); }
 }
 
-/* Nothing magnifies without a mouse or a trackpad: less sky, room only for the bounce and the name. */
-@media (hover: none), (pointer: coarse) {
+/* Nothing magnifies without a mouse or a trackpad, or with Reduce Motion: less sky, room only for the bounce and the
+   name. */
+@media (hover: none), (pointer: coarse), (prefers-reduced-motion: reduce) {
   .mac { padding-top: calc(var(--s) * 0.75 + 52px); }
 }
 

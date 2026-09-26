@@ -106,21 +106,21 @@ test('amp scales the magnification smoothly, and room caps the widening', () => 
 
 // ---------- The launch bounce ----------
 
-test('the bounce: three hops, each lower and shorter, landing at rest', () => {
+test('the bounce is a Mac\'s: the same hop again while the app opens, never losing height, landing at rest', () => {
   assert.strictEqual(D.bounce(0), 0);
   assert.strictEqual(D.bounce(-1), 0);
   assert.strictEqual(D.bounce(D.BOUNCE), 0);
   assert.strictEqual(D.bounce(D.BOUNCE + 1), 0);
-  const d = D.HOPS.map(h => D.HOP_TIME * Math.sqrt(h / D.HOPS[0]));
-  close(d.reduce((a, b) => a + b, 0), D.BOUNCE);
-  let t0 = 0;
-  d.forEach((len, i) => {
-    close(D.bounce(t0 + len / 2), D.HOPS[i]);      // apex halfway through the hop
-    close(D.bounce(t0 + len * 0.25), D.HOPS[i] * 0.75);  // a parabola: gravity
-    if (i) { assert.ok(D.HOPS[i] < D.HOPS[i - 1]); assert.ok(len < d[i - 1]); }
-    t0 += len;
+  assert.ok(D.HOPS.length >= 2);
+  close(D.BOUNCE, D.HOPS.length * D.HOP_TIME);
+  D.HOPS.forEach((h, i) => {
+    const t0 = i * D.HOP_TIME;
+    assert.strictEqual(h, D.HOPS[0], 'every hop the same height');
+    close(D.bounce(t0 + D.HOP_TIME / 2), h);                // apex halfway through the hop
+    close(D.bounce(t0 + D.HOP_TIME * 0.25), h * 0.75);      // a parabola: gravity
+    assert.ok(D.bounce(t0 + 1e-6) < 1e-3, 'each hop starts from the ground');
   });
-  assert.ok(D.BOUNCE > 1 && D.BOUNCE < 1.4, `bounce lasts ${D.BOUNCE}`);
+  assert.ok(D.BOUNCE > 0.8 && D.BOUNCE < 1, `bounce lasts ${D.BOUNCE}`);
   for (let t = 0; t < D.BOUNCE; t += 0.005) assert.ok(D.bounce(t) >= 0 && D.bounce(t) <= D.HOPS[0] + 1e-12);
 });
 
@@ -154,7 +154,12 @@ test('the Dock: Brainmerge, a separator, then the four account apps; Brainmerge 
   const running = [...dock.matchAll(/<button[^>]*data-name="([^"]+)"[^>]*data-running/g)].map(m => m[1]);
   assert.deepStrictEqual(running, ['Brainmerge', 'Studio']);
   assert.match(dock, /data-name="Personal" data-opener/);
-  assert.match(dock, /aria-label="A Mac Dock: [^"]*Brainmerge and Studio are open\./);
+  // The group says what the Dock is; each app's own label says whether it is open (dock.js keeps it true).
+  assert.match(dock, /aria-label="A Mac Dock: [^"]*Choose an app to open it\."/);
+  assert.doesNotMatch(dock, /are open\./);
+  assert.match(read('dock.js'), /setAttribute\('aria-label', name\(el\) \+ \(on \? ', open' : ''\)\)/);
+  // Each icon picks its file from the size it is laid out at, not the largest magnified size.
+  assert.match(dock, /sizes="calc\(1\.6 \* clamp\(52px, 4vw \+ 20px, 80px\)\)"/);
   assert.ok(html.includes('<code>~/Applications/Brainmerge</code>'));
   for (const acc of ['personal', 'studio', 'work', 'client']) {
     for (const px of [256, 512]) {
@@ -165,6 +170,19 @@ test('the Dock: Brainmerge, a separator, then the four account apps; Brainmerge 
   assert.ok(html.includes('<link rel="stylesheet" href="dock.css">'));
   assert.ok(html.includes('<script src="dock.js" defer></script>'));
   assert.doesNotMatch(dock, /style="|on[a-z]+="/);      // the CSP: no inline styles or handlers
+});
+
+test('the Dock is one Tab stop, the arrow keys go from app to app', () => {
+  const js = read('dock.js');
+  assert.match(js, /setAttribute\('role', 'toolbar'\)/);
+  assert.match(js, /tabIndex = k === current \? 0 : -1/);
+  for (const key of ['ArrowRight', 'ArrowLeft', 'Home', 'End']) assert.ok(js.includes(`'${key}'`), key);
+});
+
+test('the first account says it opens Claude, and has no dot of its own', () => {
+  const js = read('dock.js');
+  assert.ok(js.includes("' \\u00b7 opens Claude'"));
+  assert.doesNotMatch(js, /[\u2013\u2014]/);
 });
 
 test('the Dock keeps to transforms and opacity, and Reduce Motion keeps it still', () => {

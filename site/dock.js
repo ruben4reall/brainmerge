@@ -1,6 +1,7 @@
 // Brainmerge: the Dock of "Each account is an app of its own", answering like a Mac's.
 // The pointer magnifies the icons under it, an app not yet open bounces as it launches, then shows its running dot.
-// Everything is visible without this file; with Reduce Motion nothing moves, the icon under the pointer only lights up.
+// One Tab stop for the whole Dock, the arrow keys go from app to app (a toolbar). Everything is visible without this
+// file; with Reduce Motion nothing moves, the icon under the pointer only lights up.
 (function () {
   'use strict';
 
@@ -68,21 +69,17 @@
       return -1;
     }
 
-    // The launch bounce: three hops, each lower, like a ball losing height. Each hop is a true parabola (gravity), so
-    // its time goes with the square root of its height. Heights are fractions of the icon; times in seconds.
-    var HOPS = [0.5, 0.26, 0.1];
-    var HOP_TIME = 0.52;
-    var BOUNCE = HOPS.reduce(function (t, h) { return t + HOP_TIME * Math.sqrt(h / HOPS[0]); }, 0);
+    // The launch bounce: the Mac's, the same hop again while the app opens, never losing height. Each hop is a true
+    // parabola (gravity) half the icon high, 0.44 s up and down. Heights are fractions of the icon; times in seconds.
+    var HOPS = [0.5, 0.5];
+    var HOP_TIME = 0.44;
+    var BOUNCE = HOPS.length * HOP_TIME;
 
     // How high the icon is `t` seconds after the click, as a fraction of its size.
     function bounce(t) {
       if (!(t > 0) || t >= BOUNCE) return 0;
-      for (var i = 0; i < HOPS.length; i++) {
-        var d = HOP_TIME * Math.sqrt(HOPS[i] / HOPS[0]);
-        if (t < d) { var u = t / d; return HOPS[i] * 4 * u * (1 - u); }
-        t -= d;
-      }
-      return 0;
+      var i = Math.min(HOPS.length - 1, Math.floor(t / HOP_TIME)), u = (t - i * HOP_TIME) / HOP_TIME;
+      return HOPS[i] * 4 * u * (1 - u);
     }
 
     // One frame of a spring toward `to` (response in seconds; damping 1 is critical, no overshoot), in small steps so
@@ -127,7 +124,8 @@
   var apps = slots.filter(function (el) { return el.classList.contains('mdock-app'); });
   var halves = Array.prototype.slice.call(dock.querySelectorAll('.mdock-half > .mdock-bar'));
 
-  var reduce = !window.matchMedia || !window.matchMedia('(prefers-reduced-motion: no-preference)').matches;
+  var motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: no-preference)') : null;
+  var reduce = !motionQuery || !motionQuery.matches;
   var fine = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)');
   var canMagnify = function () { return !reduce && !!fine && fine.matches; };
 
@@ -140,7 +138,12 @@
     if (on) el.setAttribute('data-running', ''); else el.removeAttribute('data-running');
     el.setAttribute('aria-label', name(el) + (on ? ', open' : ''));
   }
-  apps.forEach(function (el) { setRunning(el, isRunning(el)); });
+  apps.forEach(function (el) {
+    setRunning(el, isRunning(el));
+    el._icon = el.querySelector('.mdock-icon');
+    el._name = el.querySelector('.mdock-name');
+    el._label = el._name.textContent;
+  });
 
   // ---------- Geometry, read once and again on resize ----------
 
@@ -189,9 +192,9 @@
         var t = (now - t0) / 1000;
         if (t < Dock.BOUNCE) { lift = Dock.bounce(t) * size * sc; busy = true; } else land(el);
       }
-      el.firstElementChild.style.transform = 'translateY(' + (-lift).toFixed(2) + 'px) scale(' + (sc / Dock.MAX).toFixed(4) + ')';
+      el._icon.style.transform = 'translateY(' + (-lift).toFixed(2) + 'px) scale(' + (sc / Dock.MAX).toFixed(4) + ')';
       // The name rides on top of the grown icon (the squircle's top is 90% up the image), and on its bounce.
-      el.querySelector('.mdock-name').style.transform = 'translate(-50%, ' + (-(sc - 1) * 0.9 * size - lift).toFixed(2) + 'px)';
+      el._name.style.transform = 'translate(-50%, ' + (-(sc - 1) * 0.9 * size - lift).toFixed(2) + 'px)';
     });
 
     var under = amp > 0.02 && px !== null && ampTo > 0 ? Dock.slotAt(widths.map(function (w, i) { return w * m.scale[i]; }), px - m.left) : -1;
@@ -208,6 +211,7 @@
     hops.delete(el);
     var plan = el._plan;
     if (plan && plan.dot) setRunning(el, true);
+    else if (plan) { opensClaude(el); return; }
     named.delete(el);
     el.classList.remove('is-named');
   }
@@ -216,6 +220,12 @@
 
   function onMove(e) {
     if (!canMagnify() || e.pointerType === 'touch') return;
+    // Far from the Dock with nothing magnified or bouncing: nothing to do (a page scrolling under a resting mouse sends
+    // these too).
+    if (ampTo === 0 && amp === 0 && !hops.size) {
+      var b0 = dock.getBoundingClientRect();
+      if (e.clientY < b0.top - size * (Dock.MAX - 1) || e.clientY > b0.bottom || e.clientX < b0.left || e.clientX > b0.right) return;
+    }
     var r = row.getBoundingClientRect();
     var x = e.clientX - r.left;
     var bar = dock.getBoundingClientRect();
@@ -243,14 +253,27 @@
     if (ms) el._nameTimer = setTimeout(function () { if (!hops.has(el)) { named.delete(el); el.classList.remove('is-named'); } }, ms);
   }
 
+  // The first account hands over to Claude itself: no dot of its own, so its name says where it went, for a moment.
+  function opensClaude(el) {
+    clearTimeout(el._restore);
+    el._name.textContent = el._label + ' \u00b7 opens Claude';
+    showName(el, 1400);
+    el._restore = setTimeout(function () { el._name.textContent = el._label; }, 1400 + 200);
+  }
+
   function open(el, how) {
     var plan = Dock.launch({ running: isRunning(el), opener: el.hasAttribute('data-opener') });
     el._plan = plan;
     // With a mouse the name is already there, under the pointer; a touch or a key shows it while the app opens.
     var showsName = how !== 'mouse' && how !== 'pen';
     if (!plan.bounce) { if (showsName) showName(el, 1200); return; }
-    if (reduce) { if (plan.dot) setRunning(el, true); if (showsName) showName(el, 1200); return; }
+    if (reduce) {
+      if (plan.dot) setRunning(el, true); else { opensClaude(el); return; }
+      if (showsName) showName(el, 1200);
+      return;
+    }
     if (hops.has(el)) return;
+    clearTimeout(el._restore); el._name.textContent = el._label;
     if (showsName) showName(el, 0);
     hops.set(el, performance.now());
     kick();
@@ -263,6 +286,41 @@
     });
     el.addEventListener('blur', function () { if (!hops.has(el)) { named.delete(el); el.classList.remove('is-named'); } });
   });
+
+  // ---------- The keyboard: one Tab stop, the arrow keys from app to app ----------
+
+  var current = 0;
+  function rove(i, focus) {
+    current = (i + apps.length) % apps.length;
+    apps.forEach(function (el, k) { el.tabIndex = k === current ? 0 : -1; });
+    if (focus) apps[current].focus();
+  }
+  rove(0, false);
+  dock.setAttribute('role', 'toolbar');
+  apps.forEach(function (el, k) {
+    el.addEventListener('focus', function () { if (current !== k) rove(k, false); });
+    el.addEventListener('keydown', function (e) {
+      var to = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? k + 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? k - 1 :
+        e.key === 'Home' ? 0 : e.key === 'End' ? apps.length - 1 : null;
+      if (to === null) return;
+      e.preventDefault();
+      rove(to, true);
+    });
+  });
+
+  // ---------- Reduce Motion switched on mid-visit: everything lands where it rests, and stays ----------
+
+  if (motionQuery && motionQuery.addEventListener) {
+    motionQuery.addEventListener('change', function () {
+      if (motionQuery.matches || reduce) return;
+      reduce = true;
+      amp = ampTo = ampV = 0; px = null;
+      Array.from(hops.keys()).forEach(land);
+      dock.classList.remove('is-moving');
+      if (frame) { cancelAnimationFrame(frame); frame = 0; }
+      tick(performance.now());
+    });
+  }
 
   // ---------- Arrival: Studio opens once, as the Dock comes into view ----------
 
