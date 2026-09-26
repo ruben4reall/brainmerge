@@ -19,4 +19,11 @@ public enum NameRules {
         }
         return name.trimmingCharacters(in: .whitespaces)
     }
+
+    /// Git drops these from an author's name, and refuses a name made only of them.
+    static let gitStrips = Set(" .,:;<>\"\\'")
+
+    /// An account's name signs its saves: it needs one character git keeps.
+    public static func isUsableForAccount(_ cleaned: String) -> Bool { cleaned.contains { !gitStrips.contains($0) } }
+
 }

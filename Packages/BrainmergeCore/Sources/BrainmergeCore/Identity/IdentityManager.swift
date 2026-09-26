@@ -53,7 +53,7 @@ public final class IdentityManager: @unchecked Sendable {
             throw BrainmergeError.profileMissing(paths.primaryCLIProfile.path)
         }
         let name = NameRules.clean(name)
-        guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
+        guard NameRules.isUsableForAccount(name) else { throw BrainmergeError.nameInvalid }
         try ensureNameAvailable(name, excluding: nil, in: state)
         let identity = Identity(slug: IdentitySlug.make(from: name, taken: state.takenSlugs), name: name,
                                 tint: .orange, isPrimary: true)
@@ -76,7 +76,7 @@ public final class IdentityManager: @unchecked Sendable {
         var state = try store.load()
         _ = try configuredBrain(state)
         let name = NameRules.clean(request.name)
-        guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
+        guard NameRules.isUsableForAccount(name) else { throw BrainmergeError.nameInvalid }
         try ensureNameAvailable(name, excluding: nil, in: state)
         if let id = request.brain, state.brain(id: id) == nil { throw BrainmergeError.brainUnknown(id) }
         let claude = try ClaudeApp.detect(at: claudeAppURL)
@@ -142,7 +142,7 @@ public final class IdentityManager: @unchecked Sendable {
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         let name = name.map(NameRules.clean)
         if let name {
-            guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
+            guard NameRules.isUsableForAccount(name) else { throw BrainmergeError.nameInvalid }
             try ensureNameAvailable(name, excluding: slug, in: state)
         }
         if identity.isPrimary, iconMode == .tintedClone { throw BrainmergeError.primaryIsClaude }

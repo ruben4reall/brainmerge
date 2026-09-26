@@ -25,4 +25,16 @@ import BrainmergeTestSupport
         let folder = try e.manager.addBrain(name: " Client\r\nNotes ", path: nil, language: .en)
         #expect(folder.name == "Client Notes" && folder.id == "client-notes")
     }
+
+    /// Git refuses an author made only of the characters it strips (";", quotes, dots, "<>"): every save of such an
+    /// account would fail. Such a name is refused like an empty one; a letter, a digit or an emoji is enough.
+    @Test func aNameGitCannotSignWithIsRefused() throws {
+        for name in [";", "\"", "...", "<>", "'.,:"] { #expect(!NameRules.isUsableForAccount(NameRules.clean(name)), "\(name)") }
+        for name in ["Work", "É", "7", "🦊", "a;"] { #expect(NameRules.isUsableForAccount(NameRules.clean(name)), "\(name)") }
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(throws: BrainmergeError.nameInvalid) { try e.manager.add(IdentityManager.AddRequest(name: ";")) }
+        #expect(throws: BrainmergeError.nameInvalid) { try e.manager.update(slug: "perso", name: "\"", tint: nil, logo: nil) }
+    }
+
 }
