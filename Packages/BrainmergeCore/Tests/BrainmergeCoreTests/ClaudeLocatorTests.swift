@@ -55,6 +55,21 @@ import BrainmergeTestSupport
         #expect(old.lastPathComponent == "Claude copy.app")
     }
 
+    /// With Claude at its usual place, the copies macOS registered elsewhere are never looked at: nothing is read in
+    /// folders Brainmerge has no reason to open (and a guarded one could make macOS ask).
+    @Test func registeredCopiesAreOnlyAskedWhenClaudeIsNotAtItsUsualPlace() throws {
+        let mac = try Mac(); defer { mac.home.remove() }
+        let claude = try FakeClaudeApp.make(in: mac.own)
+        let asked = Recorded()
+        let locator = ClaudeLocator(paths: mac.home.paths, folders: [mac.system, mac.own],
+                                    launchServices: { asked.value.append("asked"); return [] }, isSigned: { _ in true })
+        #expect(locator.locate(choice: nil) == claude.url)
+        #expect(asked.value.isEmpty)
+        try FileManager.default.removeItem(at: claude.url)
+        _ = locator.locate(choice: nil)
+        #expect(asked.value == ["asked"])
+    }
+
     @Test func anUnsignedCopyIsRefused() throws {
         let mac = try Mac(); defer { mac.home.remove() }
         let claude = try FakeClaudeApp.make(in: mac.own)

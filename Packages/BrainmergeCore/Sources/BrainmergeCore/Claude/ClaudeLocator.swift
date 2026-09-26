@@ -37,6 +37,12 @@ public struct ClaudeLocator: Sendable {
         if let choice, (try? validate(choice: URL(fileURLWithPath: choice, isDirectory: true))) != nil {
             return URL(fileURLWithPath: choice, isDirectory: true)
         }
+        // Claude at its usual place settles it: copies elsewhere (registered with macOS, maybe in guarded folders) are
+        // only looked for without it.
+        for folder in folders {
+            let usual = folder.appending(path: "Claude.app", directoryHint: .isDirectory)
+            if FileManager.default.fileExists(atPath: usual.path), valid(usual) != nil { return usual }
+        }
         return candidates().first?.url
     }
 
@@ -83,8 +89,9 @@ public struct ClaudeLocator: Sendable {
     }
 
     /// A copy whose program is a launch script naming an account's folders (see ExistingApps).
+    /// Only this bundle is read, never the other apps of its folder.
     func isHandMade(_ url: URL) -> Bool {
-        let scanner = ExistingApps(paths: paths, claudeAppURL: paths.launchersDir, folders: [url.deletingLastPathComponent()])
-        return scanner.scan().contains { $0.url.standardizedFileURL.path == url.standardizedFileURL.path }
+        let scanner = ExistingApps(paths: paths, claudeAppURL: paths.launchersDir, folders: [])
+        return scanner.read(url, name: url.deletingPathExtension().lastPathComponent) != nil
     }
 }
