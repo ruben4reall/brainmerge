@@ -78,11 +78,15 @@ import BrainmergeTestSupport
         m.windowAppeared()
         defer { m.windowDisappeared(); m.stopWatching() }
         #expect(m.watchedClocks.contains(.memory) && m.memorySavedAt == nil)
-        try await Task.sleep(for: .milliseconds(500))   // the watch is registered a moment after it starts
-        try save(e, "second")
-        // Well under the clock's 10 s (the suites run in parallel and may hold the main actor for a while).
+        // Well under the clock's 10 s. The watch is registered a moment after it starts (later while every suite runs at
+        // once): a save made before that is not seen, so the test saves again until one is.
         let deadline = Date().addingTimeInterval(8)
-        while m.memorySavedAt == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        var saves = 0
+        while m.memorySavedAt == nil, Date() < deadline {
+            try save(e, "note \(saves)")
+            saves += 1
+            for _ in 0..<25 where m.memorySavedAt == nil { try await Task.sleep(for: .milliseconds(20)) }
+        }
         #expect(m.memorySavedAt != nil)
     }
 
@@ -94,11 +98,15 @@ import BrainmergeTestSupport
         let watch = MemoryHeadWatch(debounce: 0.05)
         watch.watch(e.brain.root) { calls.count += 1 }
         #expect(watch.watchedFolders == 2)
-        // The system registers a watch a moment after it starts (longer while the suites run in parallel).
-        try await Task.sleep(for: .milliseconds(500))
-        try save(e, "second")
-        let deadline = Date().addingTimeInterval(10)
-        while calls.count == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        // The system registers a watch a moment after it starts, much later while every suite runs at once: a save made
+        // before that is not seen, so the test saves again until one is (the app's watch starts long before any save).
+        let deadline = Date().addingTimeInterval(30)
+        var saves = 0
+        while calls.count == 0, Date() < deadline {
+            try save(e, "note \(saves)")
+            saves += 1
+            for _ in 0..<25 where calls.count == 0 { try await Task.sleep(for: .milliseconds(20)) }
+        }
         #expect(calls.count >= 1)
         watch.stop()
         let before = calls.count
