@@ -261,11 +261,9 @@ public enum HowItWorksScene {
                 if local >= arrive { history.append((local - arrive, s)) }
             }
             history.sort { $0.age < $1.age }
-            guard let last = history.first else {
-                // Before any arrival in this loop: the last note of the loop before (Studio's, or Work's for Studio).
-                f.windows[w].received = w == 2 ? 1 : 2
-                continue
-            }
+            // Never empty: every copy arrives inside its beat, so the look back always reaches one (the cyclic history is
+            // what makes the loop seamless).
+            guard let last = history.first else { assertionFailure("no note received in three beats"); continue }
             f.windows[w].received = last.source
             f.windows[w].receivedOpacity = Ease.out(Ease.progress(last.age, from: 0.06, over: 0.24))
             f.windows[w].receivedRise = 4 * (1 - Ease.out(Ease.progress(last.age, from: 0.06, over: 0.32)))

@@ -20,6 +20,23 @@ import Testing
         return renderer.cgImage.map { NSBitmapImageRep(cgImage: $0) }
     }
 
+    /// How many pixels of `small` differ by more than a trace from `large` at a pixel offset (every pixel counts when
+    /// `small` does not fit there).
+    static func differing(_ large: NSBitmapImageRep, _ small: NSBitmapImageRep, at offset: CGPoint) -> Int {
+        let ox = Int(offset.x), oy = Int(offset.y)
+        guard ox >= 0, oy >= 0, ox + small.pixelsWide <= large.pixelsWide, oy + small.pixelsHigh <= large.pixelsHigh,
+              let pl = large.bitmapData, let ps = small.bitmapData else { return .max }
+        var count = 0
+        for y in 0..<small.pixelsHigh {
+            for x in 0..<small.pixelsWide {
+                let i = (y + oy) * large.bytesPerRow + (x + ox) * large.bitsPerPixel / 8, j = y * small.bytesPerRow + x * small.bitsPerPixel / 8
+                if (0..<4).contains(where: { abs(Int(pl[i + $0]) - Int(ps[j + $0])) > 24 }) { count += 1 }
+            }
+            if count > 5000 { return count }
+        }
+        return count
+    }
+
     /// How many pixels differ by more than a trace between two renders of the same size.
     static func differing(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
         guard a.pixelsWide == b.pixelsWide, a.pixelsHigh == b.pixelsHigh, let pa = a.bitmapData, let pb = b.bitmapData else { return .max }

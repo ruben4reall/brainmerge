@@ -188,4 +188,17 @@ import BrainmergeCore
         for i in 0...Int(S.beat * 480) { apex = min(apex, S.frame(at: Double(i) / 480).creature.offset.dy * S.creatureUnit) }
         #expect(abs(apex + 7) < 0.01, "apex \(apex) pt")
     }
+
+    /// Looking back over this beat and the two before always finds a note each window received (every copy arrives within
+    /// its beat), so no window ever needs a made-up note from before the loop.
+    @Test func everyWindowAlwaysShowsANoteItReceived() {
+        for i in 0..<Int(S.loop * 120) {
+            let t = Double(i) / 120
+            for w in 0..<3 {
+                let received = S.frame(at: t).windows[w].received
+                #expect(received != nil && received != w, "t \(t) window \(w): \(String(describing: received))")
+            }
+        }
+        for src in 0..<3 { #expect(S.timing(src: src).copyArrive.allSatisfy { $0 < S.beat }) }
+    }
 }
