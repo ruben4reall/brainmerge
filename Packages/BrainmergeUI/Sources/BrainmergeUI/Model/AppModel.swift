@@ -543,6 +543,11 @@ public final class AppModel {
     /// Both are stored and written only when they change: the scenes and the app menu read them, and would otherwise be
     /// drawn again whenever an account opens or closes.
     public private(set) var showsMenuBarIcon = false
+    /// macOS hid the declared icon (System Settings, Menu Bar, or the icon dragged out): only macOS can show it again, so
+    /// the setting stays on and Settings says where. Never saved: macOS keeps its own choice.
+    public private(set) var menuBarIconHiddenByMacOS = false
+    /// The icon is really in the menu bar: declared, and not hidden by macOS. Closing the window and the clocks go by it.
+    public var menuBarIconVisible: Bool { showsMenuBarIcon && !menuBarIconHiddenByMacOS }
 
     private func refreshSetupState() {
         let done = launchPhase == .ready && !launchSettling && !needsOnboarding && !setupGuideShown
@@ -1645,7 +1650,7 @@ public final class AppModel {
     /// first load is done; never during an uninstall.
     public func updateWatching() {
         guard tracksWindow, !watchingSuspended, launchPhase == .ready else { return }
-        watch(Watchers.plan(windowOpen: windowOpen, iconShown: showsMenuBarIcon, needsOnboarding: needsOnboarding))
+        watch(Watchers.plan(windowOpen: windowOpen, iconShown: menuBarIconVisible, needsOnboarding: needsOnboarding))
     }
 
     /// A Bool rather than a count of appearances, which could drift: there is one main window.
@@ -1869,6 +1874,8 @@ public final class AppModel {
     @discardableResult
     public func setMenuBarIcon(_ on: Bool) -> Task<Void, Never> {
         if menuBarIcon != on { menuBarIcon = on }
+        // The switch turned on asks macOS again: if it still hides the icon, it says so at once.
+        if on, menuBarIconHiddenByMacOS { menuBarIconHiddenByMacOS = false }
         updateWatching()
         return save(.menuBarIcon) { $0.menuBarIcon = on }
     }
@@ -1916,13 +1923,22 @@ public final class AppModel {
         var failure: Error?
     }
 
-    /// The icon was dragged out of the menu bar: the switch turns off. True when the window must open again, as nothing
-    /// else would be left to click. SwiftUI can echo a removal after the app hid the icon itself (the splash, the guide,
-    /// a capture): that must not turn the setting off for good, and changes nothing.
+    /// macOS took the icon out of the menu bar (System Settings, Menu Bar, or the icon dragged out). The setting stays on:
+    /// turning it off would hide the icon for good once macOS shows it again, and only macOS can. True when the window
+    /// must open again, as nothing else would be left to click. SwiftUI can echo a removal after the app hid the icon
+    /// itself (the splash, the guide, a capture): that changes nothing.
     public func menuBarIconRemoved() -> Bool {
-        guard showsMenuBarIcon else { return false }
-        setMenuBarIcon(false)
+        guard showsMenuBarIcon, !menuBarIconHiddenByMacOS else { return false }
+        menuBarIconHiddenByMacOS = true
+        updateWatching()
         return AppLifecycle.reopensWindow(afterIconRemovedWith: windowOpen)
+    }
+
+    /// macOS put the icon back in the menu bar.
+    public func menuBarIconInserted() {
+        guard menuBarIconHiddenByMacOS else { return }
+        menuBarIconHiddenByMacOS = false
+        updateWatching()
     }
 
     /// Waits for the core work in progress to end, at most `limit`. True when none is left.

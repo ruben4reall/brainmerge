@@ -47,7 +47,7 @@ public final class BrainmergeAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        AppLifecycle.quitsWhenLastWindowCloses(iconShown: model.showsMenuBarIcon, openerActive: quickOpener.isActive)
+        AppLifecycle.quitsWhenLastWindowCloses(iconShown: model.menuBarIconVisible, openerActive: quickOpener.isActive)
     }
 
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

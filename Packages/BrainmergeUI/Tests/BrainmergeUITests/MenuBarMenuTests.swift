@@ -15,6 +15,14 @@ import BrainmergeCore
          account("Client", tint: .green), account("Perso", tint: .purple)]
     }
 
+    /// Only macOS can show an icon it hid: Settings says so, and its button opens System Settings at Menu Bar.
+    @Test func hiddenIconNoteNamesSystemSettings() {
+        #expect(MenuBarMenu.hiddenByMacOSNote == "macOS hides Brainmerge's icon. Turn it on in System Settings, Menu Bar, under Allow in the Menu Bar.")
+        #expect(MenuBarMenu.openMenuBarSettingsTitle == "Open Menu Bar Settings…")
+        #expect(MenuBarMenu.menuBarSettings.scheme == "x-apple.systempreferences")
+        #expect(MenuBarMenu.menuBarSettings.absoluteString.contains("ControlCenter"))
+    }
+
     /// One row per account with a Claude window, in the sidebar's order, whatever its state; the word and what a
     /// click does come from the sidebar's own rule.
     @Test func entriesFollowTheSidebar() {

@@ -16,12 +16,13 @@ public struct BrainmergeScenes: Scene {
     public var body: some Scene {
         // Read here, not only in the binding: the scenes are drawn again when it changes, so the switch in Settings
         // shows or hides the icon at once.
-        let shown = model.showsMenuBarIcon
+        let shown = model.menuBarIconVisible
         BrainmergeWindowScene(model: model)
         MenuBarExtra(isInserted: Binding(get: { shown }, set: { inserted in
-            // The person dragged the icon out of the menu bar: saved as off, and the window opens again if it was closed
-            // (see AppModel.menuBarIconRemoved).
-            if !inserted, model.menuBarIconRemoved() {
+            // macOS hid the icon (System Settings, Menu Bar, or the icon dragged out): the setting stays on, and the
+            // window opens again if it was closed (see AppModel.menuBarIconRemoved).
+            guard !inserted else { return model.menuBarIconInserted() }
+            if model.menuBarIconRemoved() {
                 openWindow(id: BrainmergeWindow.main)
                 NSApp.activate()
             }
