@@ -234,7 +234,7 @@ public struct EditAccountSheet: View {
     /// saving never touches it (its memory waits for Claude to quit, which the memory picker says while it runs).
     nonisolated static func header(for account: Account) -> String {
         guard account.isRunning else { return "Changes apply when you save." }
-        return account.identity.isPrimary ? "Changes apply when you save. Claude stays open." : "A new note applies at once. For a new name, color or icon, quit this account first: its app is rebuilt."
+        return account.identity.isPrimary ? "Changes apply when you save. Claude stays open." : "Quit this account first to change its name, color or icon."
     }
 
     /// Moving the memory links needs the account closed: the primary may stay open for everything else, so while it runs

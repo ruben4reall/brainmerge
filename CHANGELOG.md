@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 (2026-09-27)
+
+Brainmerge 0.6.2 finishes the review's leftovers: truer usage, account apps that follow Claude when it moves, and saves of your own edits that say when they fail.
 
 ### Fixed
 
