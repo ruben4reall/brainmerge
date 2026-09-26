@@ -45,10 +45,16 @@ public enum ManagedBlock {
         return String(chars)
     }
 
+    /// The block: an end marker and the last start marker before it. A start whose end the person deleted, or an end
+    /// with no start before it, is their text, never part of the block.
     static func range(in content: String) -> Range<String.Index>? {
-        guard let s = content.range(of: start),
-              let e = content.range(of: end, range: s.upperBound..<content.endIndex)
-        else { return nil }
-        return s.lowerBound..<e.upperBound
+        var from = content.startIndex
+        while let e = content.range(of: end, range: from..<content.endIndex) {
+            if let s = content.range(of: start, options: .backwards, range: from..<e.lowerBound) {
+                return s.lowerBound..<e.upperBound
+            }
+            from = e.upperBound
+        }
+        return nil
     }
 }
