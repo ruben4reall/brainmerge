@@ -282,6 +282,16 @@ public final class IdentityManager: @unchecked Sendable {
         if !identity.isPrimary {
             // Only folders created by Brainmerge can be deleted; an adopted folder doesn't belong to it.
             if deleteData {
+                // Notes Claude Code wrote into a real folder of its own (a link it could not make yet) move into the
+                // memory first: the folder is about to go, and the memory keeps everything the account wrote.
+                let profile = CLIProfile(directory: identity.cliProfile(in: paths))
+                if identity.cliProfilePath == nil, profile.exists {
+                    let brain = try memory(for: identity, in: state)
+                    try BrainGit(brain: brain).withLock(timeout: memoryLockTimeout) {
+                        _ = try MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
+                            .wire(profile: profile, identitySlug: identity.slug)
+                    }
+                }
                 var owned: [URL] = []
                 if identity.desktopDataPath == nil { owned.append(identity.desktopData(in: paths)) }
                 if identity.cliProfilePath == nil { owned.append(identity.cliProfile(in: paths)) }
@@ -293,10 +303,22 @@ public final class IdentityManager: @unchecked Sendable {
         CLIInstaller.unlinkAccount(paths: paths, slug: slug)
         // Its lists of notes written and not saved go too, in every memory: they would keep those notes out of your own
         // edits' save for good.
+        // Under each memory's lock: a save of this account still running would otherwise write its list again.
         for folder in state.brains {
-            let ledger = TouchedLedger(brain: Brain(root: folder.url), slug: slug)
-            for list in [ledger.file, ledger.sending] { try? fm.removeItem(at: list) }
+            let brain = Brain(root: folder.url)
+            let ledger = TouchedLedger(brain: brain, slug: slug)
+            let drop = { for list in [ledger.file, ledger.sending] { try? fm.removeItem(at: list) } }
+            do { try BrainGit(brain: brain).withLock(timeout: memoryLockTimeout) { drop() } } catch { drop() }
+            // Its notes held by the secret guard become yours, like its notes not saved yet: your own edits save them.
+            let held = HeldStore(paths: paths, memoryID: folder.id)
+            var notes = held.load()
+            guard notes.held.contains(where: { $0.account == slug }) || notes.allowed.contains(where: { $0.account == slug }) else { continue }
+            notes.held = notes.held.map { $0.account == slug ? HeldNote(account: nil, path: $0.path, line: $0.line, shape: $0.shape, hash: $0.hash) : $0 }
+            notes.allowed.removeAll { $0.account == slug }
+            try? held.save(notes)
         }
+        // An account added again under this name starts with no save behind it.
+        if let status = SaveStatusStore(paths: paths).file(slug: slug) { try? fm.removeItem(at: status) }
     }
 
     /// Rebuilds a secondary's app for the installed Claude (the account must be closed), or the primary's own app when it
