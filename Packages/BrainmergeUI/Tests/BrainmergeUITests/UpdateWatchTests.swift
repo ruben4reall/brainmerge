@@ -128,6 +128,19 @@ import Testing
         #expect(events == [])
     }
 
+    /// Work's exit is used up once the first account appears, banner or not: opened on purpose, then quit and opened
+    /// again within the minute, it is never said to have come back instead of Work.
+    @Test func aDeliberateOpenUsesUpTheExit() {
+        var watch = UpdateWatch()
+        var events = see(&watch, "1.2.3", [personal(false), work(true)], at: 10)
+        events += see(&watch, "1.2.4", [personal(false), work(false)], at: 40, modified: 39)
+        watch.requestedOpen("personal", at: t0.addingTimeInterval(44))
+        events += see(&watch, "1.2.4", [personal(true), work(false)], at: 45)
+        events += see(&watch, "1.2.4", [personal(false), work(false)], at: 51)
+        events += see(&watch, "1.2.4", [personal(true), work(false)], at: 54)
+        #expect(events == [])
+    }
+
     @Test func anOldUpdateDoesNotMakeALaterRelaunchBare() {
         var watch = UpdateWatch()
         _ = see(&watch, "1.2.3", [personal(false), work(true)], at: 10)

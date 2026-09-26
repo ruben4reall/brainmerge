@@ -84,9 +84,11 @@ public struct UpdateWatch: Equatable, Sendable {
                 if let exit = lastSecondaryExit,
                    Self.isBareRelaunch(now: now, lastSecondaryExit: exit.at, primaryWasRunning: exit.primaryWasRunning, versionChanged: versionChanged,
                                        primaryOpenedByPerson: openRequests[primary] != nil) {
-                    lastSecondaryExit = nil
                     events.append(.bareRelaunch(instead: exit.slug))
                 }
+                // The exit is used up by the first appearance, said or not: a first account opened on purpose, then
+                // quit and opened again within the minute, never came back instead of that window.
+                lastSecondaryExit = nil
             }
             if !running.contains(primary) { primaryAppearedAt = nil }
         }
