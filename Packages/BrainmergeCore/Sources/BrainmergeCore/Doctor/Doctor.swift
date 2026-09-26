@@ -91,7 +91,7 @@ public struct Doctor: Sendable {
                                         detail: git ? "\(folder.path), git ready" : "\(folder.path): git repository unreadable",
                                         plain: git ? "The memory \(folder.name) is ready." : "The history of the memory \(folder.name) can't be read."))
             } else {
-                // "brain init" moves the default memory: only ever advised for it.
+                // "brain init" only ever sets up the default memory: advised for it alone, with its own folder.
                 let advice = index == 0 ? "Run: brainmerge brain init \(folder.path)"
                     : "Run: brainmerge brain forget \(folder.id), then brainmerge brain add --name \(folder.name) \(folder.path)"
                 findings.append(Finding(level: .error, title: "Memory: \(folder.name)", detail: "Missing or not initialized at \(folder.path). \(advice)",
@@ -176,7 +176,8 @@ public struct Doctor: Sendable {
             }
             if let brain, let statuses = try? MemoryWiring(brain: brain, paths: paths, machineID: state.machineID).status(profile: profile) {
                 for status in statuses {
-                    findings.append(linkFinding(identity, project: status.name, state: status.state, brain: brain, memoryID: memoryID))
+                    findings.append(linkFinding(identity, project: status.name, state: status.state, brain: brain, memoryID: memoryID,
+                                                known: state.brains.map(\.url)))
                 }
             }
         }
@@ -198,11 +199,19 @@ public struct Doctor: Sendable {
                        plain: "\(missing) Put it back, or remove the account.")
     }
 
-    /// One project's memory link in an account's Claude Code folder.
-    func linkFinding(_ identity: Identity, project: String, state: ProjectLinkState, brain: Brain, memoryID: String) -> Finding {
+    /// One project's memory link in an account's Claude Code folder. `known`: the memories in the state; a link into
+    /// another folder Brainmerge made a memory of is said, since nothing saves the notes written there any more.
+    func linkFinding(_ identity: Identity, project: String, state: ProjectLinkState, brain: Brain, memoryID: String,
+                     known: [URL] = []) -> Finding {
         let title = "\(identity.name): memory \(project)"
         let wire = "Run: brainmerge brain wire"
         let repair = Fix.repairLinks(brainID: memoryID)
+        if case .external(let target) = state, let root = Self.memoryRoot(containing: target),
+           !known.contains(where: { $0.resolvingSymlinksInPath().path == root.resolvingSymlinksInPath().path }) {
+            return Finding(level: .warning, title: title,
+                           detail: "points to \(target), in \(root.path): a memory Brainmerge no longer knows, so the notes written there are not saved. Run: brainmerge brain add --name NAME \(root.path), then brainmerge identity edit \(identity.slug) --brain ID",
+                           plain: "The notes of \(project) for \(identity.name) go to \(shown(root.path)), a memory Brainmerge no longer knows: they are not saved.")
+        }
         return switch state {
         case .linked: Finding(level: .ok, title: title, detail: "linked to \(brain.memoryDir(forProject: project).path)",
                               plain: "\(project) is linked to the memory for \(identity.name).")
@@ -215,6 +224,22 @@ public struct Doctor: Sendable {
         case .broken: Finding(level: .error, title: title, detail: "broken link. \(wire)",
                               plain: "The memory link of \(project) for \(identity.name) is broken.", fix: repair)
         }
+    }
+
+    /// The memory a folder is in, when Brainmerge made it one: a `memory` folder above it with BRAIN.md and `.brainmerge`
+    /// beside it. Only looks for those names.
+    static func memoryRoot(containing path: String) -> URL? {
+        let fm = FileManager.default
+        var folder = URL(fileURLWithPath: path).standardizedFileURL
+        while folder.pathComponents.count > 1 {
+            let parent = folder.deletingLastPathComponent()
+            if folder.lastPathComponent == "memory" {
+                let memory = Brain(root: parent)
+                if fm.fileExists(atPath: memory.brainMD.path) && fm.fileExists(atPath: memory.metaDir.path) { return memory.root }
+            }
+            folder = parent
+        }
+        return nil
     }
 
     /// The account's hooks (memory saved when a turn ends, linked when a session starts): current, outdated, or missing.

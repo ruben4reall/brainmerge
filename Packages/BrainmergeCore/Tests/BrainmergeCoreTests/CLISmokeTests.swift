@@ -18,6 +18,38 @@ import BrainmergeTestSupport
         #expect(try String(contentsOf: e.home.paths.defaultBrain.appending(path: "BRAIN.md"), encoding: .utf8).hasPrefix("# Cerveau partagé"))
     }
 
+    /// `brain init` never moves a default memory that is in place: a plain one keeps it where it is, and another folder is
+    /// refused with what to do, before anything changes, so the projects' links, Claude's instructions and the saves stay
+    /// with the memory the notes are in. Once its folder is gone, init points it at another folder and the links follow.
+    @Test func brainInitNeverMovesTheDefaultMemory() throws {
+        let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
+        let notes = e.home.url.appending(path: "My Notes").path
+        #expect(try run(e, ["brain", "init", notes]).status == 0)
+        #expect(try run(e, ["adopt-primary", "--name", "Me"]).status == 0)
+        let claudeMD = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == Brain(root: URL(fileURLWithPath: notes)).memoryDir(forProject: "atelier").path)
+
+        let plain = try run(e, ["brain", "init"])
+        #expect(plain.status == 0, "\(plain.stderr)")
+        #expect(try e.store.load().brainPath == notes)
+        #expect(!FileManager.default.fileExists(atPath: e.home.paths.defaultBrain.path))
+
+        let other = e.home.url.appending(path: "Brain2").path
+        let moved = try run(e, ["brain", "init", other])
+        #expect(moved.status != 0)
+        #expect(moved.stderr.contains(notes), "\(moved.stderr)")
+        #expect(try e.store.load().brainPath == notes)
+        #expect(!FileManager.default.fileExists(atPath: other))
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8) == claudeMD)
+
+        try FileManager.default.removeItem(atPath: notes)
+        #expect(try run(e, ["brain", "init", other]).status == 0)
+        #expect(try e.store.load().brainPath == other)
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains(other))
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == Brain(root: URL(fileURLWithPath: other)).memoryDir(forProject: "atelier").path)
+    }
+
     @Test func fullScenarioThroughTheCLI() throws {
         let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
 

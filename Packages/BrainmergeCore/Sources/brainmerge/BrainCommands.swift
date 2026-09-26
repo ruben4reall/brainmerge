@@ -53,7 +53,7 @@ struct BrainCommand: ParsableCommand {
     }
 
     struct Init: ParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Create the brain folder (default ~/Brain) and attach every identity to it.")
+        static let configuration = CommandConfiguration(abstract: "Create the default memory (default ~/Brain) and attach every identity to it. Never moves one that is in place.")
         @Argument(help: "Folder to use; created if missing, kept as is if it exists.") var path: String?
         @Option(help: "Language of the BRAIN.md template: en or fr. Default: the language saved in the app settings.") var lang: String?
 
@@ -65,7 +65,13 @@ struct BrainCommand: ParsableCommand {
             let language: BrainLanguage
             if let lang { guard let parsed = BrainLanguage(rawValue: lang) else { throw ValidationError("--lang must be en or fr") }; language = parsed }
             else { language = state.brainLanguage }
-            let root = path.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? context.paths.defaultBrain
+            // A plain init keeps the default memory where it is. Another folder is refused while the memory's folder is
+            // there: its projects' links would keep writing into it, and nothing would save those notes any more.
+            let root = path.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? state.brainURL ?? context.paths.defaultBrain
+            if let current = state.defaultBrain, FileManager.default.fileExists(atPath: current.url.path),
+               current.url.resolvingSymlinksInPath().path != root.resolvingSymlinksInPath().path {
+                throw BrainmergeError.defaultMemoryInPlace(current.path)
+            }
             let brain = try Brain.initialize(at: root, language: language)
             state.brainPath = brain.root.path
             state.brainLanguage = language

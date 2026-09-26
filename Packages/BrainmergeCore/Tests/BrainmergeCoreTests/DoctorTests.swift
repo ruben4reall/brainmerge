@@ -81,6 +81,27 @@ import BrainmergeTestSupport
         #expect(primary.plain == "The Claude Code folder of Perso is missing from ~/.claude. Start Claude Code once to make it again.")
     }
 
+    /// A project whose link still points into a memory Brainmerge no longer knows (an older `brain init` moved the default
+    /// memory without its links): the notes written there are never saved, so it is said, with where and what to do.
+    @Test func aLinkIntoAMemoryBrainmergeNoLongerKnowsIsSaid() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let moved = try Brain.initialize(at: e.home.url.appending(path: "Brain2"), language: .en)
+        var state = try e.store.load(); state.brainPath = moved.root.path; try e.store.save(state)
+        let finding = try #require(doctor(e).run().first { $0.title == "Perso: memory atelier" })
+        #expect(finding.level == .warning)
+        #expect(finding.detail.contains(e.brain.root.path) && finding.detail.contains("Run: brainmerge brain add"), "\(finding.detail)")
+        #expect(finding.plain == "The notes of atelier for Perso go to ~/Brain, a memory Brainmerge no longer knows: they are not saved.")
+
+        // Any other folder a project keeps its notes in is still left as it is.
+        let own = e.home.url.appending(path: "elsewhere/notes")
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: own)
+        #expect(doctor(e).run().first { $0.title == "Perso: memory atelier" }?.level == .ok)
+    }
+
     @Test func reportsMissingClaudeAndBrain() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         try FileManager.default.removeItem(at: e.claude.url)
