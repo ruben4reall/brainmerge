@@ -132,6 +132,27 @@ import BrainmergeTestSupport
         #expect(missing?.detail == "Missing \(app.path). Run: brainmerge identity rebuild perso")
     }
 
+    /// A launcher starts the Claude it was built for: once Claude moved (or another one was chosen), it starts the old
+    /// one, or nothing when that one is gone. That is never "in place".
+    @Test func aLauncherPinnedToAnotherClaudeIsNotInPlace() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let config = e.home.paths.launcherApp(name: "Client").appending(path: "Contents/Resources/brainmerge.json")
+        #expect(doctor(e).run().first { $0.title == "Client: launcher" }?.level == .ok)
+
+        let old = e.home.url.appending(path: "Old/Claude.app/Contents/MacOS/Claude").path
+        try JSONEncoder().encode(LauncherConfig(configDir: "/c", dataDir: "/d", claudeExecutable: old)).write(to: config, options: .atomic)
+        let moved = try #require(doctor(e).run().first { $0.title == "Client: launcher" })
+        #expect(moved.level == .warning)
+        #expect(moved.fix == .rebuild(slug: "client"))
+        #expect(moved.detail.contains(old) && moved.detail.contains("Run: brainmerge identity rebuild client"), "\(moved.detail)")
+        #expect(!moved.plain.contains("brainmerge"), "\(moved.plain)")
+
+        try Data("{}".utf8).write(to: config, options: .atomic)
+        #expect(doctor(e).run().first { $0.title == "Client: launcher" }?.fix == .rebuild(slug: "client"))
+    }
+
     /// A copy of Claude made by hand that opens an account with an older Claude than the one installed (the owner's
     /// "Claude Second"): one warning per copy, which says what to do and never touches the copy.
     @Test func warnsWhenAHandMadeCopyRunsAnOlderClaude() throws {

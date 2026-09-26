@@ -151,6 +151,11 @@ public struct Doctor: Sendable {
                                                 detail: "Built for Claude \(built), installed \(claude.version). \(rebuild)",
                                                 plain: "The app of \(identity.name) was built for Claude \(built), and Claude \(claude.version) is installed.",
                                                 fix: .rebuild(slug: identity.slug)))
+                    } else if identity.iconMode == .launcher, let pinned = pinnedClaude(of: app, installed: claude) {
+                        findings.append(Finding(level: .warning, title: "\(identity.name): launcher",
+                                                detail: "Starts \(pinned), Claude is at \(claudeAppURL.path). \(rebuild)",
+                                                plain: "The app of \(identity.name) starts another Claude than the one installed.",
+                                                fix: .rebuild(slug: identity.slug)))
                     } else {
                         findings.append(Finding(level: .ok, title: "\(identity.name): launcher", detail: app.path, plain: "The app of \(identity.name) is in place."))
                     }
@@ -261,6 +266,17 @@ public struct Doctor: Sendable {
         return Finding(level: .warning, title: "\(identity.name): \(app.name)",
                        detail: "A copy of Claude \(app.claudeVersion ?? "?") made by hand, \(app.url.path), also opens this account, and Claude \(installed) is installed: an older Claude on the same data can damage it. \(advice), and move the copy to the Trash yourself once \(identity.name) is closed.",
                        plain: "\(app.name), a copy of Claude \(app.claudeVersion ?? "?") made by hand, also opens \(identity.name), and Claude \(installed) is installed: an older Claude on the same data can damage it. \(advice), and move the copy to the Trash yourself once \(identity.name) is closed.")
+    }
+
+    /// The Claude program a secondary account's launcher starts, when it is not the installed one's (Claude moved, or
+    /// another one was chosen): that launcher starts an older Claude on the account's data, or nothing once it is gone.
+    /// Nil when it starts the installed Claude, or, with no Claude installed, a program that is still there.
+    func pinnedClaude(of app: URL, installed claude: ClaudeApp?) -> String? {
+        let config = (try? Data(contentsOf: app.appending(path: "Contents/Resources/brainmerge.json")))
+            .flatMap { try? JSONDecoder().decode(LauncherConfig.self, from: $0) }
+        guard let pinned = config?.claudeExecutable else { return "nothing" }
+        if let claude { return pinned == claude.executable.path ? nil : pinned }
+        return FileManager.default.isExecutableFile(atPath: pinned) ? nil : pinned
     }
 
     /// The primary's own app: there, and opening the Claude installed (it was built for another path if Claude moved).

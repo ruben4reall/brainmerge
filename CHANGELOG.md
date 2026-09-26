@@ -36,6 +36,7 @@
 - `brainmerge brain wire` and `brain init` wire every account they can: one whose Claude Code folder is gone is named and skipped instead of stopping the accounts after it, and the command fails at the end so it is not missed. `brainmerge doctor` and Health say what to do about that folder: start Claude Code once for your first account, put the folder back or remove the account for another.
 - `brainmerge brain init` never moves a default memory that is in place: with no folder it keeps the one you have (it used to go back to `~/Brain`), and another folder is refused with what to do, since the projects would have kept writing into the old folder with nothing saving those notes. Once the old folder is gone, it points the default memory at the new one and the projects follow. `brainmerge doctor` and Health now say when a project still writes into a memory Brainmerge no longer knows, instead of "kept as is".
 - Removing an account also takes its app out of Launch Services, where it stayed listed under its identifier after the app was gone. The command line no longer registers the apps it builds under a `BRAINMERGE_HOME` (tests, demos): every run of the test suite used to leave records on the Mac it ran on.
+- `brainmerge doctor` and Health no longer call an account's app in place when it starts another Claude than the one installed (Claude moved to another folder, or another one was chosen under Where Claude is): such an app starts the old Claude on the account's data, or nothing once it is gone. They say so, with Rebuild.
 
 ## 0.5.0
 
