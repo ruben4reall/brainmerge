@@ -90,6 +90,7 @@ public struct Doctor: Sendable {
                 findings.append(Finding(level: git ? .ok : .error, title: "Memory: \(folder.name)",
                                         detail: git ? "\(folder.path), git ready" : "\(folder.path): git repository unreadable",
                                         plain: git ? "The memory \(folder.name) is ready." : "The history of the memory \(folder.name) can't be read."))
+                if git { findings += savesWait(folder, brain: candidate) }
             } else {
                 // "brain init" only ever sets up the default memory: advised for it alone, with its own folder.
                 let advice = index == 0 ? "Run: brainmerge brain init \(folder.path)"
@@ -132,6 +133,12 @@ public struct Doctor: Sendable {
                 continue
             }
             findings.append(hooksFinding(identity, profile: profile))
+            if let status = SaveStatusStore(paths: paths).read(slug: identity.slug), status.outcome == .failed {
+                let reason = status.reason?.rawValue ?? "unknown"
+                findings.append(Finding(level: .warning, title: "\(identity.name): saves",
+                                        detail: "Last save failed \(status.date.formatted(.iso8601)): \(reason). See ~/Library/Logs/Brainmerge/sync.log",
+                                        plain: "The last save of \(identity.name) failed: its card says why."))
+            }
             let claudeMD = (try? String(contentsOf: profile.claudeMD, encoding: .utf8)) ?? ""
             let blockOK = ManagedBlock.contains(claudeMD) && (brain.map { claudeMD.contains($0.root.path) } ?? true)
             findings.append(blockOK
@@ -266,6 +273,28 @@ public struct Doctor: Sendable {
         return Finding(level: .warning, title: "\(identity.name): \(app.name)",
                        detail: "A copy of Claude \(app.claudeVersion ?? "?") made by hand, \(app.url.path), also opens this account, and Claude \(installed) is installed: an older Claude on the same data can damage it. \(advice), and move the copy to the Trash yourself once \(identity.name) is closed.",
                        plain: "\(app.name), a copy of Claude \(app.claudeVersion ?? "?") made by hand, also opens \(identity.name), and Claude \(installed) is installed: an older Claude on the same data can damage it. \(advice), and move the copy to the Trash yourself once \(identity.name) is closed.")
+    }
+
+    /// What keeps every save out of a memory: a lock file a git that stopped left behind (older than ten minutes, so not
+    /// a git at work), or the person's own git stopped half way. Only names and dates are looked at.
+    func savesWait(_ folder: MemoryFolder, brain: Brain) -> [Finding] {
+        let fm = FileManager.default
+        var findings: [Finding] = []
+        let heads = brain.gitDir.appending(path: "refs/heads", directoryHint: .isDirectory)
+        let branches = ((try? fm.contentsOfDirectory(atPath: heads.path)) ?? []).filter { $0.hasSuffix(".lock") }.map { heads.appending(path: $0) }
+        for lock in [brain.gitDir.appending(path: "index.lock"), brain.gitDir.appending(path: "HEAD.lock")] + branches {
+            guard let date = (try? fm.attributesOfItem(atPath: lock.path))?[.modificationDate] as? Date,
+                  Date().timeIntervalSince(date) > 600 else { continue }
+            findings.append(Finding(level: .warning, title: "Memory: \(folder.name)",
+                                    detail: "\(lock.path) was left by a git that stopped: saves fail while it is there. If no git runs in \(folder.path), remove that file",
+                                    plain: "A git that stopped left \(shown(lock.path)) in the memory \(folder.name): saves fail until that file is removed."))
+        }
+        if (try? BrainGit(brain: brain, availability: git).operationUnfinished()) == true {
+            findings.append(Finding(level: .warning, title: "Memory: \(folder.name)",
+                                    detail: "Saves wait: git is stopped half way in \(folder.path) (a merge, a rebase, a cherry-pick or conflicts). Finish or abort it there",
+                                    plain: "Saves to the memory \(folder.name) wait: git is stopped half way there (a merge, a rebase or a cherry-pick). Finish or abort it."))
+        }
+        return findings
     }
 
     /// The Claude program a secondary account's launcher starts, when it is not the installed one's (Claude moved, or

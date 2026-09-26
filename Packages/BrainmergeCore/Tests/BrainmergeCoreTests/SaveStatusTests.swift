@@ -12,6 +12,11 @@ import BrainmergeTestSupport
             (BrainmergeError.gitOperationUnfinished, .locked),
             (BrainmergeError.shellFailed(command: "/usr/bin/git commit", status: 128,
                                          stderr: "fatal: Unable to create '/Users/x/Brain/.git/index.lock': File exists."), .locked),
+            // A save commits through its own index: the lock it meets is the branch's.
+            (BrainmergeError.shellFailed(command: "/usr/bin/git commit", status: 128,
+                                         stderr: "fatal: cannot lock ref 'HEAD': Unable to create '/Users/x/Brain/.git/refs/heads/main.lock': File exists."), .locked),
+            (BrainmergeError.shellFailed(command: "/usr/bin/git update-ref", status: 128,
+                                         stderr: "fatal: Unable to create '/Users/x/Brain/.git/HEAD.lock': File exists."), .locked),
             (BrainmergeError.gitUnavailable, .gitMissing),
             (BrainmergeError.shellFailed(command: "/usr/bin/git add", status: 1,
                                          stderr: "xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools)"), .gitMissing),

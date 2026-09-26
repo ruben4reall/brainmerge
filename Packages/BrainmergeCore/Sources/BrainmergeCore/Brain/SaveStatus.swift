@@ -27,8 +27,9 @@ public struct SaveStatus: Codable, Equatable, Sendable {
             else if stderr.contains("not a git repository") { self = .notARepository }
             // Apple's stub in /usr/bin/git without the Command Line Tools.
             else if stderr.contains("invalid active developer path") { self = .gitMissing }
-            // Another git (an editor's, the person's) holds the memory's index.
-            else if stderr.contains("index.lock") { self = .locked }
+            // Another git (an editor's, the person's) holds the memory's index, or its branch: a save commits through an
+            // index of its own, so the lock it meets is the branch's ("cannot lock ref").
+            else if stderr.contains("index.lock") || stderr.contains("cannot lock ref") || stderr.contains(".lock': File exists") { self = .locked }
             else { self = .unknown }
         }
     }

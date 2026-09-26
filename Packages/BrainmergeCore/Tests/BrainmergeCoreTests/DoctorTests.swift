@@ -153,6 +153,37 @@ import BrainmergeTestSupport
         #expect(doctor(e).run().first { $0.title == "Client: launcher" }?.fix == .rebuild(slug: "client"))
     }
 
+    /// Saves that cannot go through are said, never "git ready": a lock file a stopped git left (a fresh one may be a git
+    /// at work), the person's own git stopped half way, and an account whose last save failed.
+    @Test func whatStopsSavesIsSaid() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        func memory() -> [Doctor.Finding] { doctor(e).run().filter { $0.title == "Memory: Shared" } }
+        #expect(memory().map(\.level) == [.ok])
+
+        let lock = e.brain.gitDir.appending(path: "refs/heads/main.lock")
+        try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: lock)
+        #expect(memory().map(\.level) == [.ok], "a fresh lock may be a git at work")
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: lock.path)
+        let stale = try #require(memory().first { $0.level == .warning })
+        #expect(stale.detail.contains(lock.path) && stale.plain.contains("main.lock"), "\(stale)")
+        try FileManager.default.removeItem(at: lock)
+
+        try Data("0123456789012345678901234567890123456789\n".utf8).write(to: e.brain.gitDir.appending(path: "MERGE_HEAD"))
+        let merge = try #require(memory().first { $0.level == .warning })
+        #expect(merge.plain.contains("merge"), "\(merge)")
+        try FileManager.default.removeItem(at: e.brain.gitDir.appending(path: "MERGE_HEAD"))
+        #expect(memory().map(\.level) == [.ok])
+
+        #expect(!doctor(e).run().contains { $0.title == "Perso: saves" })
+        SaveStatusStore(paths: e.home.paths).write(SaveStatus(date: Date(), outcome: .failed, reason: .locked), slug: "perso")
+        let failed = try #require(doctor(e).run().first { $0.title == "Perso: saves" })
+        #expect(failed.level == .warning && failed.detail.contains("locked") && failed.detail.contains("sync.log"), "\(failed)")
+        SaveStatusStore(paths: e.home.paths).write(SaveStatus(date: Date(), outcome: .committed), slug: "perso")
+        #expect(!doctor(e).run().contains { $0.title == "Perso: saves" })
+    }
+
     /// A copy of Claude made by hand that opens an account with an older Claude than the one installed (the owner's
     /// "Claude Second"): one warning per copy, which says what to do and never touches the copy.
     @Test func warnsWhenAHandMadeCopyRunsAnOlderClaude() throws {
