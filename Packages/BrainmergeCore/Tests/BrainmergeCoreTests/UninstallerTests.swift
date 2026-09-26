@@ -22,7 +22,7 @@ import BrainmergeTestSupport
                                   withDestinationURL: e.home.url.appending(path: "Applications/Brainmerge.app/Contents/MacOS/brainmerge-cli"))
 
         let plan = try uninstaller(e).plan()
-        #expect(plan.removed.contains { $0.contains("2 Claude Code profiles") })
+        #expect(plan.removed.contains { $0 == "The memory hooks and the Brainmerge block in 2 Claude Code profiles" })
         #expect(plan.kept.contains { $0.contains(e.brain.root.path) })
         let report = try uninstaller(e).run()
         #expect(report.detachedAccounts == 2 && report.copiedMemories == 1 && report.removedLaunchers == 1)
@@ -33,6 +33,7 @@ import BrainmergeTestSupport
         #expect(fm.fileExists(atPath: notes.appending(path: "decision_pricing.md").path))
         // Hooks and blocks are gone; profiles, data folders and the brain stay.
         #expect(!(try HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile)))
+        #expect(HookInstaller.health(settingsFile: e.primaryProfile.settingsFile, cliPath: e.cliPath, slug: "perso") == .missing)
         #expect(!ManagedBlock.contains(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)))
         #expect(fm.fileExists(atPath: client.cliProfile(in: e.home.paths).path))
         #expect(fm.fileExists(atPath: client.desktopData(in: e.home.paths).path))

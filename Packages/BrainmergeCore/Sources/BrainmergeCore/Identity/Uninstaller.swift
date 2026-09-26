@@ -29,7 +29,7 @@ public struct Uninstaller: Sendable {
         let state = try store.load()
         var removed: [String] = []
         let profiles = state.identities.filter { CLIProfile(directory: $0.cliProfile(in: paths)).exists }.count
-        if profiles > 0 { removed.append("The memory hook and the Brainmerge block in \(profiles) Claude Code profile\(profiles > 1 ? "s" : "")") }
+        if profiles > 0 { removed.append("The memory hooks and the Brainmerge block in \(profiles) Claude Code profile\(profiles > 1 ? "s" : "")") }
         let launchers = state.identities.filter { $0.appURL(in: paths) != nil }.count
         if launchers > 0 { removed.append("\(launchers) account app\(launchers > 1 ? "s" : "") in \(paths.launchersDir.path)") }
         if Self.isOurCommandLineLink(paths.localBin.appending(path: "brainmerge")) {
@@ -83,7 +83,7 @@ public struct Uninstaller: Sendable {
     /// The link in ~/.local/bin is ours when it points at the command line inside a Brainmerge app bundle.
     static func isOurCommandLineLink(_ link: URL) -> Bool {
         guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) else { return false }
-        return destination.contains("/Brainmerge.app/") || destination.hasSuffix("/brainmerge-cli")
+        return CLIInstaller.madeByBrainmerge(destination: destination)
     }
 
     /// Every `projects/<slug>/memory` link that points into one of Brainmerge's memories becomes a real folder holding

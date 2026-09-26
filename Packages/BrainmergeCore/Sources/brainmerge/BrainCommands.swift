@@ -58,6 +58,8 @@ struct BrainCommand: ParsableCommand {
 
         func run() throws {
             let context = Context()
+            let held = try context.store.lock()
+            defer { held.release() }
             var state = try context.store.load()
             let language: BrainLanguage
             if let lang { guard let parsed = BrainLanguage(rawValue: lang) else { throw ValidationError("--lang must be en or fr") }; language = parsed }

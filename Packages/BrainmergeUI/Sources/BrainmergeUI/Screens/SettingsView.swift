@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import BrainmergeCore
 
 public struct SettingsView: View {
@@ -8,6 +9,7 @@ public struct SettingsView: View {
 
     @State private var showNewMemory = false
     @State private var showUninstall = false
+    @State private var claudeNote: String?
 
     func label(_ path: String) -> String {
         let home = model.paths.home.path
@@ -50,12 +52,16 @@ public struct SettingsView: View {
                 ScreenHeader("Settings")
                 GlassCard {
                     VStack(alignment: .leading, spacing: 0) {
-                        section("Claude app") {
+                        section("Where Claude is") {
                             if let claude = model.claude {
                                 Text("\(claude.url.path) · version \(claude.version)").foregroundStyle(Theme.Colors.textMuted)
+                                Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
+                                if let claudeNote { Text(claudeNote).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
                             } else {
                                 Text("Not found. Brainmerge needs the Claude app to open accounts.").foregroundStyle(Theme.Colors.textMuted)
                                 Button("Get Claude") { if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) } }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                                Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
+                                if let claudeNote { Text(claudeNote).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
                             }
                         }
                         section("Menu bar") {
@@ -97,6 +103,13 @@ public struct SettingsView: View {
                                 Text(model.commandLineInstalled ? "Installed at ~/.local/bin/brainmerge" : "Not installed").foregroundStyle(Theme.Colors.textMuted)
                                 Button("Install command line") { model.installCommandLine() }.buttonStyle(.glass)
                             }
+                            if let hooks = model.hooks, let sentence = hooks.sentence {
+                                HStack(spacing: 10) {
+                                    Circle().fill(hooks.allCurrent ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 8, height: 8)
+                                    Text(sentence).foregroundStyle(Theme.Colors.textMuted)
+                                    Button("Repair hooks") { Task { await model.repairHooks() } }.buttonStyle(.glass)
+                                }
+                            }
                             Text("Optional. Everything here can be done from a terminal with the brainmerge command.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
@@ -124,8 +137,26 @@ public struct SettingsView: View {
             .frame(maxWidth: Theme.Layout.formWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .task { await model.refreshHooks() }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory) }
         .sheet(isPresented: $showUninstall) { UninstallSheet(model: model, isPresented: $showUninstall) }
+    }
+
+    /// Picks another Claude app: refused unless Anthropic signed it, used by Brainmerge from its next launch.
+    func chooseClaude() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            if let refusal = await model.chooseClaude(url) {
+                claudeNote = refusal.detail
+            } else {
+                // An account's app keeps the path of the Claude it was built with: only a rebuild moves it.
+                claudeNote = "Brainmerge uses this Claude from its next launch. Apps already made for your accounts keep the Claude they were built with until you rebuild them."
+            }
+        }
     }
 
     func section<Content: View>(_ title: String, last: Bool = false, @ViewBuilder content: () -> Content) -> some View {

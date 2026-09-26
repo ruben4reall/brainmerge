@@ -76,7 +76,7 @@ public struct RootView: View {
         }
     }
 
-    var showsGuide: Bool { model.needsOnboarding || !onboarding.finished }
+    var showsGuide: Bool { model.stateProblem == nil && (model.needsOnboarding || !onboarding.finished) }
 
     /// A screen the menu bar asked for, once the screens are there; never over the splash or the guide.
     static func screenToShow(requested: Section?, phase: LaunchPhase, showsGuide: Bool) -> Section? {
@@ -91,21 +91,26 @@ public struct RootView: View {
     }
 
     /// The guided setup, or the main window once everything is in place. Both while the guide ends: it fades out over the
-    /// main window as the All set creature leaps into the sidebar, then goes.
+    /// main window as the All set creature leaps into the sidebar, then goes. An unreadable list of accounts has its own
+    /// screen instead of either, fading in under the launch's leap like the main window.
     var screens: some View {
         ZStack {
-            if !showsGuide {
-                ZStack {
-                    WarmBackground(accents: model.openAccounts.map(\.identity.tint))
-                    HStack(spacing: 0) {
-                        sidebar.padding(12)
-                        detail
+            if let problem = model.stateProblem {
+                StateProblemView(model: model, problem: problem).launchReveal(launch, role: .main)
+            } else {
+                if !showsGuide {
+                    ZStack {
+                        WarmBackground(accents: model.openAccounts.map(\.identity.tint))
+                        HStack(spacing: 0) {
+                            sidebar.padding(12)
+                            detail
+                        }
                     }
+                    .launchReveal(launch, role: .main)
                 }
-                .launchReveal(launch, role: .main)
-            }
-            if showsGuide || launch.leavingGuide {
-                OnboardingView(model: onboarding).launchReveal(launch, role: .guide)
+                if showsGuide || launch.leavingGuide {
+                    OnboardingView(model: onboarding).launchReveal(launch, role: .guide)
+                }
             }
         }
     }
@@ -197,6 +202,7 @@ public struct RootView: View {
         case .getClaude: if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) }
         case .openSettings: section = .settings
         case .moveToApplications: Installer.moveAndRelaunch { error in model.present(error) }
+        case .installAppleTools: model.installAppleTools()
         case nil: break
         }
     }

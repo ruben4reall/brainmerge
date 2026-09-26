@@ -52,6 +52,21 @@ public struct MemoryView: View {
                 // The graph carries its own legend and can show an Obsidian vault; the timeline keeps the counts of saves.
                 if mode == .graph { sourceMenu } else { chips }
             }
+            // Without Apple's tools there is no history to show, and nothing starts git to find out.
+            if !model.gitAvailable {
+                HStack(spacing: 10) {
+                    Text(AppModel.historyNeedsGit).font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted)
+                    Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass)
+                }
+                // Checks again every 5 seconds while it shows: once Apple's installer is done, the history comes back.
+                .task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(5))
+                        if Task.isCancelled { return }
+                        await model.checkGit()
+                    }
+                }
+            }
             switch mode {
             case .graph:
                 MemoryGraphView(graph: model.memoryGraph, app: model)

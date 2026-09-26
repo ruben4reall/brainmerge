@@ -35,7 +35,7 @@ public struct OnboardingView: View {
             VStack { Spacer(); dots.padding(.bottom, 26) }
             errorLayer
         }
-        .onAppear { model.detect() }
+        .task { await model.detect() }
     }
 
     @ViewBuilder var page: some View {
@@ -46,6 +46,7 @@ public struct OnboardingView: View {
         case .adopt: adopt
         case .secondAccount: secondAccount
         case .allSet: allSet
+        case .git: gitStep
         }
     }
 
@@ -96,6 +97,29 @@ public struct OnboardingView: View {
         }
     }
 
+    /// Only on a Mac without Apple's Command Line Tools: git would otherwise pop Apple's dialog at every save.
+    var gitStep: some View {
+        VStack(spacing: 20) {
+            Text("One free Apple tool first").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center)
+            Text("Brainmerge keeps your memory's history with git, which comes with Apple's Command Line Tools.")
+                .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
+            navigation {
+                Button("Back") { model.back() }.buttonStyle(.glass)
+                Button("Check again") { Task { await model.checkGit() } }.buttonStyle(.glass)
+                Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+            }
+            Text("Opens Apple's installer. The download comes from Apple, not from Brainmerge.")
+                .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
+        }
+        // Checks again every 5 seconds while the step shows: the installer takes a few minutes.
+        .task {
+            while !Task.isCancelled, model.step == .git {
+                try? await Task.sleep(for: .seconds(5))
+                await model.checkGit()
+            }
+        }
+    }
+
     var location: some View {
         VStack(spacing: 20) {
             Text("Where the memory lives").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center)
@@ -133,7 +157,7 @@ public struct OnboardingView: View {
                 .padding(18)
             }
             navigation { Button("Back") { model.back() }.buttonStyle(.glass); Button("Continue") { finish() }.buttonStyle(.glassProminent).tint(Theme.Colors.button) }
-            Text("Brainmerge also links its command line at ~/.local/bin/brainmerge: the memory hook needs it.")
+            Text("Brainmerge also links its command line at ~/.local/bin/brainmerge: the memory hooks need it.")
                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
         }
     }
@@ -236,6 +260,9 @@ public struct OnboardingView: View {
                     check(model.app.claude != nil, model.app.claude.map { "Claude app \($0.version)" } ?? "Claude app not found")
                     check(model.app.brain != nil, "Memory folder: \(model.app.brain.map { Self.tilde($0.root.path, home: model.app.paths.home.path) } ?? "not chosen") · opens with \(NotesApps.target(for: model.app.notesApp, installed: NotesApps.installed()).label.replacingOccurrences(of: "Open ", with: ""))\(model.app.brains.count > 1 ? " · \(model.app.brains.count) memories" : "")")
                     check(!model.app.accounts.isEmpty, "\(model.app.accounts.count) account\(model.app.accounts.count > 1 ? "s" : ""): \(model.app.accounts.map(\.identity.name).joined(separator: ", "))")
+                    check(model.gitFound, model.gitFound ? "git: Found" : "git: Not found")
+                    check(model.claudeCodeFound, model.claudeCodeFound ? "Claude Code: Found"
+                          : "Claude Code: Not found: your accounts still work in the Claude app. Install Claude Code to use them in a terminal.")
                     check(model.app.commandLineInstalled, model.app.commandLineInstalled ? "Command line linked at ~/.local/bin/brainmerge" : "Command line not linked (Settings)")
                 }
                 .padding(14)
@@ -288,7 +315,7 @@ public struct OnboardingView: View {
     /// width changes at once and only the color fades.
     var dots: some View {
         HStack(spacing: 8) {
-            ForEach(OnboardingModel.Step.allCases, id: \.rawValue) { s in
+            ForEach(model.steps, id: \.rawValue) { s in
                 let dot = model.dot(for: s)
                 Capsule()
                     .animation(reduceMotion ? Theme.Motion.reduced : Self.dotSpring) {
@@ -342,6 +369,7 @@ public struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 4) { Text(m.title).font(.headline); Text(m.detail).foregroundStyle(Theme.Colors.textMuted) }
                 Spacer()
                 if m.action == .getClaude { Button(m.actionLabel ?? "Get Claude") { if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) } }.buttonStyle(.glassProminent).tint(Theme.Colors.button) }
+                if m.action == .installAppleTools { Button(m.actionLabel ?? "Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass) }
                 Button("Dismiss") { model.error = nil }.buttonStyle(.glass)
             }
             .padding(14)

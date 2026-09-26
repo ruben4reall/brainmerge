@@ -8,6 +8,15 @@ import BrainmergeTestSupport
         Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath)
     }
 
+    @Test func missingGitIsNamedWithAppleInstaller() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let missing = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
+        let findings = Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath, git: missing).run()
+        #expect(findings.contains(Doctor.Finding(level: .error, title: "git",
+                                                 detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install")))
+        #expect(doctor(e).run().contains { $0.title == "git" && $0.level == .ok })
+    }
+
     @Test func healthySetupHasNoErrors() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")
@@ -32,9 +41,24 @@ import BrainmergeTestSupport
         let findings = doctor(e).run()
         #expect(findings.hasErrors)
         #expect(findings.contains { $0.title == "Client: launcher" && $0.level == .error })
-        #expect(findings.contains { $0.title == "Perso: hook" && $0.level == .warning })
+        #expect(findings.contains { $0.title == "Perso: hooks" && $0.level == .warning && $0.detail.hasPrefix("missing") })
         #expect(findings.contains { $0.title == "Client: CLAUDE.md" && $0.level == .warning })
         #expect(findings.contains { $0.title == "Perso: memory atelier" && $0.level == .error })
+    }
+
+    /// One finding per account for its hooks: current, outdated (an older Brainmerge wrote them) or missing.
+    @Test func saysWhetherEachAccountsHooksAreCurrent() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let hooks = { doctor(e).run().filter { $0.title.hasSuffix(": hooks") } }
+        #expect(hooks().map(\.title) == ["Perso: hooks", "Client: hooks"])
+        #expect(hooks().allSatisfy { $0.level == .ok && $0.detail == "current" })
+        let settings = CLIProfile(directory: client.cliProfile(in: e.home.paths)).settingsFile
+        try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\"\#(e.cliPath)\" sync --identity client"}]}]}}"#.utf8).write(to: settings)
+        let outdated = try #require(hooks().first { $0.title == "Client: hooks" })
+        #expect(outdated.level == .warning && outdated.detail == "outdated. Run: brainmerge brain wire")
+        #expect(!doctor(e).run().contains { $0.title.hasSuffix(": hook") })
     }
 
     @Test func reportsMissingClaudeAndBrain() throws {

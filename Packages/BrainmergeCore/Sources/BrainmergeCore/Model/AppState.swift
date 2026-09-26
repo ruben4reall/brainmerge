@@ -31,6 +31,8 @@ public struct AppState: Codable, Equatable, Sendable {
     public var graphVault: String?
     /// The Brainmerge memory the Memory screen shows, by its id; nil, or one forgotten since, shows the default one.
     public var graphMemory: String?
+    /// The Claude app the person chose in Settings, by its path; nil finds it (see ClaudeLocator).
+    public var claudeAppPath: String?
 
     public init(schemaVersion: Int = AppState.currentSchema, machineID: String = UUID().uuidString,
                 brainPath: String? = nil, identities: [Identity] = [], autoRebuild: Bool = true,
@@ -41,7 +43,7 @@ public struct AppState: Codable, Equatable, Sendable {
         if brains.isEmpty, let brainPath { self.brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: brainPath)] }
     }
 
-    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory }
+    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory, claudeAppPath }
 
     /// Schema 1 (a single `brainPath`) becomes a list with one memory called Shared.
     public init(from decoder: Decoder) throws {
@@ -56,6 +58,7 @@ public struct AppState: Codable, Equatable, Sendable {
         menuBarIcon = try c.decodeIfPresent(Bool.self, forKey: .menuBarIcon) ?? true
         graphVault = try c.decodeIfPresent(String.self, forKey: .graphVault)
         graphMemory = try c.decodeIfPresent(String.self, forKey: .graphMemory)
+        claudeAppPath = try c.decodeIfPresent(String.self, forKey: .claudeAppPath)
         let list = try c.decodeIfPresent([MemoryFolder].self, forKey: .brains) ?? []
         if list.isEmpty, let path = try c.decodeIfPresent(String.self, forKey: .brainPath) {
             brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: path)]
@@ -78,6 +81,7 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encode(menuBarIcon, forKey: .menuBarIcon)
         try c.encodeIfPresent(graphVault, forKey: .graphVault)
         try c.encodeIfPresent(graphMemory, forKey: .graphMemory)
+        try c.encodeIfPresent(claudeAppPath, forKey: .claudeAppPath)
     }
 
     /// The default memory's folder. Setting it moves the default memory to that folder, or creates it.

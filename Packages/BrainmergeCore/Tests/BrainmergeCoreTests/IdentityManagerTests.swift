@@ -13,7 +13,9 @@ import BrainmergeTestSupport
         #expect(ManagedBlock.contains(claudeMD))
         #expect(try HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile))
         let root = try JSONSerialization.jsonObject(with: Data(contentsOf: e.primaryProfile.settingsFile)) as! [String: Any]
-        #expect(HookInstaller.stopCommands(root).first == "cd vault && git push")
+        #expect(HookInstaller.commands(root, event: .stop).first == "cd vault && git push")
+        // Both hooks: the memory saved when a turn ends, the project's memory linked when a session starts.
+        #expect(HookInstaller.health(settingsFile: e.primaryProfile.settingsFile, cliPath: e.cliPath, slug: "perso") == .current)
         let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "atelier").path)
         #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["perso"]?.name == "Perso")
@@ -32,7 +34,8 @@ import BrainmergeTestSupport
         #expect(profile.directory.lastPathComponent == ".claude-clientstudio")
         let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: profile.settingsFile)) as! [String: Any]
         #expect(settings["language"] as? String == "french")
-        #expect(HookInstaller.stopCommands(settings).count == 1)
+        #expect(HookInstaller.commands(settings, event: .stop).count == 1)
+        #expect(HookInstaller.commands(settings, event: .sessionStart) == [HookInstaller.wireCommand(cliPath: e.cliPath, slug: "clientstudio")])
         #expect(ManagedBlock.contains(try String(contentsOf: profile.claudeMD, encoding: .utf8)))
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: profile.skillsDir.path) == e.primaryProfile.skillsDir.path)
         #expect(FileManager.default.fileExists(atPath: identity.desktopData(in: e.home.paths).path))
@@ -68,7 +71,7 @@ import BrainmergeTestSupport
         let identity = try e.manager.add(request)
         let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: cli.appending(path: "settings.json"))) as! [String: Any]
         #expect(settings["model"] as? String == "sonnet")
-        #expect(HookInstaller.stopCommands(settings).count == 1)
+        #expect(HookInstaller.commands(settings, event: .stop).count == 1)
         #expect(FileManager.default.fileExists(atPath: data.appending(path: "Cookies").path))
         let config = try JSONDecoder().decode(LauncherConfig.self, from: Data(contentsOf:
             e.home.paths.launcherApp(name: "Client").appending(path: "Contents/Resources/brainmerge.json")))
@@ -104,7 +107,34 @@ import BrainmergeTestSupport
         #expect(FileManager.default.fileExists(atPath: e.primaryProfile.claudeMD.path))
         #expect(!ManagedBlock.contains(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)))
         #expect(try !HookInstaller.isInstalled(settingsFile: e.primaryProfile.settingsFile))
+        #expect(HookInstaller.health(settingsFile: e.primaryProfile.settingsFile, cliPath: e.cliPath, slug: "perso") == .missing)
         #expect(try e.store.load().identities.isEmpty)
+    }
+
+    /// "Repair hooks" in Settings: each account's hooks are written as they are today, the person's own hooks stay, and
+    /// nothing else of the account changes.
+    @Test func repairHooksRewritesOnlyTheHooks() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let clientSettings = CLIProfile(directory: client.cliProfile(in: e.home.paths)).settingsFile
+        try Data(#"{"model":"sonnet","hooks":{"Stop":[{"hooks":[{"type":"command","command":"\"/old/brainmerge\" sync --identity client"},{"type":"command","command":"say done"}]}]}}"#.utf8).write(to: clientSettings)
+        try HookInstaller.remove(settingsFile: e.primaryProfile.settingsFile)
+        let claudeMD = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        #expect(try e.manager.hooksHealth().map(\.1) == [.missing, .outdated])
+
+        try e.manager.repairHooks()
+        #expect(try e.manager.hooksHealth().map(\.0.slug) == ["perso", "client"])
+        #expect(try e.manager.hooksHealth().allSatisfy { $0.1 == .current })
+        let settings = try JSONSerialization.jsonObject(with: Data(contentsOf: clientSettings)) as! [String: Any]
+        #expect(settings["model"] as? String == "sonnet")
+        #expect(HookInstaller.commands(settings, event: .stop) == [HookInstaller.syncCommand(cliPath: e.cliPath, slug: "client"), "say done"])
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8) == claudeMD)
+        // An account whose Claude Code folder is gone is skipped, not recreated.
+        try FileManager.default.removeItem(at: client.cliProfile(in: e.home.paths))
+        try e.manager.repairHooks()
+        #expect(!FileManager.default.fileExists(atPath: client.cliProfile(in: e.home.paths).path))
+        #expect(try e.manager.hooksHealth().map(\.0.slug) == ["perso"])
     }
 
     @Test func addWithoutBrainCreatesNothing() throws {
@@ -604,5 +634,26 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.identityNotFound("nobody")) { try e.manager.swapNames("ruben", with: "nobody") }
         try e.manager.swapNames("ruben", with: "ruben")   // with itself: nothing to do
         #expect(try e.store.load().identities.map(\.name) == ["Ruben"])
+    }
+
+    @Test func aChangeWaitsForTheStateLockAndKeepsTheOtherWrite() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let paths = e.home.paths
+        let started = DispatchSemaphore(value: 0), done = DispatchSemaphore(value: 0)
+        // Another process (the command line) holds the lock through its own load, change and save.
+        Thread.detachNewThread {
+            try? StateStore(paths: paths).update { state in
+                started.signal()
+                usleep(300_000)
+                state.notesApp = "md.obsidian"
+            }
+            done.signal()
+        }
+        started.wait()
+        try e.manager.renameBrain(id: "shared", name: "Everyone")
+        done.wait()
+        let state = try e.store.load()
+        #expect(state.notesApp == "md.obsidian")
+        #expect(state.brains.first?.name == "Everyone")
     }
 }

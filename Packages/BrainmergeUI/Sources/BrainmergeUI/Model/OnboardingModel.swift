@@ -4,7 +4,11 @@ import BrainmergeCore
 
 @MainActor @Observable
 public final class OnboardingModel {
-    public enum Step: Int, CaseIterable { case welcome, howItWorks, brainLocation, adopt, secondAccount, allSet }
+    /// `git` comes last in the numbering so BRAINMERGE_ONBOARDING_STEP keeps its values; `order` places it before the memory.
+    public enum Step: Int, CaseIterable, Sendable {
+        case welcome, howItWorks, brainLocation, adopt, secondAccount, allSet, git
+        static let order: [Step] = [.welcome, .howItWorks, .git, .brainLocation, .adopt, .secondAccount, .allSet]
+    }
     public enum BrainChoice: Equatable { case newFolder, existing(URL) }
 
     /// BRAINMERGE_ONBOARDING_STEP=0...3 opens the onboarding on that step (captures, demos).
@@ -60,8 +64,22 @@ public final class OnboardingModel {
         if othersOpen.isEmpty { app.open(slug) } else { app.quitOthers(then: slug) }
     }
 
-    public func detect() {
+    public private(set) var gitFound = false
+    public private(set) var claudeCodeFound = false
+
+    /// What the setup shows as found. Git and Claude Code are looked for off the main thread: `xcode-select` is a process,
+    /// and Claude Code's signature check reads the whole program.
+    public func detect() async {
         claude = try? ClaudeApp.detect(at: app.claudeAppURL)
+        gitFound = await app.checkGit()
+        let resolve = app.limitsBinary, home = app.paths.home
+        claudeCodeFound = await Task.detached(priority: .userInitiated) { () -> Bool in
+            // A Claude Code that is not Anthropic's build (a script from npm) is still there: never "install it".
+            switch resolve(home) {
+            case .found, .notSigned: return true
+            case .notFound: return false
+            }
+        }.value
         let profile = CLIProfile(directory: app.paths.primaryCLIProfile)
         projectCount = (try? profile.projects().count) ?? 0
     }
@@ -76,8 +94,23 @@ public final class OnboardingModel {
     /// page leaving and the page arriving read the same value).
     public private(set) var direction = 1
 
-    public func next() { error = nil; if let n = Step(rawValue: step.rawValue + 1) { direction = 1; step = n } }
-    public func back() { error = nil; if let p = Step(rawValue: step.rawValue - 1) { direction = -1; step = p } }
+    public func next() { error = nil; move(by: 1) }
+    public func back() { error = nil; move(by: -1) }
+
+    /// The steps shown: the git step only while Apple's tools are missing (as last checked, see `AppModel.checkGit`).
+    public var steps: [Step] { Step.order.filter { $0 != .git || step == .git || !app.gitAvailable } }
+
+    /// Nowhere to go: nothing moves, and the direction stays.
+    private func move(by offset: Int) {
+        let order = Step.order
+        guard var index = order.firstIndex(of: step) else { return }
+        repeat {
+            index += offset
+            guard order.indices.contains(index) else { return }
+        } while order[index] == .git && app.gitAvailable
+        direction = offset
+        step = order[index]
+    }
 
     /// A progress dot: the steps behind in the accent, the current one a wider capsule, the ones ahead faint.
     public enum Dot: CaseIterable, Sendable {
@@ -87,18 +120,27 @@ public final class OnboardingModel {
     }
     public func dot(for s: Step) -> Dot { s == step ? .current : (s.rawValue < step.rawValue ? .passed : .future) }
 
+    /// "Check again", and every few seconds while the step shows: once the tools are in, the setup moves on.
+    public func checkGit() async {
+        if await app.checkGit(), step == .git { next() }
+    }
+
+    /// Apple's installer for the Command Line Tools: its own window, its own download from Apple.
+    public func installAppleTools() { app.installAppleTools() }
+
     public func createBrain() throws {
         let root: URL
         switch choice {
         case .newFolder: root = app.paths.defaultBrain
         case .existing(let url): root = url
         }
-        let brain = try Brain.initialize(at: root, language: language)
-        var state = try app.store.load()
-        state.brainPath = brain.root.path
-        state.brainLanguage = language
-        state.notesApp = notesApp
-        try app.store.save(state)
+        let brain = try Brain.initialize(at: root, language: language, availability: app.git)
+        let notesApp = self.notesApp
+        try app.store.update { state in
+            state.brainPath = brain.root.path
+            state.brainLanguage = language
+            state.notesApp = notesApp
+        }
         // A brain recreated or moved: every existing account is reattached to it (managed block, hook, memory links).
         let saved = try app.store.load()
         for identity in saved.identities { try app.manager.attachBrain(to: identity, state: saved) }
@@ -113,7 +155,7 @@ public final class OnboardingModel {
 
     /// The already-installed Claude becomes the first account. If Claude Code has never run, its folder is created.
     public func adoptPrimary() throws {
-        // Each account's Stop hook calls ~/.local/bin/brainmerge: the link is set up here, with this screen's consent.
+        // Each account's hooks call ~/.local/bin/brainmerge: the link is set up here, with this screen's consent.
         try app.linkCommandLineForHooks()
         _ = try CLIProfile.create(at: app.paths.primaryCLIProfile, inheritingFrom: nil)
         _ = try app.manager.adoptPrimary(name: primaryName.trimmingCharacters(in: .whitespaces))

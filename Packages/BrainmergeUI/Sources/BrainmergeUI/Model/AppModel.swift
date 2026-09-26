@@ -25,12 +25,23 @@ public struct Account: Identifiable, Equatable, Sendable {
     public var isOutdated: Bool { if case .outdated = claudeVersion { return true }; return false }
 }
 
+/// What "Check limits" found for an account: kept in memory only, never written anywhere, gone when Brainmerge quits.
+public enum LimitsState: Equatable, Sendable {
+    case checking
+    /// The lines Claude Code printed for /usage, and when it was asked.
+    case checked([LimitLine], at: Date)
+    /// Why there is nothing to show, in one sentence.
+    case refused(String)
+}
+
 /// Whether the window still shows the launch splash (the first load is running) or its screens.
 public enum LaunchPhase: Equatable, Sendable { case loading, ready }
 
 public struct UserMessage: Identifiable, Equatable, Sendable {
     /// What a message's button does: typed, so it never depends on a label.
-    public enum Action: Equatable, Sendable { case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications }
+    public enum Action: Equatable, Sendable {
+        case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications, installAppleTools
+    }
     public let id = UUID()
     public let title: String
     public let detail: String
@@ -60,9 +71,11 @@ public final class AppModel {
     /// The menu bar icon setting (see `showsMenuBarIcon` for whether it shows now).
     public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
     /// The settings saved from the app, each written to state.json on the core queue (see `save`).
-    private enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory }
+    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, browser(String) }
     /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
     private var pendingSaves: [Setting: Int] = [:]
+    /// Tests only: runs on the core queue as a setting's save begins, before it waits for the state lock.
+    @ObservationIgnored var saveBegins: @Sendable () -> Void = {}
     private func isSaving(_ setting: Setting) -> Bool { (pendingSaves[setting] ?? 0) > 0 }
     /// The Obsidian vault the Memory screen's graph shows, by its folder; nil shows the selected memory.
     public private(set) var graphVault: String? { didSet { if graphVault != oldValue { graphVaultGone = false } } }
@@ -132,6 +145,26 @@ public final class AppModel {
     public private(set) var usage: [AccountUsage] = []
     public private(set) var usageUpdatedAt: Date?
     public private(set) var usageRefreshing = false
+    /// What each account's last "Check limits" found, by slug. Asked only on a click (see `checkLimits`).
+    public private(set) var limits: [String: LimitsState] = [:]
+    /// Finds the Claude Code to run and checks Anthropic's signature on it; a fake in tests.
+    @ObservationIgnored public var limitsBinary: @Sendable (URL) -> ClaudeCodeBinary.Resolution = { home in
+        ClaudeCodeBinary.resolve(candidates: ClaudeCodeBinary.candidates(home: home))
+    }
+    /// Starts Claude Code; a fake in tests, which never run the real one.
+    @ObservationIgnored public var limitsRunner: ClaudeCodeLimits.Runner = ClaudeCodeLimits.shell
+    /// Connections: the Chromium browsers installed with their profiles (nil until read), and each account's MCP servers
+    /// by name, read when the edit sheet opens (see `loadConnections`).
+    public internal(set) var installedBrowsers: [InstalledBrowser]?
+    public internal(set) var mcpInventories: [String: MCPInventory] = [:]
+    /// Finds the browsers and their profiles; a fake in tests.
+    @ObservationIgnored public var findBrowsers: @Sendable (URL) -> [InstalledBrowser] = { BrowserProfiles.available(home: $0) }
+    /// What Settings says about the accounts' hooks, read when it opens (see `refreshHooks`); nil until then.
+    public private(set) var hooks: HooksSummary?
+    /// The command line embedded in this copy of the app, which the link the hooks call points at; a fake in tests.
+    @ObservationIgnored public var commandLine: () -> URL? = { AppModel.embeddedCLI }
+    /// Opens a browser; a fake in tests, which never open one.
+    @ObservationIgnored public var browserRunner: @Sendable (BrowserProfiles.Command) throws -> Void = { try Shell().check($0.path, $0.arguments) }
     /// The Mac's memory pressure, injectable in tests.
     public var memoryPressure: @Sendable () -> MemoryPressure.Level = { MemoryPressure.current() ?? .normal }
     /// The Mac's RAM figures, injectable in tests.
@@ -176,6 +209,52 @@ public final class AppModel {
     public let store: StateStore
     public let manager: IdentityManager
     public let claudeAppURL: URL
+    /// Whether git can run without Apple's install dialog (see GitAvailability). Tests put a fake one here.
+    @ObservationIgnored public var git: GitAvailability = .shared
+    /// The last answer, found off the main thread: at launch, then by `checkGit()` while a screen waits for Apple's tools.
+    public private(set) var gitAvailable = true
+
+    /// Asks again whether git is there, off the main thread (`xcode-select` is a process). The setup's git step and the
+    /// Memory screen call it every few seconds while git is missing: once Apple's installer is done, they move on.
+    @discardableResult
+    public func checkGit() async -> Bool {
+        let git = self.git
+        let found = await Task.detached(priority: .userInitiated) { () -> Bool in
+            git.invalidate()
+            return git.isAvailable
+        }.value
+        if found != gitAvailable {
+            gitAvailable = found
+            // The history can be read now.
+            if found { refreshMemory() }
+        }
+        return found
+    }
+    public static let historyNeedsGit = "History needs git. Install Apple's tools"
+
+    /// Apple's installer for the Command Line Tools: its own window, its own download from Apple.
+    public func installAppleTools() {
+        let git = self.git
+        Task.detached { try? git.install() }
+    }
+
+    /// Checks the Claude app the person picks in Settings (see ClaudeLocator). Tests put a fake one here.
+    @ObservationIgnored public lazy var claudeLocator = ClaudeLocator(paths: paths)
+
+    /// Remembers the Claude app picked in Settings, only when it is Anthropic's. Used from the next launch on.
+    public func chooseClaude(_ url: URL) async -> UserMessage? {
+        let locator = claudeLocator, store = self.store
+        let refusal: String? = await Task.detached {
+            do {
+                try locator.validate(choice: url)
+                try store.update { $0.claudeAppPath = url.path }
+                return nil
+            } catch BrainmergeError.claudeAppNotFound {
+                return "This app is not Claude. Brainmerge only opens the official app."
+            } catch { return String(describing: error) }
+        }.value
+        return refusal.map { UserMessage(title: "Claude was not changed", detail: $0) }
+    }
     /// Where apps the person made are looked for: ~/Applications, and /Applications for the real home only.
     public var appFolders: [URL]
     private let watchers = Watchers()
@@ -196,14 +275,16 @@ public final class AppModel {
         appFolders = ExistingApps.folders(for: paths)
     }
 
-    /// The installed app's model: engine embedded in the bundle. The command line link is only set up
-    /// at the end of onboarding or from settings, never at launch.
+    /// The installed app's model: engine embedded in the bundle. The command line link is first set up at the end of the
+    /// guided setup or from Settings; after that, each launch only mends it (see `loadFirstTime`).
     public static func live() -> AppModel {
         let paths = Paths.current()
         let launcher = Bundle.main.url(forAuxiliaryExecutable: "launcher") ?? LauncherBuilder.siblingLauncher()
+        // Claude wherever it is installed, or where the person pointed Settings (read once per launch).
+        let claude = ClaudeLocator.resolvedURL(paths: paths)
         let manager = IdentityManager(paths: paths, store: StateStore(paths: paths), launcherBinary: launcher,
-                                      cliPath: CLIInstaller.link(in: paths).path, claudeAppURL: ClaudeApp.defaultURL())
-        let model = AppModel(paths: paths, store: StateStore(paths: paths), manager: manager, claudeAppURL: ClaudeApp.defaultURL())
+                                      cliPath: CLIInstaller.link(in: paths).path, claudeAppURL: claude)
+        let model = AppModel(paths: paths, store: StateStore(paths: paths), manager: manager, claudeAppURL: claude)
         // BRAINMERGE_MEMORY_PRESSURE=normal|warning|critical: for demos and screenshots.
         if let forced = ProcessInfo.processInfo.environment["BRAINMERGE_MEMORY_PRESSURE"] {
             let level: MemoryPressure.Level = forced == "critical" ? .critical : forced == "warning" ? .warning : .normal
@@ -260,13 +341,28 @@ public final class AppModel {
     }
 
     /// `reload()` with its two subprocesses (`ps`, and `git log` of the default memory) run off the main thread first.
+    /// Once the guided setup has made an account, the link every hook calls is mended too: made when missing, pointed at
+    /// this copy when the Brainmerge it pointed at was moved or trashed (never from a disk image, see
+    /// `CLIInstaller.linkAtLaunch`). Before that, the setup asks first. Hooks an older Brainmerge wrote are brought up to
+    /// date the same way, with no click: an update never keeps a hook that fails once the app is trashed. A demo home's
+    /// link and hooks are left alone.
     private func loadFirstTime() async {
-        let monitor = manager.monitor, store = self.store
-        let (snapshot, log) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?) in
+        let monitor = manager.monitor, store = self.store, paths = self.paths, manager = self.manager
+        let demo = AppLifecycle.isCaptureOrDemo(environment: environment)
+        let cli = demo ? nil : commandLine()
+        let git = self.git
+        let (snapshot, log, gitFound) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?, Bool) in
+            let state = try? store.load()
+            if !demo, state?.identities.isEmpty == false {
+                if let cli { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
+                // Written only when one is not current: a launch never rewrites the settings of accounts already up to date.
+                if let health = try? manager.hooksHealth(), health.contains(where: { $0.1 != .current }) { try? manager.repairHooks() }
+            }
             let snapshot = (try? monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
-            let brain = (try? store.load())?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
-            return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) })
+            let brain = state?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
+            return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) }, git.isAvailable)
         }.value
+        if gitFound != gitAvailable { gitAvailable = gitFound }
         prefetchedSnapshot = snapshot
         prefetchedLog = log
         reload()
@@ -275,12 +371,31 @@ public final class AppModel {
     }
 
     /// The command line embedded in the app (task 8), looked up by its exact name.
-    static var embeddedCLI: URL? {
+    nonisolated static var embeddedCLI: URL? {
         let exe = CLIInstaller.currentExecutable() ?? URL(fileURLWithPath: CommandLine.arguments[0])
         return CLIInstaller.embeddedCLI(besideExecutable: exe)
     }
 
-    public var needsOnboarding: Bool { brain == nil || accounts.first(where: { $0.identity.isPrimary }) == nil }
+    /// An unreadable state is never a fresh install: it has its own screen, and the setup stays away.
+    public var needsOnboarding: Bool { stateProblem == nil && (brain == nil || accounts.first(where: { $0.identity.isPrimary }) == nil) }
+
+    /// Why state.json cannot be read, nil when it can (or does not exist yet).
+    public private(set) var stateProblem: StateProblem?
+    /// A copy from before the last change that this version can read, looked at when the problem is found.
+    public private(set) var canRestorePreviousState = false
+
+    /// Puts back the copy saved before the last change. The unreadable file is kept beside it. Off the main thread: the
+    /// restore waits for the lock while the command line changes the state.
+    public func restorePreviousState() async {
+        let store = self.store
+        let failure: String? = await Task.detached(priority: .userInitiated) {
+            do { try store.restorePrevious(); return nil } catch { return String(describing: error) }
+        }.value
+        if let failure { message = UserMessage(title: "Nothing was restored", detail: failure) }
+        reload()
+    }
+
+    public func showStateFileInFinder() { revealInFinder(paths.stateFile) }
     public var openAccounts: [Account] { accounts.filter(\.isRunning) }
 
     /// The window's screens are there: past the splash, a memory and a first account, the guided setup closed.
@@ -314,7 +429,16 @@ public final class AppModel {
             if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value; changed = true }
         }
         set(\.claude, try? ClaudeApp.detect(at: claudeAppURL))
-        guard let state = try? store.load() else { set(\.accounts, []); set(\.brain, nil); return changed }
+        let state: AppState
+        do {
+            state = try store.load()
+            set(\.stateProblem, nil)
+        } catch {
+            set(\.stateProblem, StateProblem(error))
+            set(\.canRestorePreviousState, store.canRestorePrevious)
+            set(\.accounts, []); set(\.brain, nil)
+            return changed
+        }
         if !isSaving(.language) { set(\.language, state.brainLanguage) }
         if !isSaving(.autoRebuild) { set(\.autoRebuild, state.autoRebuild) }
         if !isSaving(.notesApp) { set(\.notesApp, state.notesApp) }
@@ -331,7 +455,7 @@ public final class AppModel {
         codeAccountsRead.formIntersection(state.identities.map(\.slug))
         readCodeAccounts(of: state.identities.filter { !codeAccountsRead.contains($0.slug) })
         // Accounts changed outside the app (`brainmerge add` in a terminal) count like a change made here: walked again.
-        if accounts.map(\.identity) != state.identities { diskChanged() }
+        if accounts.map(\.identity) != state.identities { diskChanged(); forgetLimits(outliving: state.identities) }
         set(\.accounts, state.identities.map { identity in
             let main = claudeApp.flatMap { app in snapshot.mains.first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: app) } }
             if let main { memory[identity.slug] = snapshot.memoryBytes(of: main.pid) }
@@ -468,6 +592,8 @@ public final class AppModel {
                 _ = try manager.update(slug: slug, name: name, tint: tint, logo: logo, note: note, iconMode: iconMode, clearLogo: clearLogo, ownApp: ownApp)
             }) { return failure }
         }
+        // The browser profile touches no app: saved even while the account runs, only once the rest went through.
+        if edit.browser != identity.browser { await setBrowser(slug, edit.browser).value }
         if movesMemory { return await setBrain(of: slug, to: edit.memory) }
         return nil
     }
@@ -673,6 +799,55 @@ public final class AppModel {
         }.value
         if usage != computed { usage = computed }
         usageUpdatedAt = now
+    }
+
+    // MARK: Limits, on click
+
+    /// Every account with Claude Code on offers "Check limits", Claude Code only accounts included.
+    public func canCheckLimits(_ slug: String) -> Bool {
+        accounts.first { $0.id == slug }?.identity.surfaces.cli == true
+    }
+
+    static let demoLimitsSentence = "Brainmerge does not check limits in a demo."
+
+    /// "Check limits": asks that account's own Claude Code what /usage shows, off the main thread, and keeps the answer in
+    /// memory. Only the button calls this, never a clock. A capture or a demo never asks: it would run the owner's real
+    /// Claude Code on the owner's real login.
+    public func checkLimits(_ slug: String) async {
+        guard let identity = accounts.first(where: { $0.id == slug })?.identity, identity.surfaces.cli,
+              limits[slug] != .checking else { return }
+        guard !AppLifecycle.isCaptureOrDemo(environment: environment) else {
+            limits[slug] = .refused(Self.demoLimitsSentence)
+            return
+        }
+        limits[slug] = .checking
+        let home = paths.home, configDir = ClaudeCodeLimits.configDir(of: identity, paths: paths)
+        let binary = limitsBinary, run = limitsRunner
+        let outcome = await Task.detached(priority: .userInitiated) {
+            ClaudeCodeLimits.check(home: home, configDir: configDir, binary: binary(home), run: run)
+        }.value
+        // The account may have gone, or become another login, while Claude Code answered.
+        guard let now = accounts.first(where: { $0.id == slug })?.identity, isSameLogin(identity, now) else { return }
+        if case .limits(let lines) = outcome {
+            limits[slug] = .checked(lines, at: Date())
+        } else {
+            limits[slug] = .refused(outcome.sentence ?? "")
+        }
+    }
+
+    /// Limits belong to one login: an account removed, added again under the same name, or moved to another Claude
+    /// Code folder is another person, so what was found for the old one goes. A new name or color keeps it.
+    private func forgetLimits(outliving identities: [Identity]) {
+        let kept = limits.filter { slug, _ in
+            guard let before = accounts.first(where: { $0.id == slug })?.identity,
+                  let now = identities.first(where: { $0.slug == slug }) else { return false }
+            return isSameLogin(before, now)
+        }
+        if kept.count != limits.count { limits = kept }
+    }
+
+    private func isSameLogin(_ before: Identity, _ now: Identity) -> Bool {
+        before.id == now.id && now.surfaces.cli && before.cliProfile(in: paths) == now.cliProfile(in: paths)
     }
 
     // MARK: Disk
@@ -955,15 +1130,38 @@ public final class AppModel {
             message = UserMessage(title: "All set", detail: "Every account is attached to the memory again.")
         } catch { present(error) }
         reload()
+        // Reattaching writes the hooks too: Settings, which shows them, reads them again.
+        if hooks != nil { Task { await refreshHooks() } }
     }
 
-    /// The Stop hook calls ~/.local/bin/brainmerge: the link is set up at the end of onboarding, never over a valid link.
+    /// The hooks call ~/.local/bin/brainmerge: the link is set up at the end of onboarding, never over a valid link.
     public func linkCommandLineForHooks() throws {
-        if let cli = Self.embeddedCLI { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+        if let cli = commandLine() { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+    }
+
+    /// Reads what Settings says about the hooks, on the core queue (the settings files may sit behind links). Nothing in a
+    /// capture or a demo, whose demo home's hooks call nothing real.
+    public func refreshHooks() async {
+        guard !AppLifecycle.isCaptureOrDemo(environment: environment) else { hooks = nil; return }
+        let manager = self.manager, queue = coreQueue
+        hooks = await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: HooksSummary.read(manager)) }
+        }
+    }
+
+    /// "Repair hooks": every account's hooks written as they are today, the person's own hooks left as they are, then the
+    /// link they call (made, or pointed at this copy when what it pointed at is gone; a link that works is kept).
+    public func repairHooks() async {
+        let manager = self.manager, paths = self.paths, cli = commandLine()
+        _ = await perform("Repairing hooks…") {
+            try manager.repairHooks()
+            if let cli { try CLIInstaller.ensureLink(paths: paths, target: cli) }
+        }
+        await refreshHooks()
     }
 
     public func installCommandLine() {
-        guard let cli = Self.embeddedCLI else {
+        guard let cli = commandLine() else {
             message = UserMessage(title: "Command line not available", detail: "This build of Brainmerge doesn't embed the command line. Open the app from the Brainmerge release to get it.")
             return
         }
@@ -1087,8 +1285,10 @@ public final class AppModel {
             let brain = Brain(root: folder.url)
             let profile = CLIProfile(directory: identity.cliProfile(in: paths))
             guard profile.exists, brain.isInitialized else { continue }
-            _ = try? MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
-                .wire(profile: profile, identitySlug: identity.slug)
+            let wiring = MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
+            // Under the memory's lock, like the SessionStart hook writing the same list of projects: taken at once or this
+            // turn is skipped (the main thread never waits), and the next minute links what is left.
+            _ = try? BrainGit(brain: brain).withLock(timeout: 0) { try wiring.wire(profile: profile, identitySlug: identity.slug) }
         }
     }
 
@@ -1225,17 +1425,15 @@ public final class AppModel {
     /// Saves one setting on the core queue, after any work already there, which saves the same file (a rebuild records
     /// its Claude version): a save from the main thread meanwhile would be undone by the state that work read before.
     /// The value on screen has already moved; the task ends once it is saved.
-    private func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
+    func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
         pendingSaves[setting, default: 0] += 1
-        let store = self.store, queue = coreQueue
+        let store = self.store, queue = coreQueue, begins = saveBegins
         return Task {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 queue.async {
-                    if var state = try? store.load() {
-                        let before = state
-                        change(&state)
-                        if state != before { try? store.save(state) }
-                    }
+                    begins()
+                    // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
+                    try? store.update { change(&$0) }
                     done.resume()
                 }
             }
@@ -1301,7 +1499,13 @@ public final class AppModel {
         case .brainNotConfigured, .brainNotFound:
             return UserMessage(title: "Choose where the memory lives first", detail: "Open Settings and pick a folder for the memory.", action: .openSettings, actionLabel: "Open Settings")
         case .lockTimeout:
-            return UserMessage(title: "The memory is busy", detail: "Another account is saving right now. Try again in a few seconds.")
+            // The memory's lock and the list of accounts' lock alike: the hooks and the command line save too.
+            return UserMessage(title: "Busy saving", detail: "Another Brainmerge process is saving. Try again in a few seconds.")
+        case .gitUnavailable:
+            // The detail stands alone: the new memory sheet shows it without the button.
+            return UserMessage(title: "History needs git",
+                               detail: "Brainmerge keeps each memory's history with git, which comes with Apple's Command Line Tools. Install Apple's tools, then try again.",
+                               action: .installAppleTools, actionLabel: "Install Apple's tools")
         case .profileMissing(let path):
             return UserMessage(title: "Claude Code setup not found", detail: "Expected a folder at \(path). Open Claude once, then try again.")
         case .cliOnReadOnlyVolume:

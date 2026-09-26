@@ -36,6 +36,31 @@ public enum CLIInstaller {
         return dir.appending(path: embeddedExecutableName)
     }
 
+    /// A link Brainmerge made: to the command line inside a Brainmerge app, or under the command line's own name.
+    public static func madeByBrainmerge(destination: String) -> Bool {
+        destination.contains("/Brainmerge.app/") || destination.hasSuffix("/\(embeddedExecutableName)")
+    }
+
+    /// At each launch of the app, for the hooks that call the link: made when missing, and pointed at `target` when
+    /// Brainmerge made it and the Brainmerge it pointed at is gone (trashed or moved). A link that works (a development
+    /// build's), someone else's link and a file are left as they are; from a read-only disk (the disk image, about to go
+    /// away) nothing is linked.
+    public static func linkAtLaunch(paths: Paths, target: URL) throws {
+        let fm = FileManager.default
+        let link = link(in: paths)
+        let resolved = target.resolvingSymlinksInPath()
+        if isOnReadOnlyVolume(resolved.path) { return }
+        if let existing = try? fm.destinationOfSymbolicLink(atPath: link.path) {
+            let pointed = URL(fileURLWithPath: existing, relativeTo: link.deletingLastPathComponent()).path
+            guard !fm.isExecutableFile(atPath: pointed), madeByBrainmerge(destination: existing) else { return }
+            try fm.removeItem(at: link)
+        } else if fm.fileExists(atPath: link.path) {
+            return
+        }
+        try fm.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: resolved)
+    }
+
     /// Creates the link. A valid link to another binary is kept unless `replaceValid` (the "Install command line" button
     /// and `install-cli`): a development build doesn't hijack the link that every hook calls.
     /// A regular file at this location is never deleted. A target on a read-only volume (disk image) is refused.

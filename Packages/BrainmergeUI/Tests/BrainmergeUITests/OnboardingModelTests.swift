@@ -11,13 +11,89 @@ import BrainmergeTestSupport
         let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
                                       claudeAppURL: e.claude.url, registerLaunchers: false)
         let app = AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+        // Hermetic: never the Mac's own xcode-select or Claude Code.
+        app.git = Tools(true).availability
+        app.limitsBinary = { _ in .notFound }
         app.reload()
         return (e, app, OnboardingModel(app: app))
     }
 
-    @Test func detectsClaudeAndCountsProjects() throws {
+    /// Whether each call ran on the main thread.
+    final class Threads: @unchecked Sendable {
+        private let lock = NSLock()
+        private var list: [Bool] = []
+        var all: [Bool] { lock.lock(); defer { lock.unlock() }; return list }
+        func record(_ onMain: Bool) { lock.lock(); list.append(onMain); lock.unlock() }
+    }
+
+    /// A git that is there or not, as a fake `xcode-select` says; `present` can change between checks.
+    final class Tools: @unchecked Sendable {
+        var present: Bool
+        init(_ present: Bool) { self.present = present }
+        var availability: GitAvailability {
+            GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: self.present ? 0 : 2, stdout: "/Tools\n", stderr: "") },
+                            isExecutable: { _ in true })
+        }
+    }
+
+    @Test func theGitStepAppearsOnlyWhenGitIsMissingAndLeavesAfterCheckAgain() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        let tools = Tools(false)
+        app.git = tools.availability
+        await onboarding.detect()
+        onboarding.step = .howItWorks
+        onboarding.next()
+        #expect(onboarding.step == .git)
+        await onboarding.checkGit()
+        #expect(onboarding.step == .git)
+        tools.present = true
+        await onboarding.checkGit()
+        #expect(onboarding.step == .brainLocation)
+        onboarding.back()
+        #expect(onboarding.step == .howItWorks)
+    }
+
+    @Test func withGitTheStepIsSkipped() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        app.git = Tools(true).availability
+        await onboarding.detect()
+        onboarding.step = .howItWorks
+        onboarding.next()
+        #expect(onboarding.step == .brainLocation)
+    }
+
+    @Test func allSetSaysWhetherGitAndClaudeCodeWereFound() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        app.git = Tools(true).availability
+        app.limitsBinary = { _ in .found("/opt/homebrew/bin/claude") }
+        await onboarding.detect()
+        #expect(onboarding.gitFound && onboarding.claudeCodeFound)
+        app.git = Tools(false).availability
+        app.limitsBinary = { _ in .notFound }
+        await onboarding.detect()
+        #expect(!onboarding.gitFound && !onboarding.claudeCodeFound)
+    }
+
+    /// Installed but not Anthropic's build (a script from npm, say): it is there, so the setup never says to install it.
+    @Test func aClaudeCodeNotSignedByAnthropicIsStillFound() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        app.limitsBinary = { _ in .notSigned("/opt/homebrew/bin/claude") }
+        await onboarding.detect()
+        #expect(onboarding.claudeCodeFound)
+    }
+
+    @Test func claudeCodeIsLookedForOffTheMainThread() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        let seen = Threads()
+        // The signature check reads the whole program: never while the window waits.
+        app.limitsBinary = { _ in seen.record(Thread.isMainThread); return .notFound }
+        await onboarding.detect()
+        #expect(seen.all == [false])
+    }
+
+    @Test func detectsClaudeAndCountsProjects() async throws {
         let (e, _, onboarding) = try setup(); defer { e.home.remove() }
-        onboarding.detect()
+        await onboarding.detect()
         #expect(onboarding.claude?.version == "2.7032.0")
         #expect(onboarding.projectCount == 1)
         #expect(!onboarding.primaryName.isEmpty)

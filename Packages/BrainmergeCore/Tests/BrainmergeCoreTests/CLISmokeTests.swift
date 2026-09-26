@@ -85,6 +85,79 @@ import BrainmergeTestSupport
         #expect(try String(contentsOf: logFile, encoding: .utf8).contains("memory missing"))
     }
 
+    /// Like Claude Code runs a hook: the session's JSON on the standard input, which is then closed.
+    func run(_ e: ManagerEnv, _ arguments: [String], input: String) throws -> ShellResult {
+        let process = Process()
+        process.executableURL = Products.brainmerge
+        process.arguments = arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(
+            ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path]) { $1 }
+        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
+        process.standardInput = stdin; process.standardOutput = stdout; process.standardError = stderr
+        try process.run()
+        stdin.fileHandleForWriting.write(Data(input.utf8))
+        try stdin.fileHandleForWriting.close()
+        let out = stdout.fileHandleForReading.readDataToEndOfFile()
+        let err = stderr.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return ShellResult(status: process.terminationStatus, stdout: String(decoding: out, as: UTF8.self), stderr: String(decoding: err, as: UTF8.self))
+    }
+
+    /// The SessionStart hook: what it prints would go into the session, so it prints nothing, and it never fails a session
+    /// start, whatever it is given.
+    @Test func wireHookPrintsNothingAndAlwaysExitsZero() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let logFile = e.home.paths.logsDir.appending(path: "sync.log")
+        let kayak = e.home.url.path + "/kayak"
+        func session(_ cwd: String) -> String {
+            #"{"session_id":"sentinel-session","transcript_path":"/tmp/sentinel.jsonl","cwd":"\#(cwd)","hook_event_name":"SessionStart","source":"startup","model":"sentinel-model"}"#
+        }
+        let linked = try run(e, ["wire", "--identity", "perso", "--hook"], input: session(kayak))
+        #expect(linked.status == 0 && linked.stdout.isEmpty && linked.stderr.isEmpty, "\(linked.stderr)")
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: kayak)).appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "kayak").path)
+        #expect(try String(contentsOf: logFile, encoding: .utf8).contains("perso: linked kayak"))
+
+        let again = try run(e, ["wire", "--identity", "perso", "--hook"], input: session(kayak))
+        #expect(again.status == 0 && again.stdout.isEmpty)
+        for (arguments, input) in [(["wire", "--identity", "nope", "--hook"], session(kayak)),
+                                   (["wire", "--identity", "perso", "--hook"], "{oops"),
+                                   (["wire", "--identity", "perso", "--hook"], ""),
+                                   (["wire", "--identity", "perso", "--hook"], #"{"cwd":42}"#),
+                                   (["wire", "--identity", "perso", "--hook"], #"{"source":"startup"}"#)] {
+            let result = try run(e, arguments, input: input)
+            #expect(result.status == 0 && result.stdout.isEmpty, "\(arguments) \(input): \(result.stdout) \(result.stderr)")
+        }
+        let log = try String(contentsOf: logFile, encoding: .utf8)
+        #expect(log.contains("nope"))
+        #expect(!log.contains("sentinel"), "only the folder is read from the session")
+
+        try FileManager.default.removeItem(at: e.brain.root)
+        let missing = try run(e, ["wire", "--identity", "perso", "--hook"], input: session(e.home.url.path + "/other"))
+        #expect(missing.status == 0 && missing.stdout.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: e.brain.root.path))
+        #expect(!FileManager.default.fileExists(atPath: e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.home.url.path + "/other")).path))
+    }
+
+    /// Without --hook, the current folder is linked and the command says so.
+    @Test func wireLinksTheCurrentFolder() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let folder = e.home.url.appending(path: "kayak", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let env = ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path]
+        let result = try Shell().run(Products.brainmerge.path, ["wire", "--identity", "perso"], cwd: folder, environment: env)
+        #expect(result.status == 0, "\(result.stderr)")
+        #expect(result.stdout.contains("kayak"))
+        // The folder as the process sees it (the temporary folder is behind /var, a link to /private/var).
+        let slugs = try FileManager.default.contentsOfDirectory(atPath: e.primaryProfile.projectsDir.path).filter { $0.hasSuffix("-kayak") }
+        #expect(slugs.count == 1)
+        let link = e.primaryProfile.projectsDir.appending(path: slugs.first ?? "none").appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "kayak").path)
+        #expect(try Shell().run(Products.brainmerge.path, ["wire", "--identity", "nope"], cwd: folder, environment: env).status != 0)
+    }
+
     @Test func brainAddListForgetAndIdentityBrain() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         #expect(try run(e, ["adopt-primary", "--name", "Perso"]).status == 0)

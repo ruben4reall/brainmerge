@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import BrainmergeCore
 
-/// What each account uses on this Mac (RAM and disk) and what it spent in Claude Code, read from its local transcripts.
-/// Informational: never a switcher.
+/// What each account uses on this Mac (RAM and disk) and what it spent in Claude Code, read from its local transcripts,
+/// plus its limits when asked: "Check limits" runs that account's own Claude Code on a click, never on its own.
+/// Informational: never a switcher, never a comparison between accounts.
 public struct UsageView: View {
     @Bindable var model: AppModel
     public init(model: AppModel) { self.model = model }
@@ -11,7 +12,7 @@ public struct UsageView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                ScreenHeader("Usage", subtitle: "What your accounts use on this Mac, and what they spent in Claude Code. Limits and reset times are only known to Claude.") {
+                ScreenHeader("Usage", subtitle: "What your accounts use on this Mac and spent in Claude Code. Brainmerge never reads limits by itself: Check limits asks that account's Claude Code.") {
                     Button("See limits in Claude") { if let url = URL(string: "https://claude.ai/settings/usage") { NSWorkspace.shared.open(url) } }.buttonStyle(.glass)
                 }
                 sectionLabel("RAM and disk")
@@ -31,6 +32,10 @@ public struct UsageView: View {
                 }
                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                 .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+                if model.accounts.contains(where: { $0.identity.surfaces.cli }) {
+                    Text(LimitsText.caption).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                        .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+                }
             }
             .padding(Theme.Layout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -80,9 +85,74 @@ public struct UsageView: View {
                     list("Projects", entry.summary.byProject.prefix(4).map { (ProjectSlug.projectName(forSlug: $0.key, home: model.paths.home), $0.output) })
                     list("Models", entry.summary.byModel.prefix(4).map { ($0.key.replacingOccurrences(of: "claude-", with: ""), $0.output) })
                 }
+                // Each account with Claude Code has its own limits, even when two share one history.
+                let checkable = entry.slugs.indices.filter { model.canCheckLimits(entry.slugs[$0]) }
+                if !checkable.isEmpty {
+                    Divider().overlay(Theme.Colors.surfaceLine)
+                    ForEach(checkable, id: \.self) { index in
+                        limits(entry.slugs[index], name: entry.names[index], tint: Theme.color(for: entry.tints[index]), shared: entry.shared)
+                    }
+                }
             }
             .padding(16)
         }
+    }
+
+    /// "Check limits" and what it found: nothing before the first click, then Claude Code's lines or one sentence.
+    func limits(_ slug: String, name: String, tint: Color, shared: Bool) -> some View {
+        let state = model.limits[slug]
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(LimitsText.title(name: name, shared: shared).uppercased()).font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 12)
+                if state == .checking {
+                    Text(LimitsText.checking).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+                } else if case .checked(_, let at) = state {
+                    Text(LimitsText.checkedAt(at)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint)
+                }
+                Button("Check limits") { Task { await model.checkLimits(slug) } }
+                    .buttonStyle(.glass).controlSize(.small)
+                    .disabled(state == .checking)
+                    .accessibilityLabel(LimitsText.buttonLabel(name: name))
+                    .help(LimitsText.buttonHelp)
+            }
+            switch state {
+            case .checked(let lines, _):
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 28, alignment: .top)], alignment: .leading, spacing: 14) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in limitRow(line, tint: tint) }
+                }
+            case .refused(let sentence):
+                Text(sentence).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .checking, nil:
+                EmptyView()
+            }
+        }
+    }
+
+    /// One limit: Claude Code's label, the percent used, a thin bar in the account's color, and the reset time as written.
+    func limitRow(_ line: LimitLine, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(line.label).font(Theme.Fonts.secondary).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(LimitsText.percent(line)).font(Theme.Fonts.secondary).monospacedDigit()
+            }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: Theme.Layout.meterRadius, style: .continuous).fill(Theme.Colors.field)
+                    RoundedRectangle(cornerRadius: Theme.Layout.meterRadius, style: .continuous).fill(tint)
+                        .frame(width: line.fraction > 0 ? max(2, geometry.size.width * line.fraction) : 0)
+                }
+            }
+            .frame(height: 6)
+            if let resets = LimitsText.resets(line) {
+                Text(resets).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(LimitsText.accessibilityLabel(line))
     }
 
     @ViewBuilder func figures(_ summary: UsageSummary) -> some View {

@@ -8,9 +8,10 @@ public struct Doctor: Sendable {
     public let cliPath: String
     /// Where apps the person made are looked for (see ExistingApps.folders).
     public let appFolders: [URL]
+    public let git: GitAvailability
 
-    public init(paths: Paths, store: StateStore, claudeAppURL: URL, cliPath: String, appFolders: [URL]? = nil) {
-        self.paths = paths; self.store = store; self.claudeAppURL = claudeAppURL; self.cliPath = cliPath
+    public init(paths: Paths, store: StateStore, claudeAppURL: URL, cliPath: String, appFolders: [URL]? = nil, git: GitAvailability = .shared) {
+        self.paths = paths; self.store = store; self.claudeAppURL = claudeAppURL; self.cliPath = cliPath; self.git = git
         self.appFolders = appFolders ?? ExistingApps.folders(for: paths)
     }
 
@@ -36,6 +37,10 @@ public struct Doctor: Sendable {
             findings.append(Finding(level: .error, title: "Claude.app", detail: "\(error)"))
         }
 
+        findings.append(git.isAvailable
+            ? Finding(level: .ok, title: "git", detail: "Apple's Command Line Tools are installed")
+            : Finding(level: .error, title: "git", detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install"))
+
         let state: AppState
         do { state = try store.load() } catch {
             findings.append(Finding(level: .error, title: "State", detail: "\(error)"))
@@ -51,7 +56,7 @@ public struct Doctor: Sendable {
             let candidate = Brain(root: folder.url)
             if candidate.isInitialized {
                 ready[folder.id] = candidate
-                let git = (try? BrainGit(brain: candidate).log(limit: 1)) != nil
+                let git = (try? BrainGit(brain: candidate, availability: self.git).log(limit: 1)) != nil
                 findings.append(Finding(level: git ? .ok : .error, title: "Memory: \(folder.name)",
                                         detail: git ? "\(folder.path), git ready" : "\(folder.path): git repository unreadable"))
             } else {
@@ -83,9 +88,7 @@ public struct Doctor: Sendable {
                 findings.append(Finding(level: .error, title: "\(identity.name): profile", detail: "Missing \(profile.directory.path)"))
                 continue
             }
-            let hook = (try? HookInstaller.isInstalled(settingsFile: profile.settingsFile)) ?? false
-            findings.append(Finding(level: hook ? .ok : .warning, title: "\(identity.name): hook",
-                                    detail: hook ? "Stop hook installed" : "Stop hook missing in \(profile.settingsFile.path). Run: brainmerge brain wire"))
+            findings.append(hooksFinding(identity, profile: profile))
             let claudeMD = (try? String(contentsOf: profile.claudeMD, encoding: .utf8)) ?? ""
             let blockOK = ManagedBlock.contains(claudeMD) && (brain.map { claudeMD.contains($0.root.path) } ?? true)
             findings.append(Finding(level: blockOK ? .ok : .warning, title: "\(identity.name): CLAUDE.md",
@@ -128,6 +131,16 @@ public struct Doctor: Sendable {
             }
         }
         return findings
+    }
+
+    /// The account's hooks (memory saved when a turn ends, linked when a session starts): current, outdated, or missing.
+    func hooksFinding(_ identity: Identity, profile: CLIProfile) -> Finding {
+        let title = "\(identity.name): hooks"
+        switch HookInstaller.health(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug) {
+        case .current: return Finding(level: .ok, title: title, detail: "current")
+        case .outdated: return Finding(level: .warning, title: title, detail: "outdated. Run: brainmerge brain wire")
+        case .missing: return Finding(level: .warning, title: title, detail: "missing in \(profile.settingsFile.path). Run: brainmerge brain wire")
+        }
     }
 
     /// A copy of Claude made by hand that opens this account with an older Claude: Brainmerge only says so, the person

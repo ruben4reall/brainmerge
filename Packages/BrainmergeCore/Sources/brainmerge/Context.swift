@@ -5,7 +5,9 @@ import BrainmergeCore
 /// What every command shares: paths (BRAINMERGE_HOME), Claude.app (BRAINMERGE_CLAUDE_APP), state.
 struct Context {
     let paths = Paths.current()
-    let claudeAppURL = ClaudeApp.defaultURL()
+    /// Found once, and only by the commands that use Claude: the hooks never pay for the search.
+    private static let foundClaude = ClaudeLocator.resolvedURL(paths: Paths.current())
+    var claudeAppURL: URL { Self.foundClaude }
 
     var store: StateStore { StateStore(paths: paths) }
     var cliLink: URL { paths.localBin.appending(path: "brainmerge") }
@@ -28,7 +30,7 @@ struct Context {
         return Brain(root: url)
     }
 
-    /// The Stop hook calls ~/.local/bin/brainmerge: this link must exist before installing a hook.
+    /// The hooks call ~/.local/bin/brainmerge: this link must exist before installing them.
     func ensureCLILink(replaceValid: Bool = false) throws {
         let target = CLIInstaller.currentExecutable() ?? URL(fileURLWithPath: CommandLine.arguments[0])
         try CLIInstaller.ensureLink(paths: paths, target: target, replaceValid: replaceValid)

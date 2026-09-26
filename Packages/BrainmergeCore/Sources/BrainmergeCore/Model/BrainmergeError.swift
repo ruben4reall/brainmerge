@@ -2,6 +2,9 @@ import Foundation
 
 public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case stateTooNew(Int)
+    case stateDamaged
+    case gitUnavailable
+    case claudeNotSigned(String)
     case claudeAppNotFound(String)
     case invalidPlist(String)
     case invalidJSON(String)
@@ -11,6 +14,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case brainNotFound(String)
     case lockTimeout
     case shellFailed(command: String, status: Int32, stderr: String)
+    case timedOut(command: String)
     case iconFailed(String)
     case profileMissing(String)
     case identityNameTaken(String)
@@ -30,6 +34,9 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .stateTooNew(let v): return "state.json was written by a newer Brainmerge (schema \(v)). Update Brainmerge."
+        case .stateDamaged: return "state.json can't be read. Open Brainmerge to put back the copy from before your last change, when there is one."
+        case .gitUnavailable: return "History needs git. Install Apple's Command Line Tools: xcode-select --install"
+        case .claudeNotSigned: return "This copy of Claude is not signed by Anthropic. Brainmerge only opens the official app."
         case .claudeAppNotFound(let p): return "Claude.app not found at \(p). Install Claude Desktop first."
         case .invalidPlist(let p): return "Cannot read property list \(p)."
         case .invalidJSON(let p): return "Cannot read JSON file \(p)."
@@ -37,8 +44,9 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .identityNotFound(let s): return "No identity with slug \(s)."
         case .brainNotConfigured: return "No brain configured yet. Run: brainmerge brain init"
         case .brainNotFound(let p): return "Brain folder missing at \(p)."
-        case .lockTimeout: return "Another Brainmerge process holds the brain lock."
+        case .lockTimeout: return "Another Brainmerge process is saving. Try again in a few seconds."
         case .shellFailed(let c, let s, let e): return "Command failed (\(s)): \(c)\n\(e)"
+        case .timedOut(let c): return "Command took too long and was stopped: \(c)"
         case .iconFailed(let p): return "Cannot build an icon from \(p)."
         case .profileMissing(let p): return "Claude Code profile missing at \(p)."
         case .identityNameTaken(let n): return "An identity named \(n) already exists. Choose another name."
