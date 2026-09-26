@@ -59,6 +59,11 @@ public final class OnboardingModel {
     /// Other Claude windows must be closed before a new account logs in (the login link lands in the running one).
     public var othersOpen: [Account] { app.openAccounts.filter { $0.id != addedSlug } }
 
+    /// The accounts whose Connected ring has spread: once each, when the step first shows them connected.
+    @ObservationIgnored private var ringed: Set<String> = []
+    /// True the first time only: the Connected check of `slug` spreads its ring now.
+    public func ringsForConnection(of slug: String) -> Bool { ringed.insert(slug).inserted }
+
     public func openAddedAccount() {
         guard let slug = addedSlug else { return }
         if othersOpen.isEmpty { app.open(slug) } else { app.quitOthers(then: slug) }

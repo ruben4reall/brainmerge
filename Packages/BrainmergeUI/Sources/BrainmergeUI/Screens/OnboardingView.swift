@@ -188,7 +188,7 @@ public struct OnboardingView: View {
                         // Each piece comes and goes on its own: the check draws itself on, the words fade.
                         HStack(spacing: 6) {
                             if !added.needsLogin {
-                                ConnectedCheck()
+                                ConnectedCheck(rings: { model.ringsForConnection(of: added.id) })
                                     .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(SymbolEffectTransition(effect: .drawOn, options: .default)))
                                 Text("Connected").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).transition(.opacity)
                             } else if added.isRunning {
@@ -415,22 +415,25 @@ struct StepSlide: Transition {
     static func shift(_ phase: TransitionPhase, direction: Int) -> CGFloat { -phase.value * CGFloat(direction) * distance }
 }
 
-/// The "Connected" check of the guide's second account: it draws itself on, and one sage ring spreads from it once.
+/// The "Connected" check of the guide's second account: it draws itself on, and one sage ring spreads from it, once per
+/// account (`rings` answers true the first time only): going back over the step shows the check still.
 struct ConnectedCheck: View {
+    let rings: () -> Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spread = false
+    @State private var ringing = false
 
     var body: some View {
-        let rings = !reduceMotion && !Theme.Motion.isCapture
         Image(systemName: "checkmark.circle.fill")
             .foregroundStyle(Theme.Colors.sage)
             .background {
                 Circle().stroke(Theme.Colors.sage, lineWidth: 1.5)
                     .padding(spread ? -7 : 0)
-                    .opacity(rings && !spread ? 0.8 : 0)
+                    .opacity(ringing && !spread ? 0.8 : 0)
             }
             .onAppear {
-                guard rings else { return }
+                guard !reduceMotion, !Theme.Motion.isCapture, rings() else { return }
+                ringing = true
                 withAnimation(Theme.Motion.out(0.6)) { spread = true }
             }
     }

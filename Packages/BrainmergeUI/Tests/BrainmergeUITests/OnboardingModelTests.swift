@@ -284,4 +284,14 @@ import BrainmergeTestSupport
         #expect(app.launchPhase == .ready)
         #expect(!onboarding.finished)
     }
+
+    /// The Connected check's ring spreads once per account, when it connects: going back and forth over the step shows the
+    /// check still, with no second ring.
+    @Test func theConnectedRingPlaysOncePerAccount() throws {
+        let (e, _, onboarding) = try setup(); defer { e.home.remove() }
+        #expect(onboarding.ringsForConnection(of: "work"))
+        #expect(!onboarding.ringsForConnection(of: "work"))
+        #expect(onboarding.ringsForConnection(of: "studio"))
+        #expect(!onboarding.ringsForConnection(of: "studio"))
+    }
 }
