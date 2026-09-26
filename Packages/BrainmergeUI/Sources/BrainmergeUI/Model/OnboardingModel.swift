@@ -72,8 +72,20 @@ public final class OnboardingModel {
         return path
     }
 
-    public func next() { error = nil; if let n = Step(rawValue: step.rawValue + 1) { step = n } }
-    public func back() { error = nil; if let p = Step(rawValue: step.rawValue - 1) { step = p } }
+    /// The way the guide last moved: 1 on, -1 back. The page slides in from that side (set before the step changes, so the
+    /// page leaving and the page arriving read the same value).
+    public private(set) var direction = 1
+
+    public func next() { error = nil; if let n = Step(rawValue: step.rawValue + 1) { direction = 1; step = n } }
+    public func back() { error = nil; if let p = Step(rawValue: step.rawValue - 1) { direction = -1; step = p } }
+
+    /// A progress dot: the steps behind in the accent, the current one a wider capsule, the ones ahead faint.
+    public enum Dot: CaseIterable, Sendable {
+        case passed, current, future
+        public var width: CGFloat { self == .current ? 18 : 6 }
+        public var height: CGFloat { 6 }
+    }
+    public func dot(for s: Step) -> Dot { s == step ? .current : (s.rawValue < step.rawValue ? .passed : .future) }
 
     public func createBrain() throws {
         let root: URL

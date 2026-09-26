@@ -26,7 +26,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.accent` | `#A06BE0` | the one accent |
 | `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices / the fill of prominent buttons |
 | `Colors.button` | `accentDeep` | prominent buttons (4.7:1 with `onAccent`) |
-| `Colors.selection` | accent at 18% | the selected sidebar row, the memory box of the diagram |
+| `Colors.selection` | accent at 18% | the selected sidebar row, the flat shadow under the creature (launch, How it works) |
 | `Colors.rowHover` | text at 6% | a sidebar row under the pointer (neutral, fainter than `selection`) |
 | `Colors.rowPressed` | text at 10% | a sidebar row while it is pressed |
 | `Colors.accentSoft` | accent at 35% | the older bars of the usage chart |
@@ -39,6 +39,8 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.vaultAttachment` / `vaultUnresolved` | `#E0DE71` / `#666666` | attachments and links to no file, when the vault shows them |
 | `Theme.color(group:)` | the vault's own | a vault's color groups, from the rgb integers of its `graph.json` |
 | `Colors.creature` / `creatureEye` | `#A06BE0` / `#1E1430` | the creature |
+| `Diagram.windowGlass` / `windowLight` | white at 5.5% / 16% | How it works: an account window's pane over the canvas, its three title-bar lights |
+| `Diagram.pageFold` / `pageLine` / `noteLine` / `folderEdge` | black at 25% / white at 75% / black at 18% / white at 14% | How it works: a note page's folded corner and written lines, the lines on the notes in the folder, the light along the folder's front |
 | `Halo.opacity` / `radius` / `size` | 0 / 110 / 520 | background halos (off; set 0.14 to bring them back) |
 | `Aura.softOpacity` / `fullOpacity` / `lineWidth` / `period` | 0.10 / 0.45 / 6 / 7 s | the spinning aura |
 | `Motion.out(d)` / `inOut(d)` | `cubic-bezier(0.23, 1, 0.32, 1)` / `cubic-bezier(0.77, 0, 0.175, 1)` | entering, exiting and feedback / moving on screen (the site's `--ease-out` and `--ease-move`) |

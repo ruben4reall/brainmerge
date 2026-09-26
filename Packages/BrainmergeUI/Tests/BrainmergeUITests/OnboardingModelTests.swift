@@ -127,6 +127,28 @@ import BrainmergeTestSupport
         #expect(onboarding.step == .welcome)
     }
 
+    /// The page slides the way the guide moves: in from the right going on, from the left going back.
+    @Test func movingRemembersItsDirection() throws {
+        let (e, _, onboarding) = try setup(); defer { e.home.remove() }
+        #expect(onboarding.direction == 1)
+        // Nowhere to go back to: nothing moves, the direction stays.
+        onboarding.back()
+        #expect(onboarding.step == .welcome && onboarding.direction == 1)
+        onboarding.next(); #expect(onboarding.direction == 1)
+        onboarding.back(); #expect(onboarding.direction == -1)
+        onboarding.next(); #expect(onboarding.direction == 1)
+        onboarding.back(); #expect(onboarding.step == .welcome && onboarding.direction == -1)
+    }
+
+    /// The progress dots: the steps behind in the accent, the current one a capsule, the ones ahead faint.
+    @Test func dotsShowWhereTheGuideIs() throws {
+        let (e, _, onboarding) = try setup(); defer { e.home.remove() }
+        onboarding.next(); onboarding.next()
+        #expect(OnboardingModel.Step.allCases.map(onboarding.dot(for:)) == [.passed, .passed, .current, .future, .future, .future])
+        #expect(OnboardingModel.Dot.current.width == 18 && OnboardingModel.Dot.passed.width == 6 && OnboardingModel.Dot.future.width == 6)
+        #expect(OnboardingModel.Dot.allCases.allSatisfy { $0.height == 6 })
+    }
+
     // MARK: After the launch splash
 
     /// An app model as the window gets it at launch: nothing loaded yet, the splash on screen.

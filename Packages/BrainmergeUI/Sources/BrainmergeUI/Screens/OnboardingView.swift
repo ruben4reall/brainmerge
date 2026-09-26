@@ -7,40 +7,53 @@ public struct OnboardingView: View {
     @Environment(LaunchClock.self) private var launch: LaunchClock?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var allSetFrame: CGRect?
+    /// The second account's orb, from the form to the card of the account it created.
+    @Namespace private var orbSpace
     public init(model: OnboardingModel) { self.model = model }
 
     public var body: some View {
         ZStack {
             WarmBackground(accents: [.orange, .blue])
             // Centered when the step is short, scrollable when it is taller than the window (the last step at 640 points).
+            // Each page fills the height on its own, so the page leaving and the page arriving overlap without moving the
+            // other: the new one slides 24 points in from the side the guide moves to while the old one leaves the other way.
             GeometryReader { proxy in
                 ScrollView(.vertical) {
-                    VStack(spacing: 22) {
-                        Spacer(minLength: 0)
-                        switch model.step {
-                        case .welcome: welcome
-                        case .howItWorks: howItWorks
-                        case .brainLocation: location
-                        case .adopt: adopt
-                        case .secondAccount: secondAccount
-                        case .allSet: allSet
-                        }
-                        Spacer(minLength: 0)
+                    ZStack(alignment: .top) {
+                        page
+                            .frame(maxWidth: 560)
+                            .padding(.horizontal, 40).padding(.top, 28).padding(.bottom, 52)
+                            .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                            .id(model.step)
+                            .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(StepSlide(model: model)))
                     }
-                    .frame(maxWidth: 560)
-                    .padding(.horizontal, 40).padding(.top, 28).padding(.bottom, 52)
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                    .animation(reduceMotion ? Self.pageFade : Self.pageSlide, value: model.step)
                 }
                 .scrollBounceBehavior(.basedOnSize)
             }
             // The progress dots stay at the same place whatever the step's height.
             VStack { Spacer(); dots.padding(.bottom, 26) }
-            if let error = model.error {
-                VStack { Spacer(); errorBanner(error) }.padding(24).padding(.bottom, 28)
-            }
+            errorLayer
         }
         .onAppear { model.detect() }
     }
+
+    @ViewBuilder var page: some View {
+        switch model.step {
+        case .welcome: welcome
+        case .howItWorks: howItWorks
+        case .brainLocation: location
+        case .adopt: adopt
+        case .secondAccount: secondAccount
+        case .allSet: allSet
+        }
+    }
+
+    /// A step to the next page: a spring with no bounce; with Reduce Motion, a crossfade.
+    static var pageSlide: Animation { .spring(response: 0.4 * Theme.Motion.slow, dampingFraction: 0.9) }
+    static var pageFade: Animation { .linear(duration: 0.18 * Theme.Motion.slow) }
+    /// The progress dots: the current one widens into a capsule as its neighbors make room.
+    static var dotSpring: Animation { .spring(response: 0.35 * Theme.Motion.slow, dampingFraction: 0.8) }
 
     var welcome: some View {
         VStack(spacing: 20) {
@@ -64,7 +77,8 @@ public struct OnboardingView: View {
     var howItWorks: some View {
         VStack(spacing: 18) {
             Text("How it works").font(Theme.Fonts.onboardingTitle)
-            HowItWorksView().frame(height: 190).frame(maxWidth: 520)
+            // 1:1 and never scaled: the creature's 3 point cells stay whole. The column is 520 points wide.
+            HowItWorksView().frame(width: HowItWorksScene.size.width, height: HowItWorksScene.size.height)
             VStack(alignment: .leading, spacing: 8) {
                 step(1, "Each account is the official Claude app, opened with its own settings and login.")
                 step(2, "Claude Code writes notes about your projects. Brainmerge keeps them in one folder, the memory.")
@@ -132,7 +146,7 @@ public struct OnboardingView: View {
             if let added = model.addedAccount {
                 GlassCard {
                     HStack(spacing: 14) {
-                        OrbView(name: added.identity.name, tint: added.identity.tint, size: 40)
+                        OrbView(name: added.identity.name, tint: added.identity.tint, size: 40).secondOrb(orbSpace, moves: !reduceMotion)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(added.identity.name).font(Theme.Fonts.cardName)
                             if !added.needsLogin {
@@ -146,22 +160,33 @@ public struct OnboardingView: View {
                             }
                         }
                         Spacer()
-                        if !added.needsLogin {
-                            HStack(spacing: 6) { Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Colors.sage); Text("Connected").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
-                        } else if added.isRunning {
-                            HStack(spacing: 6) { Circle().fill(Theme.Colors.sage).frame(width: 7, height: 7); Text("Open").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
-                        } else {
-                            Button(model.othersOpen.isEmpty ? "Open \(added.identity.name)" : "Quit Claude and open \(added.identity.name)") { model.openAddedAccount() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                        // Each piece comes and goes on its own: the check draws itself on, the words fade.
+                        HStack(spacing: 6) {
+                            if !added.needsLogin {
+                                ConnectedCheck()
+                                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(SymbolEffectTransition(effect: .drawOn, options: .default)))
+                                Text("Connected").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).transition(.opacity)
+                            } else if added.isRunning {
+                                Circle().fill(Theme.Colors.sage).frame(width: 7, height: 7).transition(.opacity)
+                                Text("Open").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).transition(.opacity)
+                            } else {
+                                Button(model.othersOpen.isEmpty ? "Open \(added.identity.name)" : "Quit Claude and open \(added.identity.name)") { model.openAddedAccount() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                                    .transition(.opacity)
+                            }
                         }
+                        .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.pop, value: added.needsLogin)
                     }
                     .padding(16)
                 }
+                // The card's height follows its sentence as the account opens, then connects.
+                .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.settle, value: added.isRunning)
+                .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.settle, value: added.needsLogin)
                 navigation { Button("Back") { model.back() }.buttonStyle(.glass); Button("Continue") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button) }
             } else {
                 GlassCard {
                     VStack(spacing: 12) {
                         HStack(spacing: 14) {
-                            OrbView(name: model.secondAccount.name, tint: model.secondAccount.tint, size: 44)
+                            OrbView(name: model.secondAccount.name, tint: model.secondAccount.tint, size: 44).secondOrb(orbSpace, moves: !reduceMotion)
                             VStack(spacing: 8) {
                                 TextField("Name (Work, Studio, a client…)", text: $model.secondAccount.name).textFieldStyle(.plain).font(.system(size: 15))
                                     .padding(8).background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -195,6 +220,8 @@ public struct OnboardingView: View {
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
             }
         }
+        // The form gives way to the account it created: its orb moves into the card, the step settles to its new height.
+        .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.settle, value: model.addedSlug)
     }
 
     var allSet: some View {
@@ -257,12 +284,42 @@ public struct OnboardingView: View {
         }
     }
 
+    /// The steps behind in the accent, the current one an 18 point capsule, the ones ahead faint. With Reduce Motion the
+    /// width changes at once and only the color fades.
     var dots: some View {
         HStack(spacing: 8) {
             ForEach(OnboardingModel.Step.allCases, id: \.rawValue) { s in
-                Circle().fill(s.rawValue <= model.step.rawValue ? Theme.Colors.accent : Theme.Colors.surfaceLine).frame(width: 6, height: 6)
+                let dot = model.dot(for: s)
+                Capsule()
+                    .animation(reduceMotion ? Theme.Motion.reduced : Self.dotSpring) {
+                        $0.foregroundStyle(dot == .future ? Theme.Colors.surfaceLine : Theme.Colors.accent)
+                    }
+                    .frame(width: dot.width, height: dot.height)
             }
         }
+        .animation(reduceMotion ? nil : Self.dotSpring, value: model.step)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(model.step.rawValue + 1) of \(OnboardingModel.Step.allCases.count)")
+    }
+
+    /// The error banner rises into place and sinks away a little faster; a new message over an old one crossfades.
+    var errorLayer: some View {
+        VStack {
+            Spacer()
+            if let error = model.error {
+                ZStack { errorBanner(error).id(error.id).transition(.opacity) }
+                    .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.out(Theme.Motion.quick), value: error.id)
+                    .transition(bannerTransition)
+            }
+        }
+        .padding(24).padding(.bottom, 28)
+        .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.out(0.24), value: model.error == nil)
+    }
+
+    var bannerTransition: AnyTransition {
+        if reduceMotion { return .opacity }
+        return .asymmetric(insertion: .opacity.combined(with: .offset(y: 16)),
+                           removal: AnyTransition.opacity.combined(with: .offset(y: 8)).animation(Theme.Motion.out(0.16)))
     }
 
     func choiceCard(title: String, detail: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -304,4 +361,49 @@ public struct OnboardingView: View {
         else { model.next() }
     }
     func finish() { do { try model.finish(); model.next() } catch { model.error = AppModel.sentence(for: error) } }
+}
+
+/// A page of the guide slides 24 points along the way the guide moves and fades. The direction is read from the model
+/// when the transition runs, not when the page was last drawn: the page leaving on "Back" goes right even though it came
+/// in going on.
+struct StepSlide: Transition {
+    let model: OnboardingModel
+    static let distance: CGFloat = 24
+
+    func body(content: Content, phase: TransitionPhase) -> some View {
+        content
+            .offset(x: Self.shift(phase, direction: model.direction))
+            .opacity(phase.isIdentity ? 1 : 0)
+    }
+
+    /// The new page starts on the side the guide moves to (willAppear is -1), the old one leaves the other way (didDisappear is 1).
+    static func shift(_ phase: TransitionPhase, direction: Int) -> CGFloat { -phase.value * CGFloat(direction) * distance }
+}
+
+/// The "Connected" check of the guide's second account: it draws itself on, and one sage ring spreads from it once.
+struct ConnectedCheck: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var spread = false
+
+    var body: some View {
+        let rings = !reduceMotion && !Theme.Motion.isCapture
+        Image(systemName: "checkmark.circle.fill")
+            .foregroundStyle(Theme.Colors.sage)
+            .background {
+                Circle().stroke(Theme.Colors.sage, lineWidth: 1.5)
+                    .padding(spread ? -7 : 0)
+                    .opacity(rings && !spread ? 0.8 : 0)
+            }
+            .onAppear {
+                guard rings else { return }
+                withAnimation(Theme.Motion.out(0.6)) { spread = true }
+            }
+    }
+}
+
+extension View {
+    /// The second account's orb, matched from the form to the card (never with Reduce Motion: it would travel).
+    @ViewBuilder func secondOrb(_ space: Namespace.ID, moves: Bool) -> some View {
+        if moves { matchedGeometryEffect(id: "secondOrb", in: space) } else { self }
+    }
 }

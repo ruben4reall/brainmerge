@@ -63,6 +63,20 @@ public enum Theme {
         public static let creatureEye = Color(hex: "#1E1430")
     }
 
+    /// The drawing of How it works (HowItWorksView): small account windows, pages of notes, a folder. Neutral light and
+    /// shade over the account tints and the accent, so the picture keeps the app's colors.
+    public enum Diagram {
+        /// A window's pane over the canvas, and its three title-bar lights.
+        public static let windowGlass = Color.white.opacity(0.055)
+        public static let windowLight = Color.white.opacity(0.16)
+        /// A note page: the shade of its folded corner, its written lines.
+        public static let pageFold = Color.black.opacity(0.25)
+        public static let pageLine = Color.white.opacity(0.75)
+        /// The lines on the notes standing in the folder, and the light along the folder's front edge.
+        public static let noteLine = Color.black.opacity(0.18)
+        public static let folderEdge = Color.white.opacity(0.14)
+    }
+
     /// Blurred halos behind open accounts: present, never garish.
     public enum Halo {
         public static let opacity = 0.0      // no halo: the background stays neutral (0.14 to bring them back)
