@@ -21,11 +21,22 @@ import Testing
         }
     }
 
-    /// Shows `view` in an offscreen window and runs the main run loop for `seconds`, calling each action at its time.
-    static func host<V: View>(_ view: V, for seconds: Double, actions: [(at: Double, run: () -> Void)] = []) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 90), styleMask: [.borderless], backing: .buffered, defer: false)
+    /// A borderless window holding `view`, ordered in but placed beyond every screen: SwiftUI draws it on the real run
+    /// loop, and nothing ever shows on the display.
+    static func window<V: View>(for view: V) -> NSWindow {
+        let screens = NSScreen.screens.reduce(CGRect.null) { $0.union($1.frame) }
+        let away = screens.isNull ? CGPoint(x: -20_000, y: -20_000) : CGPoint(x: screens.minX - 20_000, y: screens.minY - 20_000)
+        let window = NSWindow(contentRect: NSRect(origin: away, size: CGSize(width: 120, height: 90)), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
         window.contentView = NSHostingView(rootView: view)
+        window.setFrameOrigin(away)   // borderless: never constrained back onto a screen
         window.orderFrontRegardless()
+        return window
+    }
+
+    /// Shows `view` in a window off the screens and runs the main run loop for `seconds`, calling each action at its time.
+    static func host<V: View>(_ view: V, for seconds: Double, actions: [(at: Double, run: () -> Void)] = []) {
+        let window = Self.window(for: view)
         let start = Date()
         var pending = actions
         while Date().timeIntervalSince(start) < seconds {
@@ -33,6 +44,13 @@ import Testing
             while let next = pending.first, Date().timeIntervalSince(start) >= next.at { next.run(); pending.removeFirst() }
         }
         window.orderOut(nil)
+    }
+
+    /// The hosting window runs the real run loop but is never seen: it stands outside every screen.
+    @Test func theHostWindowIsOffEveryScreen() {
+        let window = Self.window(for: Color.clear)
+        defer { window.orderOut(nil) }
+        #expect(!NSScreen.screens.contains { $0.frame.intersects(window.frame) }, "\(window.frame)")
     }
 
     @Test func aReactionEndsOnItsSettledFrame() throws {
