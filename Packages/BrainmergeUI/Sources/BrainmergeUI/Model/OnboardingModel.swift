@@ -28,6 +28,8 @@ public final class OnboardingModel {
     public private(set) var addedSlug: String?
 
     let app: AppModel
+    /// Counts the projects Claude Code knows (its .claude.json can be large); called off the main thread, a fake in tests.
+    @ObservationIgnored var countProjects: @Sendable (URL) -> Int = { (try? CLIProfile(directory: $0).projects().count) ?? 0 }
 
     public init(app: AppModel) {
         self.app = app
@@ -74,21 +76,23 @@ public final class OnboardingModel {
             : "Claude Code: Not found in the usual places. Your accounts still work in the Claude app. Install Claude Code to use them in a terminal."
     }
 
-    /// What the setup shows as found. Git and Claude Code are looked for off the main thread: `xcode-select` is a process,
-    /// and Claude Code's signature check reads the whole program.
+    /// What the setup shows as found. Git, Claude Code and the projects are looked for off the main thread: `xcode-select`
+    /// is a process, Claude Code's signature check reads the whole program, and .claude.json can be large.
     public func detect() async {
         claude = try? ClaudeApp.detect(at: app.claudeAppURL)
         gitFound = await app.checkGit()
-        let resolve = app.limitsBinary, home = app.paths.home
-        claudeCodeFound = await Task.detached(priority: .userInitiated) { () -> Bool in
+        let resolve = app.limitsBinary, home = app.paths.home, count = countProjects, profile = app.paths.primaryCLIProfile
+        let (found, projects) = await Task.detached(priority: .userInitiated) { () -> (Bool, Int) in
             // A Claude Code that is not Anthropic's build (a script from npm) is still there: never "install it".
+            let found: Bool
             switch resolve(home) {
-            case .found, .notSigned: return true
-            case .notFound: return false
+            case .found, .notSigned: found = true
+            case .notFound: found = false
             }
+            return (found, count(profile))
         }.value
-        let profile = CLIProfile(directory: app.paths.primaryCLIProfile)
-        projectCount = (try? profile.projects().count) ?? 0
+        claudeCodeFound = found
+        projectCount = projects
     }
 
     /// The saved memory folder that can't be found or is empty: onboarding says so and offers to choose another one.

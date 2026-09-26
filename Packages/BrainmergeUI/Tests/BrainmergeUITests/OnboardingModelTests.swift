@@ -98,6 +98,16 @@ import BrainmergeTestSupport
         #expect(seen.all == [false])
     }
 
+    /// The projects are counted from Claude Code's .claude.json, which can be large: never while the window waits.
+    @Test func projectsAreCountedOffTheMainThread() async throws {
+        let (e, _, onboarding) = try setup(); defer { e.home.remove() }
+        let seen = Threads()
+        onboarding.countProjects = { _ in seen.record(Thread.isMainThread); return 3 }
+        await onboarding.detect()
+        #expect(seen.all == [false])
+        #expect(onboarding.projectCount == 3)
+    }
+
     @Test func detectsClaudeAndCountsProjects() async throws {
         let (e, _, onboarding) = try setup(); defer { e.home.remove() }
         await onboarding.detect()
