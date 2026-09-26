@@ -1,4 +1,4 @@
-// Brainmerge: the creature waking up, the "How it works" story, gentle reveals and the timeline lighting up.
+// Brainmerge: the "How it works" story, the scenes, gentle reveals and the timeline lighting up. The hero creature lives in companion.js.
 // Everything is visible without this file. With Reduce Motion it only sets each scene's still.
 (function () {
   'use strict';
@@ -141,36 +141,6 @@
       // Never up: on row 0 an eye would notch the top edge and change the silhouette.
       return { x: dx < -24 ? -1 : dx > 24 ? 1 : 0, y: dy > 40 ? 1 : 0 };
     }
-
-    // The hero creature's hop on demand (720 ms): crouch, stretch up three cells, fall, land squashed, rebound.
-    var HOP = {
-      duration: 720,
-      body: [
-        { offset: 0, transform: 'none', easing: 'cubic-bezier(0.23, 1, 0.32, 1)' },
-        { offset: 0.17, transform: 'scale(1.08, 0.9)', easing: 'cubic-bezier(0.23, 1, 0.32, 1)' },
-        { offset: 0.39, transform: 'translateY(-3px) scale(0.94, 1.07)', easing: 'cubic-bezier(0.33, 0, 0.67, 1)' },
-        { offset: 0.5, transform: 'translateY(-3.2px)', easing: 'cubic-bezier(0.55, 0, 1, 0.45)' },
-        { offset: 0.67, transform: 'scale(1.1, 0.88)', easing: 'cubic-bezier(0.23, 1, 0.32, 1)' },
-        { offset: 0.83, transform: 'scale(0.97, 1.03)', easing: 'cubic-bezier(0.45, 0, 0.55, 1)' },
-        { offset: 1, transform: 'none' }
-      ],
-      arms: [
-        { offset: 0, transform: 'none' },
-        { offset: 0.39, transform: 'none' },
-        { offset: 0.39, transform: 'translateY(-1px)' },
-        { offset: 0.67, transform: 'translateY(-1px)' },
-        { offset: 0.67, transform: 'none' },
-        { offset: 1, transform: 'none' }
-      ],
-      shadow: [
-        { offset: 0, opacity: 0, transform: 'none' },
-        { offset: 0.17, opacity: 1, transform: 'none' },
-        { offset: 0.39, opacity: 0.55, transform: 'scaleX(0.75)' },
-        { offset: 0.5, opacity: 0.55, transform: 'scaleX(0.75)' },
-        { offset: 0.67, opacity: 1, transform: 'scaleX(1.05)' },
-        { offset: 1, opacity: 0, transform: 'none' }
-      ]
-    };
 
     // ---------- The creature as the app draws it: the same 16 by 11 grid, posed ----------
 
@@ -342,12 +312,6 @@
       return pose;
     }
 
-    // The hero creature's eyes, toward the reader's pointer: one whole cell sideways once the pointer is past the body,
-    // one row down once it is well below (the words, the Download button). Never up: row 0 would notch the head.
-    function gaze(dx, dy, cell) {
-      return { x: dx < -8 * cell ? -1 : dx > 8 * cell ? 1 : 0, y: dy > 7 * cell ? 1 : 0 };
-    }
-
     // The quick opener's search, as the app ranks it (QuickOpenerRanking.filter): the name's start, then a word's start
     // in the name, then the note; the sidebar's order within each.
     function fold(s) { return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
@@ -444,11 +408,11 @@
 
     return {
       clamp01: clamp01, cubicBezier: cubicBezier, easeOut: easeOut, easeMove: easeMove, spring: spring,
-      ACCOUNTS: ACCOUNTS, TINT: TINT, STORY: STORY, memoryOf: memoryOf, readers: readers, storyFrame: storyFrame, lookAt: lookAt, HOP: HOP,
+      ACCOUNTS: ACCOUNTS, TINT: TINT, STORY: STORY, memoryOf: memoryOf, readers: readers, storyFrame: storyFrame, lookAt: lookAt,
       GRID: GRID, bodyPixels: bodyPixels, ARMS: ARMS, restPose: restPose, poseCells: poseCells, cellsPath: cellsPath,
       springDisp: springDisp, springValue: springValue, hash01: hash01, ASSEMBLE: ASSEMBLE, gatherPixels: gatherPixels,
       assembleFrame: assembleFrame, SPARKLES: SPARKLES, spritePath: spritePath, SAVED: SAVED, savedFrame: savedFrame,
-      gaze: gaze, openerFilter: openerFilter, DEMO: DEMO, SCENES: SCENES, ALLSET: ALLSET, batchDelays: batchDelays,
+      openerFilter: openerFilter, DEMO: DEMO, SCENES: SCENES, ALLSET: ALLSET, batchDelays: batchDelays,
       crossing: crossing, MENU: MENU, menuTip: menuTip, CHAIN: CHAIN, sceneLength: sceneLength, chainWait: chainWait
     };
   })();
@@ -782,71 +746,6 @@
   }, { rootMargin: '0px 0px -32% 0px', threshold: 0 });
   Array.prototype.slice.call(document.querySelectorAll('.said li')).forEach(function (el) { lit.observe(el); });
 
-  // The hero creature: it wakes up on its own (styles.css). Here, only what answers the visitor.
-  var creature = document.querySelector('.hero .creature');
-  if (creature && creature.animate) {
-    var hopping = false, lastHop = 0;
-    var parts = { body: creature.querySelector('.cr-hop'), arms: creature.querySelector('.cr-arms'), shadow: creature.querySelector('.cr-shadow') };
-    var hop = function () {
-      var now = Date.now();
-      if (hopping || now - lastHop < 900) return;
-      hopping = true; lastHop = now;
-      var a = parts.body.animate(Motion.HOP.body, { duration: Motion.HOP.duration });
-      parts.arms.animate(Motion.HOP.arms, { duration: Motion.HOP.duration });
-      parts.shadow.animate(Motion.HOP.shadow, { duration: Motion.HOP.duration });
-      a.onfinish = a.oncancel = function () { hopping = false; };
-    };
-    var finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-    creature.addEventListener('click', hop);
-    if (finePointer) creature.addEventListener('pointerenter', hop);
-    // Once awake, its eyes follow the reader's pointer, a whole cell at a time. The first move ends its idle glance,
-    // so the eyes never move twice at once. Only while the hero is on screen, and only for a mouse or a trackpad.
-    var cell = function () { return creature.getBoundingClientRect().width / 16; };
-    var gazeOn = false, gazeQueued = false, lastEvent = null, gazeKey = '';
-    var applyGaze = function () {
-      gazeQueued = false;
-      if (!lastEvent) return;
-      var box = creature.getBoundingClientRect(), c = box.width / 16;
-      var g = Motion.gaze(lastEvent.clientX - (box.left + 8 * c), lastEvent.clientY - (box.top + box.height / 2), c);
-      var key = g.x + ',' + g.y;
-      if (key === gazeKey) return;
-      if (!gazeKey) creature.querySelectorAll('.cr-eyes, .cr-blink, .cr-blink-shut').forEach(function (el) {
-        el.getAnimations().forEach(function (a) { a.finish(); });
-      });
-      gazeKey = key;
-      creature.classList.toggle('gx-l', g.x < 0);
-      creature.classList.toggle('gx-r', g.x > 0);
-      creature.classList.toggle('gy-d', g.y > 0);
-    };
-    var onPointer = function (e) {
-      lastEvent = e;
-      if (!gazeQueued) { gazeQueued = true; requestAnimationFrame(applyGaze); }
-    };
-    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-      setTimeout(function () {
-        new IntersectionObserver(function (entries) {
-          var on = entries[entries.length - 1].isIntersecting;
-          if (on === gazeOn) return;
-          gazeOn = on;
-          if (on) document.addEventListener('pointermove', onPointer, { passive: true });
-          else document.removeEventListener('pointermove', onPointer);
-        }).observe(creature);
-      }, 2300);
-    }
-    var download = document.querySelector('.hero .btn-primary');
-    if (download) {
-      var look = function () { creature.classList.add('is-looking'); };
-      var away = function () { creature.classList.remove('is-looking'); };
-      if (finePointer) {
-        download.addEventListener('pointerenter', look);
-        download.addEventListener('pointerleave', away);
-      }
-      download.addEventListener('focus', look);
-      download.addEventListener('blur', away);
-      download.addEventListener('pointerdown', hop);
-    }
-  }
-
   // ---------- How it works ----------
 
   function flow(fig) {
@@ -950,27 +849,31 @@
       playBtn.hidden = reduce || state === 'idle';
       playBtn.textContent = state === 'playing' ? 'Pause' : state === 'paused' ? 'Play' : 'Play again';
     }
+    // The companion (companion.js) keeps to the story's clock: it follows the note and hops as it lands.
+    function tell() {
+      fig.dispatchEvent(new CustomEvent('flowstate', { detail: { state: state, t0: t0, mode: mode } }));
+    }
     function tick() {
       // performance.now(), not the frame's timestamp: both clocks then agree (pause, resume, captures).
       var t = (performance.now() - t0) / 1000;
       // Before the story restarts (a mode change), the last frame stays while it fades out (styles.css, is-switching).
       if (t < 0) { raf = requestAnimationFrame(tick); return; }
       fig.classList.remove('is-switching');
-      if (t >= story.end) { paint(Motion.storyFrame(story.end, mode)); state = 'done'; raf = 0; label(); return; }
+      if (t >= story.end) { paint(Motion.storyFrame(story.end, mode)); state = 'done'; raf = 0; label(); tell(); return; }
       paint(Motion.storyFrame(t, mode));
       raf = requestAnimationFrame(tick);
     }
     function play(from) {
       cancelAnimationFrame(raf);
       t0 = performance.now() - from * 1000;
-      state = 'playing'; label();
+      state = 'playing'; label(); tell();
       raf = requestAnimationFrame(tick);
     }
     function pause() {
       if (state !== 'playing') return;
       cancelAnimationFrame(raf); raf = 0;
       offset = (performance.now() - t0) / 1000;
-      state = 'paused'; label();
+      state = 'paused'; label(); tell();
     }
 
     function setMode(m) {

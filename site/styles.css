@@ -401,14 +401,6 @@ code {
   cursor: default;
   -webkit-tap-highlight-color: transparent;
 }
-/* In an SVG, px in a transform are grid cells. The origin is the middle of the feet. */
-.creature .cr-hop,
-.creature .cr-sprite,
-.creature .cr-shadow {
-  transform-box: view-box;
-  transform-origin: 8px 11px;
-}
-.creature .cr-shadow { opacity: 0; }
 .hero-name {
   margin-bottom: 12px;
   font-size: 21px;
@@ -1784,8 +1776,8 @@ code {
   .btn-dl.is-going .dl-arrow { animation: dl-drop 520ms 1; }
 
   /* The page arrives: the name, the headline, the sentence, the buttons, then the screenshot, in reading order, while
-     the creature sleeps; it wakes once they have landed (below). The screenshot starts barely visible, never blank. */
-  .hero-name,
+     the creature assembles (companion.js, which also brings in the name as the app's wordmark). The screenshot starts
+     barely visible, never blank. */
   .hero h1,
   .hero-sub,
   .hero .actions,
@@ -1795,8 +1787,6 @@ code {
   .hero .actions { animation-delay: 180ms; }
   .hero-fine { animation-delay: 240ms; }
   .hero-shot { animation: shot-in var(--t-shot) var(--ease-out) 280ms both; }
-  /* The creature, from the start: asleep, it only settles in. */
-  .hero .creature { animation: sleep-in var(--t-page) var(--ease-out) both; }
 
   /* Reveals: readable before they stop moving. A batch that arrives together rises in reading order (--d, set by
      script.js); a group's children follow each other 60 ms apart. */
@@ -1995,28 +1985,6 @@ code {
     .js .dock-stage.is-in .dock:hover .acc-s .tip { animation: none; }
   }
 
-  /* The hero creature wakes up: a sleepy double blink, a crouch, a hop with squash and stretch, a wave.
-     Limbs and eyes move in whole cells; only the body's squash and stretch is eased. 1.88 s after a 400 ms wait. */
-  .hero .creature .cr-open { animation: cr-wake-open 1880ms step-end 400ms 1 both; }
-  .hero .creature .cr-shut { animation: cr-wake-shut 1880ms step-end 400ms 1 both; }
-  .hero .creature .cr-sprite { animation: cr-wake-sprite 1880ms linear 400ms 1 both; }
-  .hero .creature .cr-top { animation: cr-wake-top 1880ms step-end 400ms 1 both; }
-  .hero .creature .cr-arms { animation: cr-wake-arms 1880ms step-end 400ms 1 both; }
-  .hero .creature .cr-arm-r { animation: cr-wake-wave 1880ms step-end 400ms 1 both; }
-  .hero .creature .cr-shadow { animation: cr-wake-shadow 1880ms linear 400ms 1 both; }
-  /* Then it blinks once and looks around once, in whole cells, and stays still: 4.6 s after load in all.
-     No breathing: pixel art never breathes by scale, and nothing on the page moves for more than 5 s. */
-  .hero .creature .cr-eyes { animation: cr-glance 1800ms step-end 2800ms 1; }
-  .hero .creature .cr-blink { animation: cr-blink 1800ms step-end 2800ms 1; }
-  .hero .creature .cr-blink-shut { animation: cr-blink-shut 1800ms step-end 2800ms 1; }
-  /* Awake, it looks toward the reader's pointer, a whole cell at a time (script.js), and down at Download when the
-     button has the pointer or the keyboard's focus. */
-  .hero .creature .cr-look { transform: translate(var(--gx, 0px), var(--gy, 0px)); }
-  .hero .creature.gx-l { --gx: -1px; }
-  .hero .creature.gx-r { --gx: 1px; }
-  .hero .creature.gy-d,
-  .hero .creature.is-looking { --gy: 1px; }
-
   /* The 404: the creature looks left, then right, once. */
   .lost .creature .cr-eyes { animation: cr-lost 1400ms step-end 600ms 1; }
 
@@ -2036,9 +2004,6 @@ code {
 }
 @keyframes shot-in {
   from { opacity: 0.01; transform: translateY(28px) scale(0.98); }
-}
-@keyframes sleep-in {
-  from { opacity: 0; transform: translateY(6px); }
 }
 /* Down into the tray (gravity), gone; a new arrow comes down from above and settles. */
 @keyframes dl-drop {
@@ -2096,71 +2061,6 @@ code {
   88%, 100% { transform: none; }
 }
 
-/* Wake-up beats, in ms after the wait: 200 open, 320 shut, 440 open, 600 crouch, 720 take off, 880 apex,
-   1080 land, 1200 rebound, 1320 still, 1400 to 1760 wave. Percentages are of 1880 ms. */
-@keyframes cr-wake-open {
-  0% { opacity: 0; }
-  10.64% { opacity: 1; }
-  17.02% { opacity: 0; }
-  23.4%, 100% { opacity: 1; }
-}
-@keyframes cr-wake-shut {
-  0% { opacity: 1; }
-  10.64% { opacity: 0; }
-  17.02% { opacity: 1; }
-  23.4%, 100% { opacity: 0; }
-}
-@keyframes cr-wake-sprite {
-  0%, 31.91% { transform: none; animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
-  38.3% { transform: scale(1.08, 0.9); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
-  46.81% { transform: translateY(-3px) scale(0.94, 1.07); animation-timing-function: cubic-bezier(0.33, 0, 0.67, 1); }
-  51.06% { transform: translateY(-3.2px); animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45); }
-  57.45% { transform: scale(1.1, 0.88); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
-  63.83% { transform: scale(0.97, 1.03); animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1); }
-  70.21%, 100% { transform: none; }
-}
-@keyframes cr-wake-top {
-  0% { transform: none; }
-  31.91% { transform: translateY(1px); }
-  46.81% { transform: none; }
-  57.45% { transform: translateY(1px); }
-  63.83%, 100% { transform: none; }
-}
-@keyframes cr-wake-arms {
-  0% { transform: none; }
-  46.81% { transform: translateY(-1px); }
-  57.45%, 100% { transform: none; }
-}
-@keyframes cr-wake-wave {
-  0% { transform: none; }
-  74.47% { transform: translateY(-1px); }
-  80.85% { transform: none; }
-  87.23% { transform: translateY(-1px); }
-  93.62%, 100% { transform: none; }
-}
-@keyframes cr-wake-shadow {
-  0%, 31.91% { opacity: 0; transform: none; }
-  38.3% { opacity: 1; transform: none; }
-  46.81%, 51.06% { opacity: 0.55; transform: scaleX(0.75); }
-  57.45% { opacity: 1; transform: scaleX(1.05); }
-  70.21%, 100% { opacity: 0; transform: none; }
-}
-/* The idle, in ms after its 2.8 s delay (percentages of 1800 ms): a 120 ms blink at 0, eyes one cell left
-   600 to 1100, one cell right 1100 to 1600, home. */
-@keyframes cr-glance {
-  0% { transform: none; }
-  33.33% { transform: translateX(-1px); }
-  61.11% { transform: translateX(1px); }
-  88.89%, 100% { transform: none; }
-}
-@keyframes cr-blink {
-  0% { opacity: 0; }
-  6.67%, 100% { opacity: 1; }
-}
-@keyframes cr-blink-shut {
-  0% { opacity: 1; }
-  6.67%, 100% { opacity: 0; }
-}
 @keyframes cr-lost {
   0% { transform: none; }
   30% { transform: translateX(-1px); }

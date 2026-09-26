@@ -1,0 +1,81 @@
+/* The reading companion (companion.js): the hero creature, its perch in a corner, and its wordmark. */
+
+:root { --cm-u: 4px; }
+@media (max-width: 600px) {
+  :root { --cm-u: 3px; }
+}
+
+/* The hero creature: its drawing only, so its box never changes. Away on its perch, the hero keeps its place empty. */
+.hero-creature.is-away .cm-body,
+.hero-creature.is-away .cm-shadow,
+.hero-creature.is-away .cm-sprites { opacity: 0; }
+
+/* The companion's layer: one creature, 16 by 12 cells (the grid and its shadow row), placed by its feet. */
+.companion {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  width: calc(16 * var(--cm-u));
+  height: calc(12 * var(--cm-u));
+  transform-origin: calc(8 * var(--cm-u)) calc(11 * var(--cm-u));
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  /* Out of the way at once (something to read came under it), back gently. */
+  transition: opacity var(--t-quick, 150ms) var(--ease-color, ease), visibility 0s linear var(--t-quick, 150ms);
+}
+.companion.is-on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--t-base, 220ms) var(--ease-out, ease-out), visibility 0s;
+}
+.companion.is-instant { transition: none; }
+.companion .cm-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+/* Only its drawn cells take a click: the rest of the corner stays the page's. */
+.companion.is-on .cm-body { pointer-events: visiblePainted; }
+
+/* The perches: invisible boxes the size of the companion, in the corners, inside the safe areas. Bottom left on wide
+   screens (the app's sidebar footer), bottom right on phones, where the thumb is not. */
+.cm-perch {
+  position: fixed;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: calc(16 * var(--cm-u));
+  height: calc(12 * var(--cm-u));
+  visibility: hidden;
+  pointer-events: none;
+}
+.cm-perch-a { left: max(22px, env(safe-area-inset-left)); }
+.cm-perch-b { right: max(22px, env(safe-area-inset-right)); }
+@media (max-width: 600px) {
+  .cm-perch { bottom: max(14px, env(safe-area-inset-bottom)); }
+  .cm-perch-a { left: auto; right: max(14px, env(safe-area-inset-right)); }
+  .cm-perch-b { right: auto; left: max(14px, env(safe-area-inset-left)); }
+}
+
+/* Before companion.js takes over, the hero creature and its wordmark wait unseen: the launch starts from nothing, as the
+   app's does. If the script never comes, they show after 2.5 s. With Reduce Motion they are simply there. */
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  .hero-creature:not(.is-live) { animation: cm-failsafe 1ms linear 2500ms both; }
+  html:not(.cm-ready) .hero .hero-name { animation: cm-failsafe 1ms linear 2500ms both; }
+  /* The launch's wordmark: it rises 8 px as it comes in, from 0.52 s over 0.40 s (LaunchDirector.splash). */
+  .cm-intro .hero .hero-name { animation: cm-wordmark 400ms var(--ease-out) 520ms both; }
+  .cm-no-intro .hero .hero-name { animation: rise-in var(--t-rise) var(--ease-out) both; }
+}
+
+@keyframes cm-failsafe {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cm-wordmark {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+@media print {
+  .companion, .cm-perch { display: none; }
+}

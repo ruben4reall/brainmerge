@@ -26,8 +26,10 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="dock.css">
+  <link rel="stylesheet" href="companion.css">
   <script src="script.js" defer></script>
   <script src="dock.js" defer></script>
+  <script src="companion.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -54,24 +56,9 @@
     <!-- Hero -->
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
-        <svg class="creature" viewBox="0 -3 16 15" role="img" aria-label="The Brainmerge creature, a small purple pixel figure." shape-rendering="crispEdges">
-          <rect class="cr-shadow" x="2" y="11" width="12" height="1" fill="#A06BE0" fill-opacity="0.18"/>
-          <g class="cr-hop">
-            <g class="cr-sprite">
-              <path class="cr-legs" d="M2 8h1v3H2zM5 8h1v3H5zM10 8h1v3h-1zM13 8h1v3h-1z" fill="#A06BE0"/>
-              <g class="cr-top">
-                <path d="M2 0h12v8H2z" fill="#A06BE0"/>
-                <g class="cr-arms"><path class="cr-arm-l" d="M0 3h2v3H0z" fill="#A06BE0"/><path class="cr-arm-r" d="M14 3h2v3h-2z" fill="#A06BE0"/></g>
-                <g class="cr-look">
-                  <g class="cr-eyes" fill="#1E1430">
-                    <g class="cr-open"><g class="cr-blink"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g></g>
-                    <g class="cr-shut" opacity="0"><rect x="4" y="2" width="1" height="0.35"/><rect x="11" y="2" width="1" height="0.35"/></g>
-                    <g class="cr-blink-shut" opacity="0"><rect x="4" y="2" width="1" height="0.35"/><rect x="11" y="2" width="1" height="0.35"/></g>
-                  </g>
-                </g>
-              </g>
-            </g>
-          </g>
+        <svg class="creature hero-creature" viewBox="0 -3 16 15" role="img" aria-label="The Brainmerge creature, a small purple pixel figure." shape-rendering="crispEdges">
+          <rect class="cm-shadow" x="2" y="11" width="12" height="1" fill="#A06BE0" fill-opacity="0.18"/>
+          <g class="cm-body"><path class="cm-cells" d="M2 0h12v1h-12zM2 1h12v1h-12zM2 2h12v1h-12zM0 3h16v1h-16zM0 4h16v1h-16zM0 5h16v1h-16zM2 6h12v1h-12zM2 7h12v1h-12zM2 8h1v1h-1zM5 8h1v1h-1zM10 8h1v1h-1zM13 8h1v1h-1zM2 9h1v1h-1zM5 9h1v1h-1zM10 9h1v1h-1zM13 9h1v1h-1zM2 10h1v1h-1zM5 10h1v1h-1zM10 10h1v1h-1zM13 10h1v1h-1z" fill="#A06BE0"/><g class="cm-eyes" fill="#1E1430"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g></g>
         </svg>
         <p class="hero-name">Brainmerge</p>
         <h1 id="hero-title">Every Claude account,<br class="br-wide"> side by&nbsp;side.</h1>
