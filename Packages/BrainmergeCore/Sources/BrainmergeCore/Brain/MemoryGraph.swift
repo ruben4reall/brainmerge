@@ -205,6 +205,10 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     /// Every file of the last scan, drawn or not (hidden by the vault, or left out by the cap), by kind: a link to one
     /// of them finds its file, so it is never taken for a link to nothing.
     private var known: [String: FileKind] = [:]
+    /// The date and size of every file of the last scan: a file drawn again (the vault shows it again, or the cap lets it
+    /// in) that has not moved on disk is read but not reported as changed.
+    private var stamps: [String: Stamp] = [:]
+    private struct Stamp: Equatable { let modified: Date; let size: Int }
     private var built = false
 
     public init(root: URL, style: MemoryGraph.Style = .memory, maxNotes: Int = 2000, maxBytes: Int = 256 * 1024) {
@@ -272,6 +276,8 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     public func build(showing shows: (_ path: String, _ attachment: Bool) -> Bool = { _, _ in true }) -> Result {
         let (files, refused) = scan()
         known = Dictionary(files.map { ($0.path, $0.kind) }, uniquingKeysWith: { first, _ in first })
+        let before = stamps
+        stamps = Dictionary(files.map { ($0.path, Stamp(modified: $0.modified, size: $0.size)) }, uniquingKeysWith: { first, _ in first })
         // Notes and attachments are capped apart, so a vault full of images never pushes its notes out.
         func capped(_ list: [(path: String, modified: Date, size: Int, kind: FileKind)]) -> [(path: String, modified: Date, size: Int, kind: FileKind)] {
             list.count > maxNotes ? Array(list.sorted { $0.modified > $1.modified }.prefix(maxNotes)) : list
@@ -292,7 +298,7 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
                 read += 1
             }
             next[file.path] = Entry(modified: file.modified, size: file.size, kind: file.kind, targets: targets)
-            changed.append(file.path)
+            if !built || before[file.path] != Stamp(modified: file.modified, size: file.size) { changed.append(file.path) }
         }
         let removed = cache.keys.filter { next[$0] == nil }
         cache = next
