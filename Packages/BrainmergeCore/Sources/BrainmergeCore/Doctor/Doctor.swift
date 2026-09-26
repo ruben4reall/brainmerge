@@ -67,6 +67,14 @@ public struct Doctor: Sendable {
             }
         }
 
+        // Notes a save held back because they look like they hold a key: where, never the line.
+        for folder in state.brains {
+            for note in HeldStore(paths: paths, memoryID: folder.id).load().held {
+                findings.append(Finding(level: .warning, title: "Memory: \(folder.name)",
+                                        detail: "Not saved: \(note.sentence) Decide on the Memory screen."))
+            }
+        }
+
         let cliLink = paths.localBin.appending(path: "brainmerge")
         if let destination = try? fm.destinationOfSymbolicLink(atPath: cliLink.path), fm.fileExists(atPath: destination) {
             findings.append(Finding(level: .ok, title: "Command line", detail: "\(cliLink.path) -> \(destination)"))

@@ -68,18 +68,48 @@ public struct BrainGit: Sendable {
     }
 
     /// Commits exactly these paths, those of them that changed, under `author`, and nothing else: what the person staged by
-    /// hand stays staged, other files stay as they are. Returns the paths committed, sorted; none when nothing changed.
+    /// hand stays staged, other files stay as they are. Once they are staged, `hold` sees them and names those to leave
+    /// out (the secret guard): they are unstaged again, in the index only, and the rest is committed. Returns the paths
+    /// committed, sorted; none when nothing changed or everything was held.
     @discardableResult
-    public func commit(paths: [String], author: Author, message: ([String]) -> String) throws -> [String] {
+    public func commit(paths: [String], author: Author, hold: ([String]) throws -> Set<String> = { _ in [] },
+                       message: ([String]) -> String) throws -> [String] {
         try requireGit()
         let wanted = Set(paths)
         guard !wanted.isEmpty else { return [] }
         let changed = Set(try status(scope: Array(wanted))).intersection(wanted).sorted()
         guard !changed.isEmpty else { return [] }
         try shell.check("/usr/bin/git", ["--literal-pathspecs", "add", "-A", "--"] + changed, cwd: brain.root)
+        let held: Set<String>
+        do { held = try hold(changed) } catch { try? unstage(changed); throw error }
+        if !held.isEmpty { try unstage(changed.filter(held.contains)) }
+        let kept = changed.filter { !held.contains($0) }
+        guard !kept.isEmpty else { return [] }
         try shell.check("/usr/bin/git", ["--literal-pathspecs", "-c", "user.name=\(author.name)", "-c", "user.email=\(author.email)",
-                                         "commit", "-q", "-m", message(changed), "--"] + changed, cwd: brain.root)
-        return changed
+                                         "commit", "-q", "-m", message(kept), "--"] + kept, cwd: brain.root)
+        return kept
+    }
+
+    /// What staging these paths adds, and only that: no context line, no line saved before, no rename detection, and none
+    /// of the person's diff settings (an external diff, a text conversion, other prefixes).
+    public func diffCachedAdded(paths: [String]) throws -> String {
+        try requireGit()
+        guard !paths.isEmpty else { return "" }
+        return try shell.check("/usr/bin/git", ["--literal-pathspecs", "-c", "core.quotePath=false", "diff", "--cached", "-U0", "--no-color",
+                                                "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "--"] + paths,
+                               cwd: brain.root)
+    }
+
+    /// Takes these paths out of the index again, the index only: the notes on disk and the history do not move.
+    public func unstage(_ paths: [String]) throws {
+        try requireGit()
+        guard !paths.isEmpty else { return }
+        if head() != nil {
+            try shell.check("/usr/bin/git", ["--literal-pathspecs", "restore", "--staged", "--"] + paths, cwd: brain.root)
+        } else {
+            // Before the first commit there is nothing to restore from: the paths leave the index, the files stay.
+            try shell.check("/usr/bin/git", ["--literal-pathspecs", "rm", "--cached", "-q", "-r", "--"] + paths, cwd: brain.root)
+        }
     }
 
     /// Adds everything and commits under the identity's name. Returns false if there was nothing to commit. Never used for

@@ -24,6 +24,9 @@ import BrainmergeTestSupport
         return (brain, git)
     }
 
+    /// Where held notes go: beside the memory's temporary home.
+    func held(_ brain: Brain) -> HeldStore { HeldStore(paths: Paths(home: brain.root.deletingLastPathComponent()), memoryID: "shared") }
+
     func tracked(_ git: BrainGit) throws -> [String] {
         try git.shell.check("/usr/bin/git", ["-c", "core.quotePath=false", "ls-files"], cwd: git.brain.root)
             .split(separator: "\n").map(String.init)
@@ -45,7 +48,7 @@ import BrainmergeTestSupport
         try TouchedLedger(brain: brain, slug: "work").append("memory/acme/deploy.md")
         try TouchedLedger(brain: brain, slug: "perso").append("memory/kayak/MEMORY.md")
 
-        let saved = try AccountSave(brain: brain, git: git).run(for: work)
+        let saved = try AccountSave(brain: brain, git: git, held: held(brain)).run(for: work).saved
         #expect(saved == ["memory/acme/deploy.md", "memory/acme/old.md", "memory/acme/prices.md"])
         let last = try #require(try git.log(limit: 1).first)
         #expect(last.authorName == "Work" && last.authorEmail == "work@brainmerge.local")
@@ -57,10 +60,10 @@ import BrainmergeTestSupport
         #expect(!files.contains("Daily/2026-09-25.md") && !files.contains(".obsidian/workspace.json"))
         #expect(TouchedLedger.claimed(in: brain) == ["memory/kayak/MEMORY.md"])
 
-        #expect(try AccountSave(brain: brain, git: git).run(for: perso) == ["memory/kayak/MEMORY.md"])
+        #expect(try AccountSave(brain: brain, git: git, held: held(brain)).run(for: perso).saved == ["memory/kayak/MEMORY.md"])
         #expect(try git.log(limit: 1).first?.authorName == "Perso")
         #expect(try git.log(limit: 1).first?.message == "Perso updated its notes about kayak")
-        #expect(try AccountSave(brain: brain, git: git).run(for: perso) == [])
+        #expect(try AccountSave(brain: brain, git: git, held: held(brain)).run(for: perso).saved == [])
         #expect(try git.log(limit: 10).count == 3)
         #expect(!(try tracked(git)).contains { $0.hasPrefix(".brainmerge/touched") })
     }
@@ -71,7 +74,7 @@ import BrainmergeTestSupport
         let (brain, git) = try memory(home)
         try TouchedLedger(brain: brain, slug: "work").append("memory/acme/old.md")
         try TouchedLedger(brain: brain, slug: "work").append("memory/acme/never-there.md")
-        #expect(try AccountSave(brain: brain, git: git).run(for: work) == [])
+        #expect(try AccountSave(brain: brain, git: git, held: held(brain)).run(for: work).saved == [])
         #expect(try git.log(limit: 10).count == 1)
         #expect(TouchedLedger.claimed(in: brain).isEmpty)
     }
@@ -108,7 +111,7 @@ import BrainmergeTestSupport
         let git = BrainGit(brain: brain)
         try write("# note\n", "memory/acme/note.md", in: brain)
         try TouchedLedger(brain: brain, slug: "work").append("memory/acme/note.md")
-        #expect(try AccountSave(brain: brain, git: git).run(for: work) == ["memory/acme/note.md"])
+        #expect(try AccountSave(brain: brain, git: git, held: held(brain)).run(for: work).saved == ["memory/acme/note.md"])
         #expect(try tracked(git) == ["memory/acme/note.md"])
     }
 
@@ -202,7 +205,7 @@ import BrainmergeTestSupport
         try write("# today\n", "Daily/2026-09-25.md", in: brain)
         try write("{}", ".obsidian/workspace.json", in: brain)
         try TouchedLedger(brain: brain, slug: "work").append("memory/acme/claude.md")
-        let edits = OwnEdits(brain: brain, git: git)
+        let edits = OwnEdits(brain: brain, git: git, held: HeldStore(paths: home.paths, memoryID: "shared"))
         let now = Date()
 
         #expect(try edits.save(now: now, sessionRunning: false) == .tooRecent)
@@ -229,7 +232,7 @@ import BrainmergeTestSupport
         try write("# old\n", "memory/acme/old.md", in: brain)
         try git.commitAll(authorName: "Setup", authorEmail: "setup@brainmerge.local", message: "Start")
         try FileManager.default.removeItem(at: brain.root.appending(path: "memory/acme/old.md"))
-        let edits = OwnEdits(brain: brain, git: git)
+        let edits = OwnEdits(brain: brain, git: git, held: HeldStore(paths: home.paths, memoryID: "shared"))
         #expect(try edits.newestChange(of: ["memory/acme/old.md"]).map { abs($0.timeIntervalSinceNow) < 60 } == true)
         let gone = brain.root.appending(path: "memory/acme")
         try FileManager.default.removeItem(at: gone)

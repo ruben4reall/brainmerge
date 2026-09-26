@@ -20,18 +20,27 @@ struct Sync: ParsableCommand {
             let own = Brain(root: folder.url)
             guard own.isInitialized else { log.write("\(identity): memory missing at \(own.root.path)"); return }
             // Its own memory, and any other one it wrote a note in (or left a list in, when a save stopped half way).
-            let others = state.brains.filter { $0.id != folder.id }.map { Brain(root: $0.url) }.filter { brain in
-                let ledger = TouchedLedger(brain: brain, slug: id.slug)
-                return brain.isInitialized && [ledger.file, ledger.sending].contains { FileManager.default.fileExists(atPath: $0.path) }
+            let others = state.brains.filter { $0.id != folder.id }.filter { other in
+                let ledger = TouchedLedger(brain: Brain(root: other.url), slug: id.slug)
+                return Brain(root: other.url).isInitialized && [ledger.file, ledger.sending].contains { FileManager.default.fileExists(atPath: $0.path) }
             }
             var saved = 0
-            for brain in [own] + others {
+            var held: Set<String> = []
+            for memory in [folder] + others {
+                let brain = Brain(root: memory.url)
                 try? brain.ensureIgnores()
                 let git = BrainGit(brain: brain)
-                saved += try git.withLock(timeout: timeout) { try AccountSave(brain: brain, git: git).run(for: id) }.count
+                let store = HeldStore(paths: context.paths, memoryID: memory.id)
+                let outcome = try git.withLock(timeout: timeout) { try AccountSave(brain: brain, git: git, held: store).run(for: id) }
+                saved += outcome.saved.count
+                held.formUnion(outcome.held.map { "\(memory.id)/\($0.path)" })
             }
             let ms = Int(Date().timeIntervalSince(start) * 1000)
             log.write("\(identity): \(saved == 0 ? "nothing to commit" : "committed \(saved) file\(saved == 1 ? "" : "s")") in \(ms) ms")
+            // Never the line, never the value: how many files, and why.
+            if !held.isEmpty {
+                log.write("\(identity): held back \(held.count) file\(held.count == 1 ? " (looks like a key)" : "s (they look like keys)")")
+            }
         } catch BrainmergeError.lockTimeout {
             log.write("\(identity): brain lock held by another process, skipped")
         } catch {

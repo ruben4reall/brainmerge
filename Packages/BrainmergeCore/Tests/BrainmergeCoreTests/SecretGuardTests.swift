@@ -1,0 +1,232 @@
+import Foundation
+import Testing
+import BrainmergeTestSupport
+@testable import BrainmergeCore
+
+/// Key-shaped values, assembled when the tests run: the repository itself never holds one (GitHub's push protection would
+/// block it, and it would be a key in the history, the very thing the guard prevents).
+enum SecretFixtures {
+    /// Deterministic characters that look random: mixed case, digits.
+    static func noise(_ count: Int, _ alphabet: String = "aB3dE5fG7hJ9kL2mN4pQ6rS8tU1vW0xYz", step: Int = 7) -> String {
+        let chars = Array(alphabet)
+        return String((0..<count).map { chars[($0 * step + 3) % chars.count] })
+    }
+
+    static var gitHub: String { "gh" + "p_" + noise(36) }
+    static var gitHubFineGrained: String { "github" + "_pat_" + noise(22) + "_" + noise(59, step: 5) }
+    static var anthropic: String { "sk-" + "ant-" + "api03-" + noise(48) }
+    static var openAI: String { "sk-" + "proj-" + noise(48) }
+    static var gitLab: String { "gl" + "pat-" + noise(20) }
+    static var slack: String { "xo" + "xb-" + "1234567890" + "-" + noise(24) }
+    static var aws: String { "AK" + "IA" + noise(16, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567") }
+    static var google: String { "AI" + "za" + noise(35) }
+    static var stripe: String { "sk" + "_live_" + noise(24) }
+    static var npm: String { "np" + "m_" + noise(36) }
+    static var pem: String { "-----BEGIN " + "RSA PRIVATE" + " KEY-----" }
+    static var password: String { noise(24, step: 13) }
+}
+
+@Suite struct SecretShapesTests {
+    @Test func eachShapeIsRecognizedInALine() {
+        let f = SecretFixtures.self
+        let cases: [(String, SecretShape)] = [
+            ("deploy with token \(f.gitHub) then push", .gitHub),
+            ("GH_TOKEN=\(f.gitHubFineGrained)", .gitHub),
+            ("export ANTHROPIC_API_KEY=\(f.anthropic)", .anthropic),
+            ("OPENAI_API_KEY: \(f.openAI)", .openAI),
+            ("gitlab: \(f.gitLab)", .gitLab),
+            ("slack bot \(f.slack)", .slack),
+            ("aws_access_key_id = \(f.aws)", .aws),
+            ("maps key \(f.google)", .google),
+            ("stripe \(f.stripe)", .stripe),
+            ("//registry.npmjs.org/:_authToken=\(f.npm)", .npm),
+            (f.pem, .privateKey),
+            ("DB_PASSWORD=\(f.password)", .assignment),
+            ("secret: \"\(f.password)\"", .assignment),
+        ]
+        for (line, shape) in cases {
+            #expect(SecretShapes.match(line) == shape, "\(shape)")
+        }
+    }
+
+    /// Everyday notes are not keys: prose, slugs, hashes named as such, placeholders, low-entropy values, links.
+    @Test func everydayNotesAreNotKeys() {
+        for line in ["The password policy: at least twelve characters, rotated every quarter.",
+                     "- task-management-system-overview-and-roadmap-2026 is the project slug",
+                     "Deploy: git push origin main, then check the desk-reservation-service logs",
+                     "token: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                     "api_key: ${ANTHROPIC_API_KEY_FROM_THE_ENVIRONMENT}",
+                     "password: <put-your-own-password-here-please>",
+                     "token_url: https://example.com/oauth2/token/endpoint/v2",
+                     "commit 3f9a1c2e8b7d6f5a4c3b2a1908f7e6d5c4b3a291 fixed it",
+                     "secret: short"] {
+            #expect(SecretShapes.match(line) == nil, "\(line)")
+        }
+    }
+
+    @Test func shapesSayWhatTheyLookLike() {
+        #expect(SecretShape.gitHub.label == "a GitHub token")
+        #expect(SecretShape.privateKey.label == "a private key")
+        #expect(SecretShape.assignment.label == "a password or key")
+        #expect(SecretShape.allCases.allSatisfy { !$0.label.isEmpty })
+    }
+}
+
+@Suite struct SecretGuardTests {
+    func diff(_ path: String, start: Int, _ added: [String]) -> String {
+        """
+        diff --git a/\(path) b/\(path)
+        index 0000000..1111111 100644
+        --- a/\(path)
+        +++ b/\(path)
+        @@ -0,0 +\(start),\(added.count) @@
+        \(added.map { "+" + $0 }.joined(separator: "\n"))
+
+        """
+    }
+
+    @Test func addedLinesAreScannedWithTheirNumbers() {
+        let text = diff("memory/acme/deploy.md", start: 10, ["# Deploy", "", "token \(SecretFixtures.gitHub)"])
+            + diff("memory/acme/notes.md", start: 1, ["nothing here"])
+        let found = SecretGuard.scan(diff: text) { _, _ in false }
+        #expect(found.count == 1)
+        #expect(found.first?.path == "memory/acme/deploy.md" && found.first?.line == 12 && found.first?.shape == .gitHub)
+        #expect(found.first?.hash == LineHash(line: "token \(SecretFixtures.gitHub)"))
+        let allowed = SecretGuard.scan(diff: text) { path, hash in path == "memory/acme/deploy.md" && hash == found.first?.hash }
+        #expect(allowed.isEmpty)
+    }
+
+    /// A name git quotes (a quote, a tab, a non-ASCII letter when quotePath is on) is read back as written.
+    @Test func quotedNamesAreReadBack() {
+        let text = """
+        diff --git "a/memory/acme/d\\303\\251ploy \\"v2\\".md" "b/memory/acme/d\\303\\251ploy \\"v2\\".md"
+        --- /dev/null
+        +++ "b/memory/acme/d\\303\\251ploy \\"v2\\".md"
+        @@ -0,0 +1 @@
+        +\(SecretFixtures.pem)
+
+        """
+        #expect(SecretGuard.scan(diff: text) { _, _ in false }.first?.path == "memory/acme/déploy \"v2\".md")
+    }
+
+    /// What the guard keeps can never carry the value: a path, a number, a shape and a digest, no text of the line.
+    @Test func resultsHoldNoTextOfTheLine() throws {
+        let note = HeldNote(account: "work", path: "memory/acme/deploy.md", line: 3, shape: .gitHub, hash: LineHash(line: "x"))
+        func strings(_ value: Any) -> [String] {
+            Mirror(reflecting: value).children.compactMap { child in child.value is String ? child.label : nil }
+        }
+        #expect(Set(strings(note)).isSubset(of: ["account", "path"]), "\(strings(note))")
+        #expect(strings(SecretGuard.Finding(path: "p", line: 1, shape: .aws, hash: LineHash(line: "x"))) == ["path"])
+        #expect(strings(LineHash(line: "x")) == ["hex"])
+        #expect(LineHash(line: "x").hex.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil)
+
+        let value = SecretFixtures.anthropic
+        let found = SecretGuard.scan(diff: diff("memory/a.md", start: 1, ["key \(value)"])) { _, _ in false }
+        let encoded = String(decoding: try JSONEncoder().encode(found), as: UTF8.self) + String(describing: found)
+        #expect(!found.isEmpty)
+        #expect(!encoded.contains(value) && !encoded.contains(String(value.suffix(12))))
+    }
+}
+
+/// The guard inside a save: a file that looks like it holds a key is left out of the commit and kept on the account's
+/// list; its neighbors are saved. What is kept about it is its path, line, shape and digest, never the line.
+@Suite struct GuardedSaveTests {
+    let work = Identity(slug: "work", name: "Work", tint: .blue)
+
+    func write(_ text: String, _ path: String, in brain: Brain) throws {
+        let url = brain.root.appending(path: path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+
+    func tracked(_ git: BrainGit) throws -> [String] {
+        try git.shell.check("/usr/bin/git", ["ls-files"], cwd: git.brain.root).split(separator: "\n").map(String.init)
+    }
+
+    func setup(_ home: TempHome) throws -> (Brain, BrainGit, HeldStore) {
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        return (brain, BrainGit(brain: brain), HeldStore(paths: home.paths, memoryID: "shared"))
+    }
+
+    @Test func aHeldFileIsNotCommittedWhileItsNeighborsAre() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, held) = try setup(home)
+        let value = SecretFixtures.gitHub
+        try write("# Deploy\n\nUse \(value) to push.\n", "memory/acme-api/deploy.md", in: brain)
+        try write("# Prices\n", "memory/acme-api/prices.md", in: brain)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        try ledger.append("memory/acme-api/deploy.md")
+        try ledger.append("memory/acme-api/prices.md")
+
+        let outcome = try AccountSave(brain: brain, git: git, held: held).run(for: work)
+        #expect(outcome.saved == ["memory/acme-api/prices.md"])
+        #expect(outcome.held.map(\.path) == ["memory/acme-api/deploy.md"])
+        #expect(try tracked(git) == ["memory/acme-api/prices.md"])
+        let staged = try git.shell.check("/usr/bin/git", ["diff", "--cached", "--name-only"], cwd: brain.root)
+        #expect(staged.isEmpty, "the held file is unstaged, the index only")
+        #expect(held.load().held == [HeldNote(account: "work", path: "memory/acme-api/deploy.md", line: 3, shape: .gitHub,
+                                              hash: LineHash(line: "Use \(value) to push."))])
+        #expect(TouchedLedger.claimed(in: brain) == ["memory/acme-api/deploy.md"], "it waits on the account's list")
+        let file = try String(contentsOf: held.file, encoding: .utf8)
+        #expect(!file.contains(value) && !file.contains("Use "))
+
+        // Held again at the next save, still once.
+        _ = try AccountSave(brain: brain, git: git, held: held).run(for: work)
+        #expect(held.load().held.count == 1)
+    }
+
+    /// "It's not a secret": the digest goes to the memory's own list, and the next save commits the file. Lines already
+    /// saved are not scanned again when the note changes.
+    @Test func anAllowedLineIsSavedAndContextLinesAreNotRescanned() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, held) = try setup(home)
+        try write("# Deploy\nUse \(SecretFixtures.gitHub) to push.\n", "memory/acme/deploy.md", in: brain)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        try ledger.append("memory/acme/deploy.md")
+        let first = try AccountSave(brain: brain, git: git, held: held).run(for: work)
+        let note = try #require(first.held.first)
+
+        try HeldDecision.notASecret(note, brain: brain, store: held)
+        #expect(held.load().held.isEmpty)
+        #expect(NotSecrets.hashes(in: brain) == [note.hash.hex])
+        #expect(try AccountSave(brain: brain, git: git, held: held).run(for: work).saved == ["memory/acme/deploy.md"])
+
+        try write("# Deploy\nUse \(SecretFixtures.gitHub) to push.\nThen tag it.\n", "memory/acme/deploy.md", in: brain)
+        // Even with the line no longer allowed, only the added line is read.
+        try FileManager.default.removeItem(at: brain.notSecretsFile)
+        try ledger.append("memory/acme/deploy.md")
+        #expect(try AccountSave(brain: brain, git: git, held: held).run(for: work).saved == ["memory/acme/deploy.md"])
+    }
+
+    /// "Save anyway": once, for the next save of the account that wrote it.
+    @Test func saveAnywayAllowsTheNextSaveOnly() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, held) = try setup(home)
+        try write("key \(SecretFixtures.aws)\n", "memory/acme/aws.md", in: brain)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        try ledger.append("memory/acme/aws.md")
+        let note = try #require(try AccountSave(brain: brain, git: git, held: held).run(for: work).held.first)
+        try HeldDecision.saveAnyway(note, store: held)
+        #expect(held.load().held.isEmpty && held.load().allowed.count == 1)
+        #expect(try AccountSave(brain: brain, git: git, held: held).run(for: work).saved == ["memory/acme/aws.md"])
+        #expect(held.load().allowed.isEmpty, "used once")
+
+        try write("key \(SecretFixtures.aws)\nkey \(SecretFixtures.aws)\n", "memory/acme/aws.md", in: brain)
+        try ledger.append("memory/acme/aws.md")
+        #expect(try AccountSave(brain: brain, git: git, held: held).run(for: work).held.count == 1)
+        #expect(NotSecrets.hashes(in: brain).isEmpty, "Save anyway never marks the line as safe for good")
+    }
+
+    /// The person's own edits go through the same guard.
+    @Test func yourOwnEditsAreGuardedToo() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, held) = try setup(home)
+        try write("DB_PASSWORD=\(SecretFixtures.password)\n", "memory/acme/db.md", in: brain)
+        try write("# Idea\n", "memory/acme/idea.md", in: brain)
+        let outcome = try OwnEdits(brain: brain, git: git, held: held).save(now: Date().addingTimeInterval(3600), sessionRunning: false)
+        guard case .saved(let saved) = outcome else { Issue.record("\(outcome)"); return }
+        #expect(saved.contains("memory/acme/idea.md") && !saved.contains("memory/acme/db.md"))
+        #expect(held.load().held.map(\.account) == [nil])
+        #expect(held.load().held.first?.shape == .assignment)
+    }
+}

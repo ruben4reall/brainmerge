@@ -67,6 +67,7 @@ public struct MemoryView: View {
                     }
                 }
             }
+            if let summary = AppModel.heldSummary(model.heldNotes) { heldBanner(summary) }
             switch mode {
             case .graph:
                 MemoryGraphView(graph: model.memoryGraph, app: model)
@@ -80,6 +81,31 @@ public struct MemoryView: View {
         // Obsidian's list is only read while the graph shows, where its menu is.
         .onAppear { model.refreshMemory(); if mode == .graph { Task { await model.refreshVaults() } } }
         .onChange(of: mode) { _, mode in if mode == .graph { Task { await model.refreshVaults() } } }
+    }
+
+    /// Notes a save held back because they look like they hold a key: where and what they look like, never the value, and
+    /// the answers. Glass buttons only: the screen's one purple button stays the notes app's.
+    func heldBanner(_ summary: String) -> some View {
+        GlassCard(radius: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(summary).font(Theme.Fonts.body).fontWeight(.semibold)
+                ForEach(model.heldNotes) { note in
+                    HStack(spacing: 10) {
+                        Text(note.sentence).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                            .lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Button("Open") { if let url = model.heldNoteURL(note) { NotesApps.open(url, with: target) } }
+                            .buttonStyle(.glass).controlSize(.small)
+                        Button("It's not a secret") { Task { await model.notASecret(note) } }.buttonStyle(.glass).controlSize(.small)
+                            .help("Saves this line from now on, in every account attached to this memory.")
+                        Button("Save anyway") { Task { await model.saveAnyway(note) } }.buttonStyle(.glass).controlSize(.small)
+                            .help("Saves this note once, the next time it is saved.")
+                    }
+                }
+            }
+            .padding(14)
+        }
+        .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
     }
 
     /// What the graph shows: each Brainmerge memory, each vault Obsidian lists, or a vault picked by hand. Vaults are

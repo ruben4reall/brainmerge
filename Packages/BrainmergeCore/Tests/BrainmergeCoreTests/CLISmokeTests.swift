@@ -180,6 +180,33 @@ import BrainmergeTestSupport
         #expect(!(try String(contentsOf: logFile, encoding: .utf8)).contains("sentinel"))
     }
 
+    /// A note that looks like it holds a key is not committed, and nothing that could carry the key is written anywhere:
+    /// not the log, not the held list, not the doctor. Its neighbor is saved.
+    @Test func aKeyShapedNoteIsHeldBackAndNeverWrittenOut() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let value = SecretFixtures.gitHub
+        let notes = e.brain.memoryDir(forProject: "acme-api")
+        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+        try Data("# Deploy\n\nPush with \(value)\n".utf8).write(to: notes.appending(path: "deploy.md"))
+        try Data("# Prices\n".utf8).write(to: notes.appending(path: "prices.md"))
+        for file in ["deploy.md", "prices.md"] {
+            #expect(try run(e, ["touched", "--identity", "perso"], input: edit(notes.appending(path: file).path)).status == 0)
+        }
+        let sync = try run(e, ["sync", "--identity", "perso"])
+        #expect(sync.status == 0 && sync.stdout.isEmpty)
+        #expect(try BrainGit(brain: e.brain).log(limit: 1).first?.files == ["memory/acme-api/prices.md"])
+        let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
+        #expect(log.contains("perso: held back 1 file (looks like a key)"))
+        let held = try String(contentsOf: HeldStore(paths: e.home.paths, memoryID: "shared").file, encoding: .utf8)
+        #expect(held.contains("memory/acme-api/deploy.md"))
+        let doctor = try run(e, ["doctor"])
+        #expect(doctor.stdout.contains("acme-api/deploy.md, line 3, looks like a GitHub token"))
+        for text in [log, held, doctor.stdout, doctor.stderr, sync.stderr, try run(e, ["doctor", "--json"]).stdout] {
+            #expect(!text.contains(value) && !text.contains(String(value.suffix(12))) && !text.contains("Push with"))
+        }
+    }
+
     /// The PostToolUse hook runs after every edit: it prints nothing and never fails, whatever it is given.
     @Test func touchedPrintsNothingAndAlwaysExitsZero() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }

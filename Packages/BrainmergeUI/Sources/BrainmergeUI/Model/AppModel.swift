@@ -682,8 +682,50 @@ public final class AppModel {
         accounts.filter { brain(of: $0.identity)?.id == brainID }
     }
 
+    // MARK: Held notes
+
+    /// The notes of the selected memory a save held back because they look like they hold a key (see SecretGuard):
+    /// where, what they look like, never the line.
+    public private(set) var heldNotes: [HeldNote] = []
+
+    /// Read again with the memory's history: a small file in Application Support.
+    func refreshHeld() {
+        let notes = selectedFolder.map { HeldStore(paths: paths, memoryID: $0.id).load().held } ?? []
+        if notes != heldNotes { heldNotes = notes }
+    }
+
+    /// The banner's sentence, nil when nothing is held.
+    public static func heldSummary(_ notes: [HeldNote]) -> String? {
+        let files = Set(notes.map(\.path)).count
+        guard files > 0 else { return nil }
+        return files == 1 ? "1 note was not saved: it looks like it holds a key." : "\(files) notes were not saved: they look like they hold keys."
+    }
+
+    /// Where a held note is, for "Open".
+    public func heldNoteURL(_ note: HeldNote) -> URL? { selectedBrain?.root.appending(path: note.path) }
+
+    /// "It's not a secret": its line is saved by every account from now on (its digest joins the memory's list), at the
+    /// next save of whoever wrote it.
+    public func notASecret(_ note: HeldNote) async {
+        await decide("Saving your choice…") { brain, store in try HeldDecision.notASecret(note, brain: brain, store: store) }
+    }
+
+    /// "Save anyway": this note is saved once, at the next save of whoever wrote it.
+    public func saveAnyway(_ note: HeldNote) async {
+        await decide("Saving your choice…") { _, store in try HeldDecision.saveAnyway(note, store: store) }
+    }
+
+    /// Under the memory's lock, like the saves that read the same lists.
+    private func decide(_ label: String, _ work: @escaping @Sendable (Brain, HeldStore) throws -> Void) async {
+        guard let brain = selectedBrain, let folder = selectedFolder else { return }
+        let store = HeldStore(paths: paths, memoryID: folder.id), git = BrainGit(brain: brain, availability: self.git)
+        _ = await perform(label) { try git.withLock(timeout: 5) { try work(brain, store) } }
+        refreshHeld()
+    }
+
     /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects.
     public func refreshMemory() {
+        refreshHeld()
         guard let brain = selectedBrain, let folder = selectedFolder else { memoryEvents = []; memoryCounts = [:]; projectCount = 0; return }
         let entries = prefetchedLog.flatMap { $0.root == brain.root ? $0.entries : nil } ?? (try? BrainGit(brain: brain).log(limit: 200)) ?? []
         memoryEvents = MemoryFeed.events(from: Array(entries.prefix(50)), identities: accounts.map(\.identity))
@@ -1248,7 +1290,7 @@ public final class AppModel {
     func saveOwnEditsIfQuiet(now: Date = Date()) -> Task<Void, Never>? {
         guard saveOwnEdits, gitAvailable, !savingOwnEdits, !AppLifecycle.isCaptureOrDemo(environment: environment) else { return nil }
         savingOwnEdits = true
-        let store = self.store, monitor = manager.monitor, git = self.git
+        let store = self.store, monitor = manager.monitor, git = self.git, paths = self.paths
         return Task {
             let saved = await Task.detached(priority: .utility) { () -> Bool in
                 guard let state = try? store.load(), state.saveOwnEdits else { return false }
@@ -1259,12 +1301,15 @@ public final class AppModel {
                     let brain = Brain(root: folder.url)
                     guard brain.isInitialized else { continue }
                     let repo = BrainGit(brain: brain, availability: git)
-                    let outcome = try? repo.withLock(timeout: 0) { try OwnEdits(brain: brain, git: repo).save(now: now, sessionRunning: running) }
+                    let edits = OwnEdits(brain: brain, git: repo, held: HeldStore(paths: paths, memoryID: folder.id))
+                    let outcome = try? repo.withLock(timeout: 0) { try edits.save(now: now, sessionRunning: running) }
                     if case .saved = outcome { any = true }
                 }
                 return any
             }.value
             savingOwnEdits = false
+            // A note held back meanwhile shows on the Memory screen too.
+            refreshHeld()
             if saved { refreshMemory() }
         }
     }
