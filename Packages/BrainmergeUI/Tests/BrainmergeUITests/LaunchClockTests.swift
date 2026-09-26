@@ -202,6 +202,98 @@ import Testing
         #expect(reduced.words(0, at: at(0.5)) == (1, 0))
     }
 
+    /// The display's clock (seconds since boot) turned into dates with one offset, taken once: two frames a refresh apart
+    /// are a refresh apart as dates, whenever each one is converted.
+    @Test func displayTimesBecomeDatesExactlyAFrameApart() {
+        let display = DisplayClock(now: t0, media: 5_000)
+        #expect(display.date(at: 5_000) == t0)
+        for k in 1...240 {
+            let gap = display.date(at: 5_000 + Double(k) / 120).timeIntervalSince(display.date(at: 5_000 + Double(k - 1) / 120))
+            #expect(abs(gap - 1.0 / 120) < 1e-6, "frame \(k): \(gap)")
+        }
+    }
+
+    /// "Open Brainmerge" lands mid-frame: the guide's last leap starts on the first frame the display shows, and every frame
+    /// after it is drawn for the moment it reaches the screen. The creature, the guide and the main window under it read
+    /// the one frame worked out for that moment: at 60 Hz each frame moves the creature by an even step, never half a step
+    /// then one and a half.
+    @Test func theGuideExitRunsOnTheDisplaysFrames() throws {
+        let clock = LaunchClock(finished: true, slow: 1, capture: false)
+        clock.windowSize = size
+        clock.offer(sidebar, at: t0)
+        clock.leave(from: CGRect(x: 456, y: 540, width: 48, height: 33), reduceMotion: false, at: t0)
+        let first = at(0.013)
+        clock.show(frameAt: first)
+        #expect(clock.start == first && clock.time(at: first) == 0)
+        #expect(clock.current == clock.frame(at: first, size: size))
+        let end = try #require(clock.finishTime)
+        var xs: [CGFloat] = []
+        for k in 0...Int(end * 60) {
+            let shown = first.addingTimeInterval(Double(k) / 60)
+            clock.show(frameAt: shown)
+            if clock.finished { break }
+            let frame = try #require(clock.current)
+            #expect(frame == clock.frame(at: shown, size: size), "frame \(k)")
+            #expect(clock.look(.guide).opacity == frame.guideOpacity && clock.look(.main).opacity == frame.screensOpacity, "frame \(k)")
+            xs.append(frame.feet.x)
+        }
+        // Once in the air, a step never differs from the one before by a quarter of the flight's mean step (the footage
+        // showed half a step then one and a half: a whole step apart).
+        let steps = zip(xs.dropFirst(), xs).map { abs($0 - $1) }
+        let moving = steps.filter { $0 > 0.5 }
+        let mean = moving.reduce(0, +) / CGFloat(max(1, moving.count))
+        let takeoff = try #require(steps.firstIndex { $0 > 0.5 })
+        #expect(mean > 5, "\(steps)")
+        for k in (takeoff + 2)..<steps.count {
+            #expect(abs(steps[k] - steps[k - 1]) <= mean / 4, "step \(k): \(steps[k - 1]) then \(steps[k])")
+        }
+        // The first frame at or past the landing ends the scene, which lands at the landing's own time.
+        let landing = first.addingTimeInterval(end)
+        clock.show(frameAt: landing.addingTimeInterval(0.004))
+        #expect(clock.finished && clock.landed == landing)
+        #expect(clock.look(.guide) == .whole && clock.look(.main) == .whole)
+    }
+
+    /// Once the guide has faded and the main window has come in, the frames still coming for the creature redraw neither:
+    /// the guide and the main window are only drawn again when how they look changes.
+    @Test func aFadeThatIsOverRedrawsNothing() {
+        let clock = LaunchClock(finished: true, slow: 1, capture: false)
+        clock.windowSize = size
+        clock.offer(sidebar, at: t0)
+        clock.leave(from: CGRect(x: 456, y: 540, width: 48, height: 33), reduceMotion: false, at: t0)
+        clock.show(frameAt: t0)
+        clock.show(frameAt: at(0.5))
+        #expect(!clock.finished && clock.look(.guide).opacity == 0 && clock.look(.main).opacity == 1)
+        let changed = Flag()
+        withObservationTracking { _ = clock.look(.guide); _ = clock.look(.main) } onChange: { changed.raise() }
+        clock.show(frameAt: at(0.5 + 1.0 / 60))
+        clock.show(frameAt: at(0.5 + 2.0 / 60))
+        #expect(!changed.raised)
+    }
+
+    /// Before the display's first frame of a scene (the overlay just appeared), it draws the scene's very first frame, never
+    /// one a few milliseconds in that the first frame shown would then take back.
+    @Test func beforeItsFirstFrameShownTheSceneDrawsItsFirst() {
+        let clock = LaunchClock(finished: true, slow: 1, capture: false)
+        clock.windowSize = size
+        clock.offer(sidebar, at: t0)
+        clock.leave(from: CGRect(x: 456, y: 540, width: 48, height: 33), reduceMotion: false, at: at(-0.02))
+        #expect(clock.drawnFrame(size: size) == clock.frame(at: at(-0.02), size: size))
+        clock.show(frameAt: t0)
+        #expect(clock.drawnFrame(size: size) == clock.current && clock.current == clock.frame(at: t0, size: size))
+    }
+
+    /// The launch starts on its first frame shown too, and a frame shown late in the splash is drawn for its own moment.
+    @Test func theLaunchStartsOnItsFirstFrameShown() {
+        let clock = LaunchClock(slow: 1, capture: false)
+        clock.windowSize = size
+        clock.begin(at: t0, reduceMotion: false)
+        clock.show(frameAt: at(0.009))
+        #expect(clock.start == at(0.009))
+        clock.show(frameAt: at(0.009 + 0.25))
+        #expect(clock.current == clock.frame(at: at(0.259), size: size))
+    }
+
     @Test func capturesNeverPlayTheHandOffs() {
         // A capture never shows the splash, even from a window that would.
         #expect(LaunchClock(finished: false, slow: 1, capture: true).finished)

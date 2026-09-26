@@ -1089,6 +1089,29 @@ import BrainmergeTestSupport
         #expect(late.showsMenuBarIcon && !late.launchSettling)
     }
 
+    /// While a creature is in the air (the launch's leap, the guide's last one), the clocks wait: a reload's `ps`, a
+    /// memory's `git log` would take the main thread from its frames. Each clock that came due ticks once it has landed.
+    @Test func theClocksWaitForTheLanding() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let counter = PSCounter()
+        let m = model(e, monitor: ProcessMonitor(psOutput: { counter.bump(); return "" }))
+        m.reload()
+        let before = counter.value
+        m.launchSettling = true
+        m.tick(.instances)
+        m.tick(.instances)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(counter.value == before)
+        m.launchSettling = false
+        for _ in 0..<200 where counter.value == before { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(counter.value == before + 1)
+        m.tick(.instances)
+        for _ in 0..<200 where counter.value == before + 1 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(counter.value == before + 2)
+    }
+
     /// The Claude update check reads the processes off the main thread: it runs as the clocks start, which can be the
     /// moment a step of the guide slides in.
     @Test func theUpdateCheckReadsTheProcessesOffTheMainThread() async throws {

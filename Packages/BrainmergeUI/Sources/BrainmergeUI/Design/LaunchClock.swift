@@ -5,6 +5,10 @@ import SwiftUI
 ///
 /// Two scenes run on it: the launch (`AssembleScene`), then, on a first run, the end of the guided setup (`GuideExit`).
 /// Times are seconds on the scene's clock since `start`, slowed by `BRAINMERGE_SLOW_MOTION` in debug builds.
+///
+/// The display drives it (`show(frameAt:)`, from `DisplayFrames`): each frame is worked out once, for the moment it reaches
+/// the screen, and the scene's zero is its first frame shown. The creature, the guide and the screens under it read that
+/// one frame, so a frame drawn late in its refresh is still drawn for its own moment: the steps stay even.
 @MainActor @Observable
 public final class LaunchClock {
     /// The window's coordinate space: the overlay draws in it, the target creatures measure themselves in it.
@@ -17,6 +21,13 @@ public final class LaunchClock {
     }
     /// Who reads the clock underneath the overlay: the main window's screens, or the guided setup.
     public enum Role: Sendable { case main, guide }
+    /// How the screens (or the guide) look under the overlay: their opacity and scale, and whether they take clicks.
+    public struct Look: Equatable, Sendable {
+        public var opacity: Double
+        public var scale: CGFloat
+        public var hittable: Bool
+        public static let whole = Look(opacity: 1, scale: 1, hittable: true)
+    }
 
     public private(set) var mode = Mode.launch
     public private(set) var start: Date?
@@ -31,6 +42,14 @@ public final class LaunchClock {
     /// The moment it landed: the target creature's own clock starts here, so its first idle blink never doubles the landing's.
     public private(set) var landed: Date?
     public private(set) var reduceMotion = false
+    /// The frame on screen now, worked out once for the moment the display shows it (nil before the scene's first one).
+    public private(set) var current: LaunchFrame?
+    /// How the screens and the guide look under it, set only when that changes: once a fade is over, the frames still
+    /// coming for the creature redraw neither.
+    private var mainLook = Look.whole
+    private var guideLook = Look.whole
+    /// The scene waits for its first frame shown to set its zero there.
+    @ObservationIgnored private var anchoring = false
     /// The window's size, to tell whether the All set creature is in sight when the guide ends.
     @ObservationIgnored public var windowSize: CGSize = .zero
     /// Where the All set creature stands, kept for "Open Brainmerge": it moves on every scroll step, and outside
@@ -57,7 +76,49 @@ public final class LaunchClock {
     public func begin(at date: Date, reduceMotion: Bool) {
         guard start == nil else { return }
         start = date
+        anchoring = true
         self.reduceMotion = reduceMotion
+        updateLooks(frame(at: date, size: windowSize))
+    }
+
+    /// The display shows a frame at `date`: the first one of a scene becomes its zero, and the frame is worked out once for
+    /// everyone who draws from it. The frame that reaches the end lands the scene.
+    public func show(frameAt date: Date) {
+        guard !finished, let start else { return }
+        if anchoring {
+            anchoring = false
+            let shift = date.timeIntervalSince(start) / slow
+            self.start = date
+            readyAt = readyAt.map { max(0, $0 - shift) }
+            skippedAt = skippedAt.map { max(0, $0 - shift) }
+        }
+        let frame = frame(at: date, size: windowSize)
+        current = frame
+        updateLooks(frame)
+        if frame.finished { finish() }
+    }
+
+    /// What the overlay draws: the frame shown now, or, before the display's first frame of a scene, its very first one
+    /// (never a frame a few milliseconds in that the first one shown would then take back).
+    public func drawnFrame(size: CGSize) -> LaunchFrame {
+        current ?? frame(at: anchoring ? (start ?? Date()) : Date(), size: size)
+    }
+
+    /// How `role` looks now: whole once the scene is over.
+    public func look(_ role: Role) -> Look {
+        guard !finished else { return .whole }
+        return role == .main ? mainLook : guideLook
+    }
+
+    private func updateLooks(_ frame: LaunchFrame) {
+        let main = look(.main, in: frame), guide = look(.guide, in: frame)
+        if main != mainLook { mainLook = main }
+        if guide != guideLook { guideLook = guide }
+    }
+
+    private func look(_ role: Role, in f: LaunchFrame) -> Look {
+        if case .exit = mode, role == .guide { return Look(opacity: f.guideOpacity, scale: 1, hittable: false) }
+        return Look(opacity: f.screensOpacity, scale: f.screensScale, hittable: !f.screensHeld)
     }
 
     public func time(at date: Date) -> Double { start.map { date.timeIntervalSince($0) / slow } ?? 0 }
@@ -66,6 +127,7 @@ public final class LaunchClock {
     public func ready(at date: Date) {
         guard readyAt == nil else { return }
         readyAt = max(0, time(at: date))
+        if !finished { updateLooks(frame(at: date, size: windowSize)) }
     }
 
     /// A click or a key on the splash: the hand-off starts as soon as the app is ready, even before 0.48 s.
@@ -166,6 +228,8 @@ public final class LaunchClock {
     public func finish() {
         guard !finished else { return }
         finished = true
+        current = nil
+        anchoring = false
         if let start, let end = finishTime { landed = start.addingTimeInterval(end * slow) } else { landed = Date() }
     }
 
@@ -176,12 +240,15 @@ public final class LaunchClock {
         let source = frame.flatMap { window.contains($0) && $0.width > 0 ? LaunchTarget(frame: $0, asleep: false) : nil }
         mode = .exit(source: source)
         start = date
+        anchoring = true
         readyAt = nil
         skippedAt = nil
         target = lastOffer
         landed = nil
+        current = nil
         self.reduceMotion = reduceMotion
         finished = capture
+        if !finished { updateLooks(self.frame(at: date, size: windowSize)) }
     }
 
     // MARK: What the views read
@@ -206,25 +273,21 @@ public final class LaunchClock {
         guard !finished, !reduceMotion, case .exit(let source) = mode else { return false }
         return source != nil
     }
-    /// The screens underneath need frames: after the load, until the overlay goes.
-    public var revealRuns: Bool { !finished && (readyAt != nil || mode != .launch) }
-
     /// How the screens (or the guide) look at a date under the overlay.
-    public func reveal(_ role: Role, at date: Date) -> (opacity: Double, scale: CGFloat, hittable: Bool) {
-        guard !finished else { return (1, 1, true) }
-        let f = frame(at: date, size: windowSize)
-        if case .exit = mode, role == .guide { return (f.guideOpacity, 1, false) }
-        return (f.screensOpacity, f.screensScale, !f.screensHeld)
+    public func reveal(_ role: Role, at date: Date) -> Look {
+        guard !finished else { return .whole }
+        return look(role, in: frame(at: date, size: windowSize))
     }
 }
 
-/// The screens under a hand-off, or the guide over the last one: their opacity comes from the launch clock, frame by frame.
-/// They fill the window, so the window's space is named again on them.
+/// The screens under a hand-off, or the guide over the last one: their opacity comes from the launch clock's frame on
+/// screen, and they are drawn again only when it changes. They fill the window, so the window's space is named again on
+/// them.
 ///
 /// The main window is never faded itself: a group opacity over its glass re-renders every backdrop on every frame of the
 /// leap. A cover of the window's own background fades off it instead, which looks the same (the window is opaque over
-/// that background) and leaves the screens untouched: the timeline redraws only the cover. While the screens are held
-/// back, the cover takes the clicks. The guide, over the main window, fades itself.
+/// that background) and leaves the screens untouched: only the cover is drawn again. While the screens are held back,
+/// the cover takes the clicks. The guide, over the main window, fades itself.
 struct LaunchReveal: ViewModifier {
     let clock: LaunchClock
     let role: LaunchClock.Role
@@ -232,24 +295,18 @@ struct LaunchReveal: ViewModifier {
     func body(content: Content) -> some View {
         switch role {
         case .main:
+            let look = clock.look(.main)
             content
                 .coordinateSpace(.named(LaunchClock.space))
-                .overlay {
-                    TimelineView(.animation(paused: !clock.revealRuns)) { context in
-                        let look = clock.reveal(role, at: context.date)
-                        WarmBackground().opacity(1 - look.opacity).allowsHitTesting(!look.hittable)
-                    }
-                }
+                .overlay { WarmBackground().opacity(1 - look.opacity).allowsHitTesting(!look.hittable) }
                 .accessibilityHidden(!clock.finished && clock.mode == .launch && clock.readyAt == nil)
         case .guide:
-            TimelineView(.animation(paused: !clock.revealRuns)) { context in
-                let look = clock.reveal(role, at: context.date)
-                content
-                    .coordinateSpace(.named(LaunchClock.space))
-                    .opacity(look.opacity)
-                    .allowsHitTesting(look.hittable)
-                    .accessibilityHidden(look.opacity == 0)
-            }
+            let look = clock.look(.guide)
+            content
+                .coordinateSpace(.named(LaunchClock.space))
+                .opacity(look.opacity)
+                .allowsHitTesting(look.hittable)
+                .accessibilityHidden(look.opacity == 0)
         }
     }
 }

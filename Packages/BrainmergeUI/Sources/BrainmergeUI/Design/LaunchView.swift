@@ -3,8 +3,9 @@ import SwiftUI
 /// The launch splash, an overlay on the window until its creature has landed: the pixels gather into the creature, the
 /// wordmark rises, and once the app is ready the creature leaps into the sidebar while the screens fade in underneath
 /// (LaunchScene.swift). A click or any key hurries it once the app is ready. It draws the frames of a `LaunchClock` and
-/// nothing else; the same overlay draws the leap that ends the guided setup. VoiceOver reads one element:
-/// "Brainmerge is starting".
+/// nothing else; the same overlay draws the leap that ends the guided setup. The display drives it: each of its frames
+/// hands the clock the moment it is shown (`DisplayFrames`), and the overlay draws the clock's frame for that moment.
+/// VoiceOver reads one element: "Brainmerge is starting".
 public struct LaunchView: View {
     /// Said to VoiceOver when the splash hands over: its only element goes away and the accounts appear.
     static let readyAnnouncement = "Brainmerge is ready"
@@ -17,12 +18,17 @@ public struct LaunchView: View {
 
     public var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation(paused: clock.finished)) { context in
-                let frame = clock.frame(at: context.date, size: geo.size)
-                splash(frame, size: geo.size)
-                    .onChange(of: frame.finished, initial: true) { _, done in if done { clock.finish() } }
-            }
+            let frame = clock.drawnFrame(size: geo.size)
+            splash(frame, size: geo.size)
+                .onChange(of: frame.finished, initial: true) { _, done in if done { clock.finish() } }
         }
+        .background {
+            DisplayFrames(running: !clock.finished) { clock.show(frameAt: $0) }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        // The frames are worked out for the window's size (the overlay fills it).
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { clock.windowSize = $0 }
         .onAppear { clock.begin(at: Date(), reduceMotion: reduceMotion) }
     }
 

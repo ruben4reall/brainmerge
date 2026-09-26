@@ -441,7 +441,12 @@ public final class AppModel {
             if shown != showsMenuBarIcon { updateWatching() }
             settlingTimeout?.cancel()
             settlingTimeout = nil
-            guard launchSettling else { return }
+            guard launchSettling else {
+                let due = Watchers.Clock.allCases.filter(dueTicks.contains)
+                dueTicks = []
+                for clock in due { tick(clock) }
+                return
+            }
             let limit = settlingLimit
             settlingTimeout = Task { [weak self] in
                 try? await Task.sleep(for: limit)
@@ -1505,12 +1510,26 @@ public final class AppModel {
         watchedClocks = clocks
         followMemoryHead()
         guard !clocks.isEmpty else { watchers.stop(); return }
-        watchers.start(clocks, running: { [weak self] in self?.reload() },
-                       memory: { [weak self] in self?.refreshMemory() },
-                       projects: { [weak self] in self?.onProjectsTick() },
-                       claude: { [weak self] in Task { await self?.checkClaudeUpdate() } })
-        if starting { Task { await checkClaudeUpdate() } }
+        watchers.start(clocks, running: { [weak self] in self?.tick(.instances) },
+                       memory: { [weak self] in self?.tick(.memory) },
+                       projects: { [weak self] in self?.tick(.projects) },
+                       claude: { [weak self] in self?.tick(.claude) })
+        if starting { tick(.claude) }
     }
+
+    /// A clock's tick: the accounts read again (off the main thread), the memory's history, new projects, a Claude update.
+    /// While a creature is in the air (`launchSettling`), a tick waits for the landing, once per clock: what it reads
+    /// would take the main thread from the frames.
+    func tick(_ clock: Watchers.Clock) {
+        guard !launchSettling else { dueTicks.insert(clock); return }
+        switch clock {
+        case .instances: Task { await reloadOffMain() }
+        case .memory: refreshMemory()
+        case .projects: onProjectsTick()
+        case .claude: Task { await checkClaudeUpdate() }
+        }
+    }
+    @ObservationIgnored private var dueTicks: Set<Watchers.Clock> = []
 
     /// Projects that appeared since the last pass get their memory link, in each account's memory (idempotent, without a message).
     func wireNewProjects() {
