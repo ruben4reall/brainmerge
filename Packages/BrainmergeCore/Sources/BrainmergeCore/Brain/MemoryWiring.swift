@@ -39,15 +39,23 @@ public struct MemoryWiring: Sendable {
         var result = Result()
         var registry = try ProjectRegistry.load(brain.projectsFile)
         let before = registry
+        // This machine's paths, looked up once each instead of scanning the whole list for every project.
+        var index = registry.names(machineID: machineID)
         for ref in try profile.projects() {
             let preferred = ref.path.map { ProjectSlug.projectName(forPath: $0, home: paths.home) }
                 ?? ProjectSlug.projectName(forSlug: ref.slug, home: paths.home)
-            let name = Self.knownName(slug: ref.slug, path: ref.path, in: registry, machineID: machineID)
-                ?? registry.register(preferredName: preferred, path: Self.registryKey(ref), machineID: machineID)
+            let name: String
+            if let known = Self.knownName(slug: ref.slug, path: ref.path, in: registry, machineID: machineID, index: index) {
+                name = known
+            } else {
+                name = registry.register(preferredName: preferred, path: Self.registryKey(ref), machineID: machineID)
+                index[Self.registryKey(ref)] = name
+            }
             try link(profile.projectsDir.appending(path: ref.slug, directoryHint: .isDirectory), name: name,
                      identitySlug: identitySlug, into: &result)
         }
-        try registry.save(to: brain.projectsFile)
+        // Written only when it changed: this runs every minute.
+        if registry != before { try registry.save(to: brain.projectsFile) }
         // These are the account's projects: its save carries the list, not "You edited".
         if registry != before { try? TouchedLedger(brain: brain, slug: identitySlug).append(".brainmerge/projects.json") }
         return result
@@ -114,10 +122,11 @@ public struct MemoryWiring: Sendable {
 
     public func status(profile: CLIProfile) throws -> [ProjectLinkStatus] {
         let registry = try ProjectRegistry.load(brain.projectsFile)
+        let index = registry.names(machineID: machineID)
         return try profile.projects().map { ref in
             let preferred = ref.path.map { ProjectSlug.projectName(forPath: $0, home: paths.home) }
                 ?? ProjectSlug.projectName(forSlug: ref.slug, home: paths.home)
-            let name = Self.knownName(slug: ref.slug, path: ref.path, in: registry, machineID: machineID) ?? preferred
+            let name = Self.knownName(slug: ref.slug, path: ref.path, in: registry, machineID: machineID, index: index) ?? preferred
             let link = profile.projectsDir.appending(path: ref.slug, directoryHint: .isDirectory).appending(path: "memory")
             return ProjectLinkStatus(name: name, path: ref.path ?? ref.slug, slug: ref.slug,
                                      state: try Self.inspect(link, target: brain.memoryDir(forProject: name)))
@@ -137,9 +146,11 @@ public struct MemoryWiring: Sendable {
     /// The name a project already has on this machine, so it never becomes "name-2": by its path, by its sessions folder
     /// alone (wired before its path was known), or, when only the sessions folder is known, by a path registered for that
     /// same folder (a session start registers the path before `.claude.json` lists it).
-    static func knownName(slug: String, path: String?, in registry: ProjectRegistry, machineID: String) -> String? {
-        if let path, let name = registry.name(forPath: path, machineID: machineID) { return name }
-        if let name = registry.name(forPath: registryKey(ProjectRef(slug: slug, path: nil)), machineID: machineID) { return name }
+    static func knownName(slug: String, path: String?, in registry: ProjectRegistry, machineID: String,
+                          index: [String: String]? = nil) -> String? {
+        let lookup = { (key: String) in index.map { $0[key] } ?? registry.name(forPath: key, machineID: machineID) }
+        if let path, let name = lookup(path) { return name }
+        if let name = lookup(registryKey(ProjectRef(slug: slug, path: nil))) { return name }
         guard path == nil else { return nil }
         return registry.projects.keys.sorted().first { name in
             guard let known = registry.projects[name]?.paths[machineID], known.hasPrefix("/") else { return false }

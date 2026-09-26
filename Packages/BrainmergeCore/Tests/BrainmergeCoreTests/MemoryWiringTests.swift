@@ -226,6 +226,16 @@ import BrainmergeTestSupport
         #expect(Set(adopted.moved.map(\.lastPathComponent)) == ["one.md", "late.md"])
     }
 
+    /// The minute pass wires every account: with nothing new, the list of projects is not written again.
+    @Test func wiringAgainWritesNothing() throws {
+        let e = try env(); defer { e.home.remove() }
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)], ofItemAtPath: e.brain.projectsFile.path)
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        let date = try FileManager.default.attributesOfItem(atPath: e.brain.projectsFile.path)[.modificationDate] as? Date
+        #expect(date == Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
     /// Every session start asks again: a project already linked into this memory, under whatever name, is left exactly
     /// as it is and nothing is written.
     @Test func wireOneIsIdempotentAndWritesNothingWhenLinked() throws {
