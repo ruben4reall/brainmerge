@@ -77,7 +77,9 @@ public final class AppModel {
     /// "Save my own edits to the memory's history" (see `saveOwnEditsIfQuiet`).
     public private(set) var saveOwnEdits = true
     /// The settings saved from the app, each written to state.json on the core queue (see `save`).
-    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, saveOwnEdits, browser(String) }
+    /// "A terminal command per account": claude-<slug> links next to the brainmerge command.
+    public internal(set) var terminalCommands = false
+    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, saveOwnEdits, terminalCommands, browser(String) }
     /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
     private var pendingSaves: [Setting: Int] = [:]
     /// Tests only: runs on the core queue as a setting's save begins, before it waits for the state lock.
@@ -374,6 +376,10 @@ public final class AppModel {
             let state = try? store.load()
             if !demo, state?.identities.isEmpty == false {
                 if let cli { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
+                // An account added from the command line since: its claude-<slug> link, where nothing is in the way.
+                if let cli, let state, state.terminalCommands {
+                    for identity in state.identities { _ = try? CLIInstaller.linkAccount(paths: paths, slug: identity.slug, target: cli) }
+                }
                 // An older memory's .gitignore learns to leave out what each account notes it wrote (append only).
                 for folder in state?.brains ?? [] where Brain(root: folder.url).isInitialized { try? Brain(root: folder.url).ensureIgnores() }
                 // Written only when one is not current: a launch never rewrites the settings of accounts already up to date.
@@ -470,6 +476,7 @@ public final class AppModel {
         if !isSaving(.notesApp) { set(\.notesApp, state.notesApp) }
         if !isSaving(.menuBarIcon) { set(\.menuBarIcon, state.menuBarIcon) }
         if !isSaving(.saveOwnEdits) { set(\.saveOwnEdits, state.saveOwnEdits) }
+        if !isSaving(.terminalCommands) { set(\.terminalCommands, state.terminalCommands) }
         if !isSaving(.graphVault) { set(\.graphVault, state.graphVault) }
         set(\.brains, state.brains)
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
@@ -1071,6 +1078,7 @@ public final class AppModel {
         let manager = self.manager
         let request = form.request
         guard let identity = await perform("Adding \(request.name)…", { try manager.add(request) }) else { return false }
+        if terminalCommands, let cli = commandLine() { _ = try? CLIInstaller.linkAccount(paths: paths, slug: identity.slug, target: cli) }
         if open, identity.surfaces.desktop { openNewAccount(identity) }
         return true
     }

@@ -27,6 +27,8 @@ public struct AppState: Codable, Equatable, Sendable {
     public var notesApp: String?
     /// Brainmerge's icon in the menu bar. On unless the person turned it off.
     public var menuBarIcon: Bool
+    /// `claude-<slug>` next to `brainmerge` in ~/.local/bin, one per account. Off unless the person turns it on.
+    public var terminalCommands = false
     /// The Obsidian vault the Memory screen's graph shows, by its folder; nil shows the Brainmerge memory.
     public var graphVault: String?
     /// The Brainmerge memory the Memory screen shows, by its id; nil, or one forgotten since, shows the default one.
@@ -45,7 +47,7 @@ public struct AppState: Codable, Equatable, Sendable {
         if brains.isEmpty, let brainPath { self.brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: brainPath)] }
     }
 
-    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory, claudeAppPath, saveOwnEdits }
+    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory, claudeAppPath, saveOwnEdits, terminalCommands }
 
     /// Schema 1 (a single `brainPath`) becomes a list with one memory called Shared.
     public init(from decoder: Decoder) throws {
@@ -63,6 +65,7 @@ public struct AppState: Codable, Equatable, Sendable {
         claudeAppPath = try c.decodeIfPresent(String.self, forKey: .claudeAppPath)
         // Added without a schema bump, like the menu bar icon: a file written before it saves the person's edits.
         saveOwnEdits = try c.decodeIfPresent(Bool.self, forKey: .saveOwnEdits) ?? true
+        terminalCommands = try c.decodeIfPresent(Bool.self, forKey: .terminalCommands) ?? false
         let list = try c.decodeIfPresent([MemoryFolder].self, forKey: .brains) ?? []
         if list.isEmpty, let path = try c.decodeIfPresent(String.self, forKey: .brainPath) {
             brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: path)]
@@ -87,6 +90,7 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encodeIfPresent(graphMemory, forKey: .graphMemory)
         try c.encodeIfPresent(claudeAppPath, forKey: .claudeAppPath)
         try c.encode(saveOwnEdits, forKey: .saveOwnEdits)
+        try c.encode(terminalCommands, forKey: .terminalCommands)
     }
 
     /// The default memory's folder. Setting it moves the default memory to that folder, or creates it.

@@ -214,6 +214,11 @@ public struct AccountsView: View {
 
     @ViewBuilder func actions(_ account: Account) -> some View {
         Button("Edit…") { startEditing(account) }
+        // brainmerge code <slug>, or claude-<slug> with the per-account commands on: never a hand-typed CLAUDE_CONFIG_DIR.
+        Button("Copy Terminal Command") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(model.terminalCommand(for: account.id), forType: .string)
+        }
         if Self.offersLogIn(account) { Button("Log in…") { model.beginLogin(account.id) }.disabled(model.accountsBusy.contains(account.id)) }
         Menu("Memory") {
             let current = model.brainName(of: account.identity)

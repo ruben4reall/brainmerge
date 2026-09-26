@@ -116,6 +116,9 @@ public struct SettingsView: View {
                                     Button("Repair hooks") { Task { await model.repairHooks() } }.buttonStyle(.glass)
                                 }
                             }
+                            Toggle("A terminal command per account", isOn: Binding(get: { model.terminalCommands }, set: { model.setTerminalCommands($0) }))
+                            Text("Adds claude-work, claude-personal and so on next to the brainmerge command. Each one starts Claude Code on that account, with its memory.")
+                                .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                             Text("Optional. Everything here can be done from a terminal with the brainmerge command.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }

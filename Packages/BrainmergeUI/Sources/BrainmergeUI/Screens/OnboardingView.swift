@@ -241,7 +241,7 @@ public struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("GO FURTHER").font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
                 tip("Keep the memory tidy: one fact per note, a short index. Claude reads it at every start.")
-                tip("For big code bases, a local code graph or index saves tokens: Claude asks it where things are.")
+                tip("In a terminal, claude-work starts Claude Code on that account, with its memory: turn on A terminal command per account in Settings.")
                 tip("Give a work or client account its own memory: what it learns stays there.")
             }
             .frame(maxWidth: 520)
