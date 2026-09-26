@@ -139,6 +139,35 @@ import Testing
         #expect(last >= ends, "the end of the glow was never drawn: \(log.dates.map { $0.timeIntervalSince(s) })")
     }
 
+    @MainActor final class Moments { var seen: [(date: Date, recent: Bool)] = [] }
+    @MainActor @Observable final class Change { var at: Date? }
+
+    /// The Memory graph's status capsule, as MemoryGraphView builds it: its body reads the last change, so a change
+    /// restarts its clock.
+    struct GraphStatus: View {
+        let change: Change
+        let moments: Moments
+        var body: some View {
+            ChangedRecently(since: change.at, duration: 1) { recent in
+                let _ = moments.seen.append((Date(), recent))
+                Color.clear.frame(width: 10, height: 10)
+            }
+        }
+    }
+
+    @Test func aGraphChangeIsDrawnAsRecentThenLiveAgain() throws {
+        // A change at 0.3 s whose "Changed just now" lasts 1 s (4 s in the app): drawn recent right away, then drawn once
+        // more as "Live" when it is over. (`.explicit([end])` drew only the end, at once: the words stayed "Live".)
+        let change = Change(), moments = Moments()
+        var changed: Date?
+        Self.host(GraphStatus(change: change, moments: moments), for: 1.9, actions: [(0.3, { changed = Date(); change.at = changed })])
+        let c = try #require(changed)
+        let after = moments.seen.filter { $0.date >= c }
+        #expect(after.contains { $0.recent }, "never drawn as changed: \(after.map { ($0.date.timeIntervalSince(c), $0.recent) })")
+        let last = try #require(after.last)
+        #expect(!last.recent && last.date >= c.addingTimeInterval(1), "\(after.map { ($0.date.timeIntervalSince(c), $0.recent) })")
+    }
+
     @Test func aFooterBuiltAfterTheGlowNeverShowsIt() {
         // The window reopened 2 s after a save whose glow lasted 1 s: nothing is drawn at a date inside that glow.
         let glow = Glow(), log = Log()

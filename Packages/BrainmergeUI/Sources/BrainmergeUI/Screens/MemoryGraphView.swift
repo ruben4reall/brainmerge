@@ -395,8 +395,7 @@ struct MemoryGraphView: View {
     /// dot turns accentLight and rings once; the words crossfade and the capsule eases to its new width; four seconds
     /// later the dot goes back to sage over 0.3 s.
     var status: some View {
-        TimelineView(.explicit(graph.lastChange.map { [$0.addingTimeInterval(4.05)] } ?? [])) { context in
-            let recent = graph.lastChange.map { context.date.timeIntervalSince($0) < 4 } ?? false
+        ChangedRecently(since: graph.lastChange) { recent in
             let counts = Self.statusCounts(hasRead: graph.hasRead, notes: noteCount, projects: graph.graph.nodes.count - noteCount,
                                            links: graph.graph.edges.count, vault: isVault, truncated: graph.truncated)
             let dot = recent ? Theme.Colors.accentLight : Theme.Colors.sage
@@ -720,6 +719,21 @@ private struct VaultCanvas: View {
         case .attachment: return Theme.Colors.vaultAttachment
         case .unresolved: return Theme.Colors.vaultUnresolved
         case .note, .project: return Theme.Colors.vaultNode
+        }
+    }
+}
+
+/// The graph's status over time: `recent` for the four seconds after a change, drawn once more when they are over.
+struct ChangedRecently<Content: View>: View {
+    let since: Date?
+    var duration: TimeInterval = 4
+    @ViewBuilder let content: (_ recent: Bool) -> Content
+
+    /// The footer's schedule (`GlowSchedule`): now, then just past the end, then nothing. An explicit schedule of the end
+    /// alone was drawn at once, with the end's date: "Changed just now" never showed.
+    var body: some View {
+        TimelineView(GlowSchedule(ends: since?.addingTimeInterval(duration))) { context in
+            content(since.map { context.date >= $0 && context.date.timeIntervalSince($0) < duration } ?? false)
         }
     }
 }
