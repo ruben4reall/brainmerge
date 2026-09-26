@@ -32,6 +32,30 @@ import BrainmergeTestSupport
         #expect(text.contains("CLAUDE_CONFIG_DIR=\(home.paths.cliProfile(slug: "client", isPrimary: false).path)"))
     }
 
+    /// The copy is modified and re-signed; the Claude it was copied from never is: every file of it, its signature
+    /// included, is byte for byte the same after the build.
+    @Test func theInstalledClaudeIsLeftUntouched() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        // Signed under an identifier of its own, as Anthropic signs Claude: a re-signature by the builder would show.
+        try Shell().check("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", "com.anthropic.claude.untouched", claude.url.path])
+        func snapshot() throws -> [String: Data] {
+            var files: [String: Data] = [:]
+            let enumerator = try #require(FileManager.default.enumerator(at: claude.url, includingPropertiesForKeys: [.isRegularFileKey]))
+            for case let url as URL in enumerator where (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true {
+                files[url.path] = try Data(contentsOf: url)
+            }
+            return files
+        }
+        let before = try snapshot()
+        #expect(before.keys.contains { $0.hasSuffix("_CodeSignature/CodeResources") })
+        let icon = home.url.appending(path: "blue.icns")
+        try IconGenerator.tintedICNS(from: claude.icon, tint: .blue, output: icon)
+        try TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .build(for: Identity(slug: "client", name: "Client", tint: .blue, iconMode: .tintedClone), claude: claude, icon: icon, register: false)
+        #expect(try snapshot() == before)
+    }
+
     @Test func rebuildReplacesPreviousClone() throws {
         let home = try TempHome(); defer { home.remove() }
         let claude = try FakeClaudeApp.make(in: home.url)

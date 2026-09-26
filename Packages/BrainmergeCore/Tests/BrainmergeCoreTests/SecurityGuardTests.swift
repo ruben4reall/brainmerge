@@ -46,8 +46,46 @@ import Testing
     }
 
     @Test func noNetworkCode() throws {
-        let hits = try offenders(["URLSession", "NWConnection", "import Network", "CFNetwork", "NSURLConnection", "URLProtocol", "WebSocket"])
+        let hits = try offenders(["URLSession", "NWConnection", "import Network", "CFNetwork", "NSURLConnection", "URLProtocol", "WebSocket",
+                                  "contentsOf: URL(string", "getaddrinfo", "getStreamsToHost", "socket(", "connect("])
         #expect(hits.isEmpty, "\(hits)")
+        // Git never talks to another machine: none of the subcommands that do is ever named.
+        let git = try offenders(["\"push\"", "\"fetch\"", "\"pull\"", "\"clone\"", "\"ls-remote\"", "\"remote\"", "\"submodule\""])
+        #expect(git.isEmpty, "\(git)")
+    }
+
+    /// Every web address in the code is a page opened in the browser on a click, from this list; nothing else can be
+    /// named for a program to fetch.
+    @Test func everyWebAddressIsAKnownPage() throws {
+        let pages: Set<String> = ["https://claude.ai/customize/connectors", "https://claude.ai/settings/usage", "https://claude.ai/download",
+                                  "https://github.com/ruben4reall/brainmerge", "https://github.com/ruben4reall/brainmerge/releases",
+                                  "https://obsidian.md", "https://logseq.com", "https://ia.net/writer", "https://typora.io",
+                                  "https://code.visualstudio.com", "https://cursor.com", "https://zed.dev"]
+        let literal = /"(https?:\/\/[^"]*)"/
+        for (url, text) in try Self.sources() {
+            for line in text.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                for match in line.matches(of: literal) {
+                    let address = String(match.1)
+                    // The secret guard only compares a value's start with the bare schemes.
+                    let prefix = url.lastPathComponent == "SecretShapes.swift" && ["http://", "https://"].contains(address)
+                    #expect(pages.contains(address) || prefix, "\(url.lastPathComponent): \(address)")
+                }
+            }
+        }
+    }
+
+    /// The programs Brainmerge starts by their system path are these, and only these (Claude Code and lsregister are
+    /// found elsewhere): no curl, no security, no ssh or any other that could reach the network or the keychain.
+    @Test func systemProgramsAreAKnownFew() throws {
+        let allowed: Set<String> = ["/bin/cp", "/bin/ps", "/usr/bin/codesign", "/usr/bin/git", "/usr/bin/iconutil", "/usr/bin/open", "/usr/bin/xcode-select"]
+        let literal = /"(\/(?:usr\/)?s?bin\/[^"]+)"/
+        for (url, text) in try Self.sources() {
+            for line in text.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                for match in line.matches(of: literal) {
+                    #expect(allowed.contains(String(match.1)), "\(url.lastPathComponent): \(match.1)")
+                }
+            }
+        }
     }
 
     @Test func noShellInterpreterAndOneProcessRunner() throws {
@@ -59,7 +97,8 @@ import Testing
 
     @Test func credentialStoresAreNamedNeverRead() throws {
         // Only DesktopSession may mention Claude's storage files, and it may only test their presence.
-        let mentions = try offenders(["\"Cookies\"", "Local Storage", "IndexedDB", "Session Storage", "SecItemCopyMatching", "SecKeychain", ".credentials.json", "sessionKey"], except: ["DesktopSession.swift"])
+        let mentions = try offenders(["\"Cookies\"", "Local Storage", "IndexedDB", "Session Storage", "SecItemCopyMatching", "SecKeychain", ".credentials.json", "sessionKey",
+                                     "/usr/bin/security", "find-generic-password", "find-internet-password", "dump-keychain"], except: ["DesktopSession.swift"])
         #expect(mentions.isEmpty, "\(mentions)")
         let session = try #require(try Self.sources().first { $0.0.lastPathComponent == "DesktopSession.swift" }).1
         for forbidden in ["Data(contentsOf", "String(contentsOf", "FileHandle", "contents(atPath", "InputStream"] {
