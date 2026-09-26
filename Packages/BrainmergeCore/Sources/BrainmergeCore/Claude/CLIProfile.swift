@@ -103,7 +103,10 @@ public struct CLIProfile: Equatable, Sendable {
     /// A folder with no known path keeps `path == nil`.
     public func projects() throws -> [ProjectRef] {
         var pathBySlug: [String: String] = [:]
-        for path in try projectPaths() { pathBySlug[ProjectSlug.slug(forPath: path)] = path }
+        for path in try projectPaths() {
+            // A long path's folder is found by its start: Claude Code cut its name (see ProjectSlug.folder).
+            if let folder = ProjectSlug.folder(forPath: path, in: projectsDir) { pathBySlug[folder] = path }
+        }
         var slugs = Set(pathBySlug.keys)
         if let entries = try? FileManager.default.contentsOfDirectory(atPath: projectsDir.path) {
             for entry in entries where !entry.hasPrefix(".") { slugs.insert(entry) }

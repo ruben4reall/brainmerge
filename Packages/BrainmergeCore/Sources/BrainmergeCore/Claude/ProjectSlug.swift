@@ -11,6 +11,20 @@ public enum ProjectSlug {
         return out
     }
 
+    /// Past this length Claude Code cuts the name of a project's folder and adds a digest of its own after it.
+    public static let maxLength = 200
+
+    /// The folder Claude Code uses for this path in `projectsDir`: the slug, or for a long path the folder that starts
+    /// with its first `maxLength` characters (Claude Code's digest cannot be worked out here). Nil for a long path whose
+    /// folder Claude Code has not made yet.
+    public static func folder(forPath path: String, in projectsDir: URL) -> String? {
+        let slug = slug(forPath: path)
+        guard slug.count > maxLength else { return slug }
+        let head = String(slug.prefix(maxLength))
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: projectsDir.path)) ?? []
+        return entries.sorted().first { $0.hasPrefix(head) && $0 != head }
+    }
+
     /// A project's stable name: the last segment of the path; HOME itself is called "home".
     public static func projectName(forPath path: String, home: URL) -> String {
         let url = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
