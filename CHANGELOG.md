@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Your CLAUDE.md text is safe from a broken block.** When the end line of Brainmerge's block was deleted, the next two updates replaced everything from the orphan start line on, your own lines included. Only a whole block is ever replaced now.
+- **No note is lost when a memory folder is adopted.** A note written into an account's own memory folder while Brainmerge moved it into the memory was deleted with the folder. The folder now goes only once it is empty.
+- **A list that cannot be read is never rewritten.** The memory's lists of projects, accounts, hidden folders and lines that are not secrets were read as empty when they could not be read (permissions, iCloud not ready), then rewritten with one entry. They are left alone now.
+- **A linked `.gitignore` is never written through.** A memory whose `.gitignore` is a link to a file elsewhere no longer gets Brainmerge's lines appended to that file.
+- **File under keeps what sessions write.** A line a session added to an index while File under moved notes is no longer overwritten, and an index that is a link is refused instead of copied into the memory.
+- **Removing an account removes all of it.** Its notes held by the secret guard become your own edits, its last save status goes (an account added again under the name starts clean), a save still running cannot bring its list back, and with its data deleted, notes in a memory folder Claude Code had not linked yet move into the memory first.
+- **Swap names never leaves two accounts with one name.** The accounts of one memory are renamed under one hold of its lock, and if they cannot be put back after a failure, Brainmerge says which.
+
 ## 0.6.0 (2026-09-26)
 
 Brainmerge 0.6 shows what each account takes on your Mac, puts your accounts in the menu bar and one shortcut away from any app, draws your Obsidian vault, and saves exactly what each account wrote, never a key.
