@@ -24,6 +24,14 @@
 - **Usage counts a replayed message once.** A message Claude Code wrote again later in its transcript was counted twice. `brainmerge usage` also counts a shared history once, as the Usage screen does.
 - **A note change works with the account open.** The note is shown only in Brainmerge, so changing it no longer rebuilds the account's app nor asks you to quit it.
 - **No two accounts share an app.** A name like "Work (Claude)" is refused while an account named Work exists, since it would be the path of Work's tinted copy.
+- **Check limits never adds a "home" project.** Claude Code runs /usage from your home folder, and Brainmerge's own hook used to link it as a project. The account's hooks now do nothing for that one run.
+- **An account's terminal command stays an account's command.** When Brainmerge's state could not be read, `claude-<name>` fell back to brainmerge's own commands. It now always opens the account, or says what is wrong.
+- **An account app that cannot start Claude says so.** Opened from the Dock, it now shows an alert that points to Rebuild, instead of doing nothing.
+- **Doctor is stricter.** The instructions block must be exactly the one Brainmerge writes now (a block importing another memory whose path starts the same no longer passes), a project linked into another of your memories is flagged with its fix, and git that is installed but does not run (Xcode's license not accepted, a folder owned by another user) is said, with what to run.
+- **Long project paths are linked.** For a path longer than 200 characters Claude Code shortens its project folder; Brainmerge now finds that folder instead of linking one Claude Code never uses.
+- **Uninstalling from the command line names the log it removes** and forgets the quick opener's shortcut too.
+- **A save always lands on a branch.** A checkout of a bare commit at the wrong moment could take a save off every branch.
+- **Docs say what happens.** Saves run after each of Claude's replies that wrote a note, not at the end of a session; the list of programs Brainmerge starts now includes `ps` and Launch Services; the launcher's check is described as it is.
 
 ## 0.6.0 (2026-09-26)
 
