@@ -10,9 +10,9 @@ The project exists because it stays within Anthropic's terms. Every change must 
 
 1. Open an issue first for anything bigger than a typo, so we agree on the direction before you spend time.
 2. Fork the repository and create a branch from `main`.
-3. Write a test that fails, then the code that makes it pass. Core logic lives in `Packages/BrainmergeCore` (`swift test --package-path Packages/BrainmergeCore`), screens and models in `Packages/BrainmergeUI` (`swift test --package-path Packages/BrainmergeUI`). Tests never touch the real home folder: use `BRAINMERGE_HOME` and the fixtures in `BrainmergeTestSupport`.
+3. Write a test that fails, then the code that makes it pass. Core logic lives in `Packages/BrainmergeCore` (`swift test --package-path Packages/BrainmergeCore`), screens and models in `Packages/BrainmergeUI` (`swift test --package-path Packages/BrainmergeUI`). Tests never touch the real home folder: use `BRAINMERGE_HOME` and the fixtures in `BrainmergeTestSupport`. The website (`site/`) has its own tests, run with Node and no dependency: `node --test Tests/site/motion.test.cjs`. Its How it works diagram is generated: edit `scripts/site-flow/gen-flow.cjs`, then run `python3 scripts/site-flow/inject-flow.py`.
 4. Build the app with `xcodegen generate` then `xcodebuild -project Brainmerge.xcodeproj -scheme Brainmerge build`, or open the generated project in Xcode 26.
-5. Open a pull request against `main`. Describe what changes for a person using the app, not only for the code. The CI runs both test suites.
+5. Open a pull request against `main`. Describe what changes for a person using the app, not only for the code. The CI runs the three test suites.
 
 ## Style
 

@@ -52,7 +52,25 @@
     <!-- Hero -->
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
-        <img class="hero-icon" src="assets/icon-512.webp" width="512" height="512" alt="The Brainmerge app icon: a small purple pixel creature on a dark rounded square.">
+        <svg class="creature" viewBox="0 -3 16 15" role="img" aria-label="The Brainmerge creature, a small purple pixel figure." shape-rendering="crispEdges">
+          <rect class="cr-shadow" x="2" y="11" width="12" height="1" fill="#A06BE0" fill-opacity="0.18"/>
+          <g class="cr-hop">
+            <g class="cr-sprite">
+              <path class="cr-legs" d="M2 8h1v3H2zM5 8h1v3H5zM10 8h1v3h-1zM13 8h1v3h-1z" fill="#A06BE0"/>
+              <g class="cr-top">
+                <path d="M2 0h12v8H2z" fill="#A06BE0"/>
+                <g class="cr-arms"><path class="cr-arm-l" d="M0 3h2v3H0z" fill="#A06BE0"/><path class="cr-arm-r" d="M14 3h2v3h-2z" fill="#A06BE0"/></g>
+                <g class="cr-look">
+                  <g class="cr-eyes" fill="#1E1430">
+                    <g class="cr-open"><g class="cr-blink"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g></g>
+                    <g class="cr-shut" opacity="0"><rect x="4" y="2" width="1" height="0.35"/><rect x="11" y="2" width="1" height="0.35"/></g>
+                    <g class="cr-blink-shut" opacity="0"><rect x="4" y="2" width="1" height="0.35"/><rect x="11" y="2" width="1" height="0.35"/></g>
+                  </g>
+                </g>
+              </g>
+            </g>
+          </g>
+        </svg>
         <p class="hero-name">Brainmerge</p>
         <h1 id="hero-title">Every Claude account,<br class="br-wide"> side by&nbsp;side.</h1>
         <p class="hero-sub">A free Mac app that opens each of your Claude accounts in its own window of the official Claude app, and gives them one memory of your projects, or one&nbsp;each.</p>
@@ -143,20 +161,198 @@
           <h2 class="h2" id="memory-title">One memory. Or one&nbsp;each.</h2>
           <p class="lead">By default, all your accounts share one memory of your projects: a folder of plain Markdown notes in <code>~/Brain</code>, or in a folder you already have. An Obsidian vault works well. What Claude Code learns about a project in one account, the others know&nbsp;too.</p>
         </div>
-        <div class="memory-split">
-          <figure class="memory-shot reveal">
+        <figure class="flow-fig reveal" data-mode="shared">
+          <div class="flow-stage">
+        <svg class="flow flow-wide" viewBox="60 0 640 330" role="img" aria-labelledby="flow-wide-t">
+              <title id="flow-wide-t">Personal, Work and Studio, each with its own Claude Code. One account saves a note to the memory, a folder on this Mac, and the other accounts read the same note.</title>
+              <rect class="fl-frame" x="66" y="6" width="628" height="318" rx="20" fill="none" stroke="#FFFFFF" stroke-opacity="0.12"/>
+              <text class="fl-frame-label" x="86" y="34">On this Mac</text>
+              <g class="fl-lanes" data-mode="shared">
+              <path class="fl-lane" data-acc="p" data-mode="shared" d="M212 95C341 95 341 140 470 140" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="p" data-mode="shared" d="M212 95C341 95 341 140 470 140" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="s" data-mode="shared" d="M212 170C341 170 341 160 470 160" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="s" data-mode="shared" d="M212 170C341 170 341 160 470 160" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="w" data-mode="shared" d="M212 245C341 245 341 180 470 180" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="w" data-mode="shared" d="M212 245C341 245 341 180 470 180" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              </g>
+              <g class="fl-lanes" data-mode="each">
+              <path class="fl-lane" data-acc="p" data-mode="each" d="M212 95C341 95 341 102 470 102" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="p" data-mode="each" d="M212 95C341 95 341 102 470 102" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="s" data-mode="each" d="M212 170C341 170 341 122 470 122" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="s" data-mode="each" d="M212 170C341 170 341 122 470 122" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="w" data-mode="each" d="M212 245C341 245 341 262 470 262" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="w" data-mode="each" d="M212 245C341 245 341 262 470 262" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              </g>
+              <g class="fl-box fl-box-shared" data-box="shared">
+              <rect x="470" y="110" width="170" height="100" rx="16" fill="#A06BE0" fill-opacity="0.18" stroke="#A06BE0" stroke-width="1.5"/>
+              <rect class="fl-flash" x="470" y="110" width="170" height="100" rx="16" fill="none" stroke="#B487EA" stroke-width="3" opacity="0"/>
+              <text class="fl-box-title" x="555" y="139" text-anchor="middle">Memory</text>
+              <text class="fl-box-path" x="555" y="159" text-anchor="middle">~/Brain</text>
+                <g class="fl-slot" data-slot="0" transform="translate(505 174)">
+                  <rect class="fl-bar-tint" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+                <g class="fl-slot" data-slot="1" transform="translate(505 184)">
+                  <rect class="fl-bar-tint" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+                <g class="fl-slot" data-slot="2" transform="translate(505 194)">
+                  <rect class="fl-bar-tint" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+              <g class="fl-creature " transform="translate(523 66) scale(4)">
+                <g class="fl-cr-sprite">
+                  <path class="fl-cr-legs" d="M2 8h1v3H2zM5 8h1v3H5zM10 8h1v3h-1zM13 8h1v3h-1z" fill="#A06BE0"/>
+                  <path d="M2 0h12v8H2z" fill="#A06BE0"/>
+                  <g class="fl-cr-arms"><path d="M0 3h2v3H0zM14 3h2v3h-2z" fill="#A06BE0"/></g>
+                  <g class="fl-cr-eyes" fill="#1E1430"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g>
+                </g>
+              </g>
+              </g>
+              <g class="fl-box fl-box-work" data-box="work">
+              <rect x="470" y="222" width="170" height="80" rx="16" fill="#A06BE0" fill-opacity="0.18" stroke="#A06BE0" stroke-width="1.5"/>
+              <rect class="fl-flash" x="470" y="222" width="170" height="80" rx="16" fill="none" stroke="#B487EA" stroke-width="3" opacity="0"/>
+              <text class="fl-box-title" x="555" y="249" text-anchor="middle">Work memory</text>
+              <text class="fl-box-path" x="555" y="268" text-anchor="middle">~/Brain-work</text>
+                <g class="fl-slot" data-slot="0" transform="translate(505 282)">
+                  <rect class="fl-bar-tint" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+              </g>
+              <g class="fl-account" data-acc="p">
+                <g class="fl-orb" transform="translate(190 95)">
+                  <circle r="22" fill="#D97757"/>
+                  <text class="fl-initial" y="6.5" text-anchor="middle">P</text>
+                  <g transform="translate(16 16)"><circle r="10" fill="#1A1918" stroke="#FFFFFF" stroke-opacity="0.12"/><text class="fl-cc" y="3" text-anchor="middle">&gt;_</text></g>
+                </g>
+                <g class="fl-ring" transform="translate(190 95)" opacity="0"><circle r="22" fill="none" stroke="#D97757" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>
+                <text class="fl-name" x="154" y="100" text-anchor="end">Personal</text>
+              </g>
+              <g class="fl-account" data-acc="s">
+                <g class="fl-orb" transform="translate(190 170)">
+                  <circle r="22" fill="#D97A8E"/>
+                  <text class="fl-initial" y="6.5" text-anchor="middle">S</text>
+                  <g transform="translate(16 16)"><circle r="10" fill="#1A1918" stroke="#FFFFFF" stroke-opacity="0.12"/><text class="fl-cc" y="3" text-anchor="middle">&gt;_</text></g>
+                </g>
+                <g class="fl-ring" transform="translate(190 170)" opacity="0"><circle r="22" fill="none" stroke="#D97A8E" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>
+                <text class="fl-name" x="154" y="175" text-anchor="end">Studio</text>
+              </g>
+              <g class="fl-account" data-acc="w">
+                <g class="fl-orb" transform="translate(190 245)">
+                  <circle r="22" fill="#6FA3D8"/>
+                  <text class="fl-initial" y="6.5" text-anchor="middle">W</text>
+                  <g transform="translate(16 16)"><circle r="10" fill="#1A1918" stroke="#FFFFFF" stroke-opacity="0.12"/><text class="fl-cc" y="3" text-anchor="middle">&gt;_</text></g>
+                </g>
+                <g class="fl-ring" transform="translate(190 245)" opacity="0"><circle r="22" fill="none" stroke="#6FA3D8" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>
+                <text class="fl-name" x="154" y="250" text-anchor="end">Work</text>
+              </g>
+              <g class="fl-notes">
+                <g class="fl-note-slot" data-note="0" opacity="0"><g class="fl-note" data-acc="p" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97757"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="s" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97A8E"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="w" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#6FA3D8"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g></g>
+                <g class="fl-note-slot" data-note="1" opacity="0"><g class="fl-note" data-acc="p" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97757"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="s" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97A8E"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="w" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#6FA3D8"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g></g>
+                <g class="fl-note-slot" data-note="2" opacity="0"><g class="fl-note" data-acc="p" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97757"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="s" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97A8E"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="w" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#6FA3D8"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g></g>
+              </g>
+            </svg>
+        <svg class="flow flow-tall" viewBox="0 0 360 410" role="img" aria-labelledby="flow-tall-t">
+              <title id="flow-tall-t">Personal, Work and Studio, each with its own Claude Code. One account saves a note to the memory, a folder on this Mac, and the other accounts read the same note.</title>
+              <rect class="fl-frame" x="6" y="6" width="348" height="398" rx="20" fill="none" stroke="#FFFFFF" stroke-opacity="0.12"/>
+              <text class="fl-frame-label" x="26" y="34">On this Mac</text>
+              <g class="fl-lanes" data-mode="shared">
+              <path class="fl-lane" data-acc="p" data-mode="shared" d="M70 140C70 205 112 205 112 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="p" data-mode="shared" d="M70 140C70 205 112 205 112 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="s" data-mode="shared" d="M180 140C180 205 150 205 150 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="s" data-mode="shared" d="M180 140C180 205 150 205 150 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="w" data-mode="shared" d="M290 140C290 205 262 205 262 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="w" data-mode="shared" d="M290 140C290 205 262 205 262 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              </g>
+              <g class="fl-lanes" data-mode="each">
+              <path class="fl-lane" data-acc="p" data-mode="each" d="M70 140C70 205 62 205 62 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="p" data-mode="each" d="M70 140C70 205 62 205 62 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="s" data-mode="each" d="M180 140C180 205 100 205 100 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="s" data-mode="each" d="M180 140C180 205 100 205 100 270" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              <path class="fl-lane" data-acc="w" data-mode="each" d="M290 140C290 211 290 211 290 282" fill="none" stroke="#F4EFE6" stroke-opacity="0.22" stroke-width="1.5"/><path class="fl-lit" data-acc="w" data-mode="each" d="M290 140C290 211 290 211 290 282" fill="none" stroke="#F4EFE6" stroke-opacity="0.6" stroke-width="2" opacity="0"/>
+              </g>
+              <g class="fl-box fl-box-shared" data-box="shared">
+              <rect x="95" y="270" width="170" height="100" rx="16" fill="#A06BE0" fill-opacity="0.18" stroke="#A06BE0" stroke-width="1.5"/>
+              <rect class="fl-flash" x="95" y="270" width="170" height="100" rx="16" fill="none" stroke="#B487EA" stroke-width="3" opacity="0"/>
+              <text class="fl-box-title" x="180" y="299" text-anchor="middle">Memory</text>
+              <text class="fl-box-path" x="180" y="319" text-anchor="middle">~/Brain</text>
+                <g class="fl-slot" data-slot="0" transform="translate(130 334)">
+                  <rect class="fl-bar-tint" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+                <g class="fl-slot" data-slot="1" transform="translate(130 344)">
+                  <rect class="fl-bar-tint" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+                <g class="fl-slot" data-slot="2" transform="translate(130 354)">
+                  <rect class="fl-bar-tint" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="100" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+              <g class="fl-creature " transform="translate(168 226) scale(4)">
+                <g class="fl-cr-sprite">
+                  <path class="fl-cr-legs" d="M2 8h1v3H2zM5 8h1v3H5zM10 8h1v3h-1zM13 8h1v3h-1z" fill="#A06BE0"/>
+                  <path d="M2 0h12v8H2z" fill="#A06BE0"/>
+                  <g class="fl-cr-arms"><path d="M0 3h2v3H0zM14 3h2v3h-2z" fill="#A06BE0"/></g>
+                  <g class="fl-cr-eyes" fill="#1E1430"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g>
+                </g>
+              </g>
+              </g>
+              <g class="fl-box fl-box-work" data-box="work">
+              <rect x="228" y="282" width="120" height="80" rx="16" fill="#A06BE0" fill-opacity="0.18" stroke="#A06BE0" stroke-width="1.5"/>
+              <rect class="fl-flash" x="228" y="282" width="120" height="80" rx="16" fill="none" stroke="#B487EA" stroke-width="3" opacity="0"/>
+              <text class="fl-box-title" x="288" y="308" text-anchor="middle">Work memory</text>
+              <text class="fl-box-path" x="288" y="326" text-anchor="middle">~/Brain-work</text>
+                <g class="fl-slot" data-slot="0" transform="translate(253 342)">
+                  <rect class="fl-bar-tint" width="70" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                  <rect class="fl-bar-cream" width="70" height="4" rx="2" fill="#F4EFE6" opacity="0"/>
+                </g>
+              </g>
+              <g class="fl-account" data-acc="p">
+                <g class="fl-orb" transform="translate(70 82)">
+                  <circle r="22" fill="#D97757"/>
+                  <text class="fl-initial" y="6.5" text-anchor="middle">P</text>
+                  <g transform="translate(16 16)"><circle r="10" fill="#1A1918" stroke="#FFFFFF" stroke-opacity="0.12"/><text class="fl-cc" y="3" text-anchor="middle">&gt;_</text></g>
+                </g>
+                <g class="fl-ring" transform="translate(70 82)" opacity="0"><circle r="22" fill="none" stroke="#D97757" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>
+                <text class="fl-name" x="70" y="128" text-anchor="middle">Personal</text>
+              </g>
+              <g class="fl-account" data-acc="s">
+                <g class="fl-orb" transform="translate(180 82)">
+                  <circle r="22" fill="#D97A8E"/>
+                  <text class="fl-initial" y="6.5" text-anchor="middle">S</text>
+                  <g transform="translate(16 16)"><circle r="10" fill="#1A1918" stroke="#FFFFFF" stroke-opacity="0.12"/><text class="fl-cc" y="3" text-anchor="middle">&gt;_</text></g>
+                </g>
+                <g class="fl-ring" transform="translate(180 82)" opacity="0"><circle r="22" fill="none" stroke="#D97A8E" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>
+                <text class="fl-name" x="180" y="128" text-anchor="middle">Studio</text>
+              </g>
+              <g class="fl-account" data-acc="w">
+                <g class="fl-orb" transform="translate(290 82)">
+                  <circle r="22" fill="#6FA3D8"/>
+                  <text class="fl-initial" y="6.5" text-anchor="middle">W</text>
+                  <g transform="translate(16 16)"><circle r="10" fill="#1A1918" stroke="#FFFFFF" stroke-opacity="0.12"/><text class="fl-cc" y="3" text-anchor="middle">&gt;_</text></g>
+                </g>
+                <g class="fl-ring" transform="translate(290 82)" opacity="0"><circle r="22" fill="none" stroke="#6FA3D8" stroke-width="1.5" vector-effect="non-scaling-stroke"/></g>
+                <text class="fl-name" x="290" y="128" text-anchor="middle">Work</text>
+              </g>
+              <g class="fl-notes">
+                <g class="fl-note-slot" data-note="0" opacity="0"><g class="fl-note" data-acc="p" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97757"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="s" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97A8E"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="w" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#6FA3D8"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g></g>
+                <g class="fl-note-slot" data-note="1" opacity="0"><g class="fl-note" data-acc="p" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97757"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="s" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97A8E"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="w" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#6FA3D8"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g></g>
+                <g class="fl-note-slot" data-note="2" opacity="0"><g class="fl-note" data-acc="p" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97757"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="s" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#D97A8E"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g><g class="fl-note" data-acc="w" opacity="0"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#6FA3D8"/><path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#F4EFE6" fill-opacity="0.55"/></g></g>
+              </g>
+            </svg>
+          </div>
+          <div class="flow-bar">
+            <div class="flow-toggle" role="group" aria-label="Memory">
+              <button type="button" class="flow-opt" data-mode="shared" aria-pressed="true">One memory</button>
+              <button type="button" class="flow-opt" data-mode="each" aria-pressed="false">One each</button>
+            </div>
+            <button type="button" class="flow-play" hidden>Play again</button>
+          </div>
+          <figcaption class="flow-cap" aria-live="polite"><span class="flow-cap-shared">Personal, Work and Studio each have their own Claude Code. What one saves goes to one folder on this Mac, and the other two read it.</span><span class="flow-cap-each">Work keeps a folder of its own: what it learns stays with Work. Personal and Studio still share theirs.</span></figcaption>
+        </figure>
+        <div class="memory-split reveal-group">
+          <figure class="memory-shot">
             <picture>
               <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/memories-phone-1x.webp 1x, assets/crops/memories-phone.webp 2x" width="353" height="196">
               <img class="window" src="assets/crops/memories-1x.webp" srcset="assets/crops/memories-1x.webp 1x, assets/crops/memories.webp 2x" width="660" height="238" loading="lazy" alt="The Memories list in Brainmerge settings: Shared, the default, in ~/Brain, written by Personal, Studio and Client; and Work, in ~/Brain-work, written by Work.">
             </picture>
           </figure>
-          <div class="memory-rule reveal">
+          <div class="memory-rule">
             <p class="rule-big">Give any account a memory of its own in one click, and work or client things stay&nbsp;apart.</p>
             <p class="rule-small">Every account writes to exactly one memory. Switching never moves or deletes a&nbsp;note.</p>
           </div>
         </div>
         <p class="apps-line reveal">Open it in <b>Finder</b>, <b>Obsidian</b>, <b>Logseq</b>, <b>iA&nbsp;Writer</b>, <b>Typora</b>, <b>VS&nbsp;Code</b>, <b>Cursor</b>, <b>Zed</b>, or any other&nbsp;app.</p>
-        <p class="apps-note reveal">No notes app yet? Brainmerge suggests free&nbsp;ones.</p>
+        <p class="apps-note">No notes app yet? Brainmerge suggests free&nbsp;ones.</p>
       </div>
     </section>
 
@@ -207,7 +403,7 @@
               <p class="said-meta"><span>client-site · MEMORY.md</span><span>just now</span></p>
             </li>
           </ol>
-          <p class="timeline-foot reveal">Each memory is a git repository, and each account signs its own&nbsp;saves.</p>
+          <p class="timeline-foot">Each memory is a git repository, and each account signs its own&nbsp;saves.</p>
         </div>
       </div>
     </section>
@@ -222,9 +418,9 @@
             <img class="window" src="assets/crops/status-1x.webp" srcset="assets/crops/status-1x.webp 1x, assets/crops/status.webp 2x" width="815" height="306" loading="lazy" alt="Account cards in Brainmerge. Studio is open; Client is closed and was built for an older Claude, so its card shows an Update button.">
           </picture>
         </figure>
-        <div class="cols-2 status-cols">
-          <p class="reveal"><strong>Each card says whether its account has logged in.</strong> In the guided setup, the step turns to “Connected” on its own once you have. Brainmerge only looks at the names of Claude’s own storage files, never at what is&nbsp;inside.</p>
-          <p class="reveal"><strong>When Claude updates itself,</strong> the accounts that keep their own copy of it are flagged, then updated in one click, or on their own. The version is checked every few minutes, and whenever the Brainmerge window comes to the&nbsp;front.</p>
+        <div class="cols-2 status-cols reveal-group">
+          <p><strong>Each card says whether its account has logged in.</strong> In the guided setup, the step turns to “Connected” on its own once you have. Brainmerge only looks at the names of Claude’s own storage files, never at what is&nbsp;inside.</p>
+          <p><strong>When Claude updates itself,</strong> the accounts that keep their own copy of it are flagged, then updated in one click, or on their own. The version is checked every few minutes, and whenever the Brainmerge window comes to the&nbsp;front.</p>
         </div>
       </div>
     </section>
@@ -246,7 +442,7 @@
           </picture>
         </figure>
         <p class="usage-figure reveal"><b>Eight gigabytes</b> of transcripts, read in <b>under twenty seconds</b> with about <b>seventy megabytes</b> of RAM. The next read takes <b>under a&nbsp;second</b>.</p>
-        <p class="usage-note reveal">Informative only: Brainmerge never switches accounts for you and never reads your limits. Only Claude knows them, and a button opens Claude’s usage page. It also shows how much RAM each open Claude window uses, with a quiet warning when your Mac runs&nbsp;low.</p>
+        <p class="usage-note">Informative only: Brainmerge never switches accounts for you and never reads your limits. Only Claude knows them, and a button opens Claude’s usage page. It also shows how much RAM each open Claude window uses, with a quiet warning when your Mac runs&nbsp;low.</p>
       </div>
     </section>
 
@@ -257,8 +453,8 @@
           <h2 class="h2" id="setup-title">A guided setup. No&nbsp;terminal.</h2>
           <p class="lead">Six short steps, all inside the&nbsp;app.</p>
         </div>
-        <div class="setup-split">
-          <ol class="steps reveal">
+        <div class="setup-split reveal-group">
+          <ol class="steps">
             <li>What Brainmerge is&nbsp;for.</li>
             <li>How it works, in an animated&nbsp;diagram.</li>
             <li>Where the memory lives, and which app opens&nbsp;it.</li>
@@ -266,7 +462,7 @@
             <li>An optional second account, with shared memory or its own. The login is&nbsp;guided.</li>
             <li>A checklist of what is&nbsp;ready.</li>
           </ol>
-          <figure class="setup-shot reveal">
+          <figure class="setup-shot">
             <picture>
               <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/setup-phone-1x.webp 1x, assets/crops/setup-phone.webp 2x" width="475" height="272">
               <img class="window" src="assets/crops/setup-1x.webp" srcset="assets/crops/setup-1x.webp 1x, assets/crops/setup.webp 2x" width="560" height="450" loading="lazy" alt="Step two of the setup, How it works: the Personal, Work and Client accounts all lead to one Memory, which Claude Code reads and writes.">
@@ -274,7 +470,7 @@
             <figcaption>Step 2, How it works.</figcaption>
           </figure>
         </div>
-        <p class="cli reveal">For those who want one, the <code>brainmerge</code> command sets up accounts and memories, checks them and reads usage from a terminal. It is never&nbsp;required.</p>
+        <p class="cli">For those who want one, the <code>brainmerge</code> command sets up accounts and memories, checks them and reads usage from a terminal. It is never&nbsp;required.</p>
       </div>
     </section>
 
@@ -287,28 +483,28 @@
           <p class="lead">Brainmerge only starts the official Claude app and the official Claude Code you already have. Each account logs in by itself, inside&nbsp;them.</p>
           <a class="more" href="https://github.com/ruben4reall/brainmerge/blob/main/SECURITY.md">Read SECURITY.md</a>
         </div>
-        <ul class="promises">
-          <li class="reveal">
+        <ul class="promises reveal-group">
+          <li>
             <h3>No passwords, tokens or cookies.</h3>
             <p>Brainmerge never reads, stores or sends a password, a token or a cookie. There is no code path for&nbsp;it. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it&nbsp;nowhere.</p>
           </li>
-          <li class="reveal">
+          <li>
             <h3>No switching, no rotation.</h3>
             <p>No account switching, no pooled usage, no automation of the&nbsp;login.</p>
           </li>
-          <li class="reveal">
+          <li>
             <h3>No network calls.</h3>
             <p>No server, no account of ours, no telemetry. “Check for updates” opens the releases page in your&nbsp;browser.</p>
           </li>
-          <li class="reveal">
+          <li>
             <h3>Claude stays as it is.</h3>
             <p>Claude itself is not modified. The optional Dock icon is a local copy, made after checking that Claude’s signature is intact, and it is never&nbsp;distributed.</p>
           </li>
-          <li class="reveal">
+          <li>
             <h3>Promises that are tested.</h3>
             <p>Tests scan the source code at every run to keep these promises true. SECURITY.md lists exactly what the app touches on your&nbsp;Mac.</p>
           </li>
-          <li class="reveal">
+          <li>
             <h3>Leaves cleanly.</h3>
             <p>Remove Brainmerge from Settings: its hooks, account apps, command-line link and settings go. Each project keeps a copy of its notes. Your memories and logins&nbsp;stay.</p>
           </li>
@@ -343,11 +539,11 @@
         <!-- /install-note -->
         <p class="fine"><span class="nw">Version 0.5.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Requires the Claude app</span></p>
       </div>
-      <div class="wrap install">
-        <figure class="install-shot reveal">
+      <div class="wrap install reveal-group">
+        <figure class="install-shot">
           <img class="window" src="assets/crops/dmg-1x.webp" srcset="assets/crops/dmg-1x.webp 1x, assets/crops/dmg.webp 2x" width="660" height="378" loading="lazy" alt="The Brainmerge disk image window: an arrow leads from the Brainmerge icon to the Applications folder, above the words Drag Brainmerge to your Applications folder, then open it from there.">
         </figure>
-        <div class="install-copy reveal">
+        <div class="install-copy">
           <p class="install-step">Open the disk image and drag Brainmerge to Applications. Opened from anywhere else, it offers to move itself&nbsp;there.</p>
           <p class="fine">The first time each new account opens, macOS asks to allow “Claude Safe Storage” (choose Always Allow), and may ask for access to Documents (choose Allow). That is Claude’s normal first&nbsp;launch.</p>
         </div>
