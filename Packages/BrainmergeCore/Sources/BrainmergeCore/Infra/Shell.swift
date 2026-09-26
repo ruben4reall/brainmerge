@@ -11,21 +11,35 @@ public struct Shell: Sendable {
     public typealias Runner = @Sendable (_ executable: String, _ arguments: [String], _ cwd: URL?, _ environment: [String: String]?) throws -> ShellResult
     /// Stands in for `run` in tests (a fake that records calls or fails on purpose). Nil runs the real program.
     let runner: Runner?
-    public init() { runner = nil }
-    public init(runner: @escaping Runner) { self.runner = runner }
+    /// Brainmerge's own environment, which a program started here is given (see `run`). Only tests set it, to stand for
+    /// the environment a session gives a hook.
+    let inherited: [String: String]?
+    /// How long a git call may take before it is stopped (see `run`).
+    let gitTimeout: TimeInterval
+    public init() { runner = nil; inherited = nil; gitTimeout = 120 }
+    public init(runner: @escaping Runner) { self.runner = runner; inherited = nil; gitTimeout = 120 }
+    init(inheriting inherited: [String: String]?, gitTimeout: TimeInterval = 120) {
+        runner = nil; self.inherited = inherited; self.gitTimeout = gitTimeout
+    }
 
     /// Runs a program and captures its output. stderr goes through a temporary file:
-    /// no risk of a deadlock when both streams are large.
+    /// no risk of a deadlock when both streams are large. Git runs apart from the person's own git (see `gitEnvironment`),
+    /// with no input, and is stopped after `gitTimeout`.
     @discardableResult
     public func run(_ executable: String, _ arguments: [String], cwd: URL? = nil,
                     environment: [String: String]? = nil) throws -> ShellResult {
         if let runner { return try runner(executable, arguments, cwd, environment) }
+        if URL(fileURLWithPath: executable).lastPathComponent == "git" {
+            return try runIsolated(executable, arguments, cwd: cwd,
+                                   environment: Self.gitEnvironment(inherited ?? ProcessInfo.processInfo.environment, environment),
+                                   timeout: gitTimeout)
+        }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         if let cwd { process.currentDirectoryURL = cwd }
-        if let environment {
-            process.environment = ProcessInfo.processInfo.environment.merging(environment) { $1 }
+        if environment != nil || inherited != nil {
+            process.environment = (inherited ?? ProcessInfo.processInfo.environment).merging(environment ?? [:]) { $1 }
         }
         let stdoutPipe = Pipe()
         let stderrFile = FileManager.default.temporaryDirectory
@@ -44,9 +58,26 @@ public struct Shell: Sendable {
                            stderr: String(decoding: errData, as: UTF8.self))
     }
 
+    /// What git is given: Brainmerge's own environment without git's variables (GIT_DIR, GIT_INDEX_FILE, GIT_AUTHOR_NAME
+    /// and the like, which a session may carry), then `environment` (a save's own index). No system or global config
+    /// (signing, a hook folder, templates), and no hook, signing or file monitor even where the memory's own config asks
+    /// for them: a save must never prompt, run the person's programs or be refused by them.
+    static func gitEnvironment(_ inherited: [String: String], _ environment: [String: String]?) -> [String: String] {
+        var result = inherited.filter { !$0.key.hasPrefix("GIT_") }
+        result["GIT_CONFIG_NOSYSTEM"] = "1"
+        result["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        let settings = [("core.hooksPath", "/dev/null"), ("commit.gpgSign", "false"), ("core.fsmonitor", "false")]
+        result["GIT_CONFIG_COUNT"] = String(settings.count)
+        for (index, (key, value)) in settings.enumerated() {
+            result["GIT_CONFIG_KEY_\(index)"] = key
+            result["GIT_CONFIG_VALUE_\(index)"] = value
+        }
+        return result.merging(environment ?? [:]) { $1 }
+    }
+
     /// Runs a program with exactly `environment`, nothing inherited from Brainmerge's own (an environment can hold keys),
     /// no input, and stops it once `timeout` has passed. Both streams are read while it runs and kept in memory only.
-    /// Used to ask Claude Code something on a click (see `ClaudeCodeLimits`).
+    /// Used to ask Claude Code something on a click (see `ClaudeCodeLimits`), and for every git call (see `run`).
     public func runIsolated(_ executable: String, _ arguments: [String], cwd: URL?, environment: [String: String],
                             timeout: TimeInterval) throws -> ShellResult {
         let process = Process()

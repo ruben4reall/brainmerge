@@ -104,6 +104,31 @@ import BrainmergeTestSupport
         #expect(reflog.split(separator: "\n").allSatisfy { $0.hasPrefix("commit") }, "\(reflog)")
     }
 
+    /// Another program commits in the memory while a save is being made (the person's git, Obsidian Git): its commit is
+    /// kept, and the save goes on top of it instead of taking its notes out.
+    @Test func aCommitThatLandsDuringASaveIsKept() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, _) = try memory(home)
+        let once = FirstTime()
+        let git = BrainGit(brain: brain, shell: Shell { executable, arguments, cwd, environment in
+            let result = try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+            if arguments.contains("add"), once.now() {
+                try Data("# pulled\n".utf8).write(to: brain.root.appending(path: "memory/acme/pulled.md"))
+                try Shell().check("/usr/bin/git", ["add", "memory/acme/pulled.md"], cwd: brain.root)
+                try Shell().check("/usr/bin/git", ["-c", "user.name=Here", "-c", "user.email=here@example.com", "commit", "-q", "-m", "Pulled"],
+                                  cwd: brain.root)
+            }
+            return result
+        })
+        try write("# note\n", "memory/acme/note.md", in: brain)
+        #expect(try git.commit(paths: ["memory/acme/note.md"], author: work.gitAuthor) { _ in "Work saved" } == ["memory/acme/note.md"])
+        let log = try git.log(limit: 3)
+        #expect(log.map(\.message) == ["Work saved", "Pulled", "Start"])
+        #expect(log.first?.files == ["memory/acme/note.md"])
+        let saved = try git.shell.check("/usr/bin/git", ["ls-tree", "-r", "--name-only", "HEAD"], cwd: brain.root)
+        #expect(saved.split(separator: "\n").contains("memory/acme/pulled.md"), "the other program's note is still saved")
+    }
+
     /// A path whose content is the last commit's (staged by hand, then put back on disk) is not saved: no empty commit,
     /// no error, and what the person staged stays staged.
     @Test func aPathBackToTheLastCommitIsNotSaved() throws {
@@ -265,5 +290,16 @@ import BrainmergeTestSupport
         try FileManager.default.removeItem(at: gone)
         #expect(edits.newestChange(of: ["memory/acme/old.md"]).map { abs($0.timeIntervalSinceNow) < 60 } == true)
         #expect(try edits.save(now: Date().addingTimeInterval(OwnEdits.quietPeriod + 60), sessionRunning: false) == .saved(["memory/acme/old.md"]))
+    }
+}
+
+/// True the first time it is asked only.
+final class FirstTime: @unchecked Sendable {
+    private let lock = NSLock()
+    private var asked = false
+    func now() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        defer { asked = true }
+        return !asked
     }
 }

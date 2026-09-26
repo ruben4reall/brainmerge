@@ -207,6 +207,27 @@ enum SecretFixtures {
         #expect(held.load().held.count == 1)
     }
 
+    /// A held note never reaches the memory's git, not even as an object no commit points to: a copy or a backup of the
+    /// folder never carries the key. The first save of a memory and a later one alike.
+    @Test func aHeldNoteIsNeverWrittenIntoTheMemorysGit() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, held) = try setup(home)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        let first = SecretFixtures.gitHub, second = SecretFixtures.npm
+        for (value, prices) in [(first, "# Prices\n"), (second, "# Prices\n\n10 a day\n")] {
+            try write("# Deploy\n\nUse \(value) to push.\n", "memory/acme/deploy.md", in: brain)
+            try write(prices, "memory/acme/prices.md", in: brain)
+            try ledger.append("memory/acme/deploy.md")
+            try ledger.append("memory/acme/prices.md")
+            let outcome = try AccountSave(brain: brain, git: git, held: held).run(for: work)
+            #expect(outcome.saved == ["memory/acme/prices.md"])
+            #expect(outcome.held.map(\.path) == ["memory/acme/deploy.md"])
+        }
+        let objects = try Shell().check("/usr/bin/git", ["cat-file", "--batch-all-objects", "--batch"], cwd: brain.root)
+        #expect(objects.contains("10 a day"), "the saved notes are there")
+        #expect(!objects.contains(first) && !objects.contains(second) && !objects.contains("Use "))
+    }
+
     /// "It's not a secret": the digest goes to the memory's own list, and the next save commits the file. Lines already
     /// saved are not scanned again when the note changes.
     @Test func anAllowedLineIsSavedAndContextLinesAreNotRescanned() throws {
