@@ -362,4 +362,19 @@ final class FirstTime: @unchecked Sendable {
         defer { asked = true }
         return !asked
     }
+
+    /// Claude names a note in another letter case than the disk keeps it (Deploy.md for deploy.md, on a Mac's usual
+    /// disk one file): the list holds the name on disk, so the account's save commits it, not a later "You edited".
+    @Test func aNoteNamedInAnotherCaseIsListedUnderItsNameOnDisk() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        let folder = brain.memoryDir.appending(path: "acme", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("# deploy\n".utf8).write(to: folder.appending(path: "deploy.md"))
+        let written = brain.memoryDir.path + "/Acme/Deploy.md"
+        #expect(TouchedLedger.locate(written, in: [brain])?.path == "memory/acme/deploy.md")
+        // A note not written yet keeps the name it was given.
+        #expect(TouchedLedger.locate(brain.memoryDir.path + "/acme/New.md", in: [brain])?.path == "memory/acme/New.md")
+    }
+
 }
