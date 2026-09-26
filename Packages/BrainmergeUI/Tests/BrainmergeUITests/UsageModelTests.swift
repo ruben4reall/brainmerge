@@ -56,7 +56,7 @@ import BrainmergeTestSupport
 
     /// The first figures take the place of the card that said it was reading: that card goes at once, and never fades
     /// over the account's card coming in at its place ("Reading tPersonal and Studio").
-    @Test func theReadingCardNeverFadesOverTheFirstFigures() async throws {
+    @Test(.needsARealDisplay) func theReadingCardNeverFadesOverTheFirstFigures() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Personal")
         let project = e.primaryProfile.projectsDir.appending(path: "-Users-me-atelier", directoryHint: .isDirectory)
