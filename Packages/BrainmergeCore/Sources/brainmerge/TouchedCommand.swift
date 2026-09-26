@@ -11,6 +11,7 @@ struct TouchedCommand: ParsableCommand {
     @Option var identity: String
 
     func run() {
+        if Context.hooksOff { return }
         guard let input = TouchedInput.decode(FileHandle.standardInput.readDataToEndOfFile()) else { return }
         let context = Context()
         // The account must be known: its slug names the list's file, and nothing else may.

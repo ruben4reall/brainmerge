@@ -4,6 +4,9 @@ import BrainmergeCore
 
 /// What every command shares: paths (BRAINMERGE_HOME), Claude.app (BRAINMERGE_CLAUDE_APP), state.
 struct Context {
+    /// A hook started by Claude Code for Brainmerge's own "Check limits": it does nothing (see ClaudeCodeLimits.hooksOff).
+    static var hooksOff: Bool { ProcessInfo.processInfo.environment[ClaudeCodeLimits.hooksOff.key] == ClaudeCodeLimits.hooksOff.value }
+
     let paths = Paths.current()
     /// Found once, and only by the commands that use Claude: the hooks never pay for the search.
     private static let foundClaude = ClaudeLocator.resolvedURL(paths: Paths.current())

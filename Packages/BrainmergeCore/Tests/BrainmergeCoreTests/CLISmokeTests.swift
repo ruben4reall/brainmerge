@@ -219,12 +219,12 @@ import BrainmergeTestSupport
 
     /// Like Claude Code runs a hook: the session's JSON on the standard input, which is then closed.
     /// `without`: variables the run must not inherit from the test's own environment.
-    func run(_ e: ManagerEnv, _ arguments: [String], input: String, without: Set<String> = []) throws -> ShellResult {
+    func run(_ e: ManagerEnv, _ arguments: [String], input: String, without: Set<String> = [], adding: [String: String] = [:]) throws -> ShellResult {
         let process = Process()
         process.executableURL = Products.brainmerge
         process.arguments = arguments
         process.environment = ProcessInfo.processInfo.environment.merging(
-            ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path]) { $1 }.filter { !without.contains($0.key) }
+            ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path].merging(adding) { $1 }) { $1 }.filter { !without.contains($0.key) }
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin; process.standardOutput = stdout; process.standardError = stderr
         try process.run()
@@ -246,6 +246,11 @@ import BrainmergeTestSupport
         func session(_ cwd: String) -> String {
             #"{"session_id":"sentinel-session","transcript_path":"/tmp/sentinel.jsonl","cwd":"\#(cwd)","hook_event_name":"SessionStart","source":"startup","model":"sentinel-model"}"#
         }
+        // Started by "Check limits": the hooks of that one run do nothing, so the home folder is never linked as a project.
+        let checking = try run(e, ["wire", "--identity", "perso", "--hook"], input: session(e.home.url.path), adding: [ClaudeCodeLimits.hooksOff.key: ClaudeCodeLimits.hooksOff.value])
+        #expect(checking.status == 0 && checking.stdout.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: e.brain.memoryDir(forProject: "home").path))
+        #expect((try? String(contentsOf: logFile, encoding: .utf8)) == nil)
         let linked = try run(e, ["wire", "--identity", "perso", "--hook"], input: session(kayak))
         #expect(linked.status == 0 && linked.stdout.isEmpty && linked.stderr.isEmpty, "\(linked.stderr)")
         let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: kayak)).appending(path: "memory")

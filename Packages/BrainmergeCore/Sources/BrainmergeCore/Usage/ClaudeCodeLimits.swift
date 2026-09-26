@@ -59,8 +59,12 @@ public enum ClaudeCodeLimits {
 
     /// Everything Claude Code is given: where home is, the system folders, and the account's Claude Code folder when it
     /// is not the default one. Nothing of Brainmerge's own environment, which can hold keys.
+    /// Handed to Claude Code, which hands it to the account's hooks: they do nothing for this one run, so asking the
+    /// limits never links the home folder as a project nor saves anything.
+    public static let hooksOff = (key: "BRAINMERGE_HOOKS", value: "off")
+
     public static func environment(home: URL, configDir: URL?) -> [String: String] {
-        var environment = ["HOME": home.path, "PATH": path]
+        var environment = ["HOME": home.path, "PATH": path, hooksOff.key: hooksOff.value]
         if let configDir { environment["CLAUDE_CONFIG_DIR"] = configDir.path }
         return environment
     }

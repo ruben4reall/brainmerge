@@ -18,6 +18,7 @@ struct WireCommand: ParsableCommand {
             print(Self.describe(result) ?? "Already linked.")
             return
         }
+        if Context.hooksOff { return }
         let log = SyncLog(paths: context.paths)
         guard let input = SessionStartInput.decode(FileHandle.standardInput.readDataToEndOfFile()) else {
             log.write("\(identity): session start without a folder, nothing linked")
