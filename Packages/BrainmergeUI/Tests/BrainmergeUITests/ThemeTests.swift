@@ -115,6 +115,24 @@ import BrainmergeCore
         #expect(offenders.isEmpty, "\(offenders)")
     }
 
+    /// A setting that turns on or off is a switch in the accent (DESIGN.md rule 3), never the system's blue checkbox.
+    @Test func everySettingToggleIsAnAccentSwitch() throws {
+        let screens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens")
+        for name in ["SettingsView.swift", "EditAccountSheet.swift", "OnboardingView.swift"] {
+            let lines = try String(contentsOf: screens.appending(path: name), encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
+            for (index, line) in lines.enumerated() where line.contains("Toggle(") {
+                // The toggle and the modifier lines that follow it.
+                var statement = String(line)
+                for next in lines.dropFirst(index + 1) {
+                    guard next.trimmingCharacters(in: .whitespaces).hasPrefix(".") else { break }
+                    statement += next
+                }
+                #expect(statement.contains(".toggleStyle(.switch)") && statement.contains(".tint(Theme.Colors.accent)"), "\(name):\(index + 1)")
+            }
+        }
+    }
+
     /// One purple button per screen: a tint on a whole window or sheet turns every secondary glass button purple too
     /// (it happened in 0.4.0). Controls that want the accent carry their own tint.
     @Test func noWindowWideTint() throws {
