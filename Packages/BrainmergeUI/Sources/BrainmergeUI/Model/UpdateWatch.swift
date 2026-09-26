@@ -2,8 +2,8 @@ import Darwin
 import Foundation
 
 /// What a Claude update means for the windows already open, decided from snapshots only: nothing here reads a disk,
-/// quits or opens anything by itself.
-public enum UpdateWatch {
+/// quits or opens anything by itself. The app feeds it each reload (`observe`) and says what it returns.
+public struct UpdateWatch: Equatable, Sendable {
     /// A new Claude version, as first seen: when (in mach absolute time and on the wall clock), and when its bundle changed.
     public struct Change: Equatable, Sendable {
         public let version: String
@@ -13,6 +13,90 @@ public enum UpdateWatch {
         public init(version: String, observedAbstime: UInt64, observedAt: Date, bundleModified: Date) {
             self.version = version; self.observedAbstime = observedAbstime; self.observedAt = observedAt; self.bundleModified = bundleModified
         }
+    }
+
+    /// One account's window as a reload saw it.
+    public struct Window: Equatable, Sendable {
+        public let slug: String
+        public let isPrimary: Bool
+        public let running: Bool
+        /// When its main process started, in mach absolute time (nil when unknown).
+        public let startAbstime: UInt64?
+        public init(slug: String, isPrimary: Bool, running: Bool, startAbstime: UInt64?) {
+            self.slug = slug; self.isPrimary = isPrimary; self.running = running; self.startAbstime = startAbstime
+        }
+    }
+
+    /// What the app says, each once.
+    public enum Event: Equatable, Sendable {
+        /// Claude came back on the first account's folders after `instead`'s window closed for an update.
+        case bareRelaunch(instead: String)
+        /// `target` was asked to open, and Claude came up on the first account's folders instead.
+        case openedElsewhere(target: String)
+    }
+
+    struct Exit: Equatable, Sendable { let slug: String; let at: Date }
+
+    /// The last version change seen, and the windows that started before it.
+    public private(set) var change: Change?
+    public private(set) var stale: Set<String> = []
+    private var seenVersion: String?
+    private var runningBefore: Set<String>?
+    private var lastSecondaryExit: Exit?
+    private var primaryAppearedAt: Date?
+    /// Accounts the person asked to open, and when.
+    private var openRequests: [String: Date] = [:]
+
+    /// How long a version change can explain a bare Claude: Claude replaces itself, then comes back within a minute.
+    static let recentChange: TimeInterval = 300
+
+    public init() {}
+
+    /// The person asked this account to open (through Brainmerge): it is theirs, and a bare Claude instead is said.
+    public mutating func requestedOpen(_ slug: String, at date: Date) { openRequests[slug] = date }
+
+    /// One reload: Claude's version now, every account's window, the clocks. `bundleModified` is read only when the
+    /// version changed.
+    public mutating func observe(version: String, windows: [Window], now: Date, abstime: UInt64, ticksPerSecond: Double,
+                                 bundleModified: () -> Date?) -> [Event] {
+        if let seen = seenVersion, seen != version {
+            change = Change(version: version, observedAbstime: abstime, observedAt: now, bundleModified: bundleModified() ?? now)
+        }
+        seenVersion = version
+        stale = Set(windows.filter { $0.running && Self.isStale(startAbstime: $0.startAbstime, change: change, ticksPerSecond: ticksPerSecond) }.map(\.slug))
+
+        var events: [Event] = []
+        let running = Set(windows.filter(\.running).map(\.slug))
+        let primary = windows.first(where: \.isPrimary)?.slug
+        if let before = runningBefore, let primary {
+            let secondaries = Set(windows.filter { !$0.isPrimary }.map(\.slug))
+            if let exited = before.subtracting(running).intersection(secondaries).sorted().first { lastSecondaryExit = Exit(slug: exited, at: now) }
+            if running.contains(primary), !before.contains(primary) {
+                primaryAppearedAt = now
+                let versionChanged = change.map { now.timeIntervalSince($0.observedAt) <= Self.recentChange } ?? false
+                if let exit = lastSecondaryExit,
+                   Self.isBareRelaunch(now: now, lastSecondaryExit: exit.at, primaryWasRunning: false, versionChanged: versionChanged,
+                                       primaryOpenedByPerson: openRequests[primary] != nil) {
+                    lastSecondaryExit = nil
+                    events.append(.bareRelaunch(instead: exit.slug))
+                }
+            }
+            if !running.contains(primary) { primaryAppearedAt = nil }
+        }
+        runningBefore = running
+
+        for (slug, since) in openRequests.sorted(by: { $0.key < $1.key }) {
+            if running.contains(slug) || now.timeIntervalSince(since) > 60 || !windows.contains(where: { $0.slug == slug }) {
+                openRequests[slug] = nil; continue
+            }
+            guard slug != primary else { continue }
+            let bare = primaryAppearedAt.map { $0 >= since } ?? false
+            if Self.openedElsewhere(since: since, now: now, targetRunning: false, bareAppeared: bare) {
+                openRequests[slug] = nil
+                events.append(.openedElsewhere(target: slug))
+            }
+        }
+        return events
     }
 
     /// Mach ticks per second on this Mac.

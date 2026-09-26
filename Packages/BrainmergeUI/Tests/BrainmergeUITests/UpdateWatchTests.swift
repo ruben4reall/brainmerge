@@ -58,6 +58,74 @@ import Testing
         #expect(!UpdateWatch.openedElsewhere(since: since, now: since.addingTimeInterval(11), targetRunning: false, bareAppeared: false))
     }
 
+    // MARK: The tracker, fed one snapshot at a time
+
+    typealias W = UpdateWatch.Window
+    func personal(_ running: Bool, start: UInt64? = nil) -> W { W(slug: "personal", isPrimary: true, running: running, startAbstime: start) }
+    func work(_ running: Bool, start: UInt64? = nil) -> W { W(slug: "work", isPrimary: false, running: running, startAbstime: start) }
+
+    /// One reload: `seconds` after t0 on the wall clock, the same in mach time (one tick per nanosecond).
+    func see(_ watch: inout UpdateWatch, _ version: String, _ windows: [W], at seconds: TimeInterval, modified: TimeInterval? = nil) -> [UpdateWatch.Event] {
+        watch.observe(version: version, windows: windows, now: t0.addingTimeInterval(seconds),
+                      abstime: UInt64(seconds * 1_000_000_000), ticksPerSecond: tps,
+                      bundleModified: { modified.map { self.t0.addingTimeInterval($0) } })
+    }
+
+    @Test func theTrackerFlagsOnlyWindowsStartedBeforeTheChange() {
+        var watch = UpdateWatch()
+        _ = see(&watch, "1.2.3", [work(true, start: 10_000_000_000), personal(true, start: 28_000_000_000)], at: 20)
+        #expect(watch.stale.isEmpty)
+        // Seen at 30 s, the bundle changed at 25 s: the cut is at 25 s in mach time.
+        _ = see(&watch, "1.2.4", [work(true, start: 10_000_000_000), personal(true, start: 28_000_000_000)], at: 30, modified: 25)
+        #expect(watch.change?.version == "1.2.4")
+        #expect(watch.stale == ["work"])
+        // Restarted after the update: fresh.
+        _ = see(&watch, "1.2.4", [work(true, start: 40_000_000_000), personal(true, start: 28_000_000_000)], at: 45)
+        #expect(watch.stale.isEmpty)
+    }
+
+    @Test func theTrackerSaysABareRelaunchOnlyWithAllFourConditions() {
+        func run(exitAt: TimeInterval = 40, bareAt: TimeInterval = 60, newVersion: String = "1.2.4", primaryBefore: Bool = false,
+                 opened: Bool = false) -> [UpdateWatch.Event] {
+            var watch = UpdateWatch()
+            _ = see(&watch, "1.2.3", [personal(primaryBefore), work(true)], at: 10)
+            _ = see(&watch, newVersion, [personal(primaryBefore), work(false)], at: exitAt, modified: exitAt - 1)
+            if opened { watch.requestedOpen("personal", at: t0.addingTimeInterval(bareAt - 2)) }
+            return see(&watch, newVersion, [personal(true), work(false)], at: bareAt)
+        }
+        #expect(run() == [.bareRelaunch(instead: "work")])
+        #expect(run(bareAt: 101) == [])
+        #expect(run(newVersion: "1.2.3") == [])
+        #expect(run(primaryBefore: true) == [])
+        #expect(run(opened: true) == [])
+    }
+
+    @Test func anOldUpdateDoesNotMakeALaterRelaunchBare() {
+        var watch = UpdateWatch()
+        _ = see(&watch, "1.2.3", [personal(false), work(true)], at: 10)
+        _ = see(&watch, "1.2.4", [personal(false), work(true)], at: 20, modified: 19)
+        _ = see(&watch, "1.2.4", [personal(false), work(false)], at: 900)
+        #expect(see(&watch, "1.2.4", [personal(true), work(false)], at: 910) == [])
+    }
+
+    @Test func theTrackerSaysAnOpenOnTheWrongFoldersAfterTenSeconds() {
+        var watch = UpdateWatch()
+        _ = see(&watch, "1.2.3", [personal(false), work(false)], at: 0)
+        watch.requestedOpen("work", at: t0.addingTimeInterval(1))
+        #expect(see(&watch, "1.2.3", [personal(true), work(false)], at: 5) == [])
+        #expect(see(&watch, "1.2.3", [personal(true), work(false)], at: 11) == [.openedElsewhere(target: "work")])
+        // Said once.
+        #expect(see(&watch, "1.2.3", [personal(true), work(false)], at: 14) == [])
+    }
+
+    @Test func anAccountThatOpensIsNeverSaidToHaveOpenedElsewhere() {
+        var watch = UpdateWatch()
+        _ = see(&watch, "1.2.3", [personal(false), work(false)], at: 0)
+        watch.requestedOpen("work", at: t0)
+        _ = see(&watch, "1.2.3", [personal(true), work(true)], at: 5)
+        #expect(see(&watch, "1.2.3", [personal(true), work(true)], at: 12) == [])
+    }
+
     // MARK: Restart
 
     final class Log: @unchecked Sendable { var steps: [String] = []; var running = true; var polls = 0 }

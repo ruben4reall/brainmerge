@@ -23,7 +23,13 @@ struct LoginSheet: View {
                 }
                 HStack(spacing: 10) {
                     Spacer()
-                    Button("Cancel") { model.cancelLogin() }.buttonStyle(.glass).keyboardShortcut(.cancelAction)
+                    if flow.closeLabel == "Done" {
+                        // Alone: nothing was closed, so nothing to reopen. The one purple button ends the sheet.
+                        Button(flow.closeLabel) { model.cancelLogin() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                            .keyboardShortcut(.defaultAction)
+                    } else {
+                        Button(flow.closeLabel) { model.cancelLogin() }.buttonStyle(.glass).keyboardShortcut(.cancelAction)
+                    }
                     if flow.step == .ready {
                         Button("Start") { model.startLogin() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
                             .keyboardShortcut(.defaultAction)

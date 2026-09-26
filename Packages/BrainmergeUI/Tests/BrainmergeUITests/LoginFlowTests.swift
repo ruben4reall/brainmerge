@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import BrainmergeCore
 @testable import BrainmergeUI
 
 @Suite struct LoginFlowTests {
@@ -69,10 +70,15 @@ import Testing
         var before = flow()
         #expect(before.cancel() == [])
 
+        // Client is still closing: it opens again once it has closed, never on top of its exit.
         var closing = flow()
         _ = closing.start()
         _ = closing.observe(running: ["client"], connected: false)
-        #expect(closing.cancel() == [.open("personal"), .open("client")])
+        #expect(closing.cancel() == [.open("personal"), .openOnceClosed("client")])
+
+        var justStarted = flow()
+        _ = justStarted.start()
+        #expect(justStarted.cancel() == [.openOnceClosed("personal"), .openOnceClosed("client")])
 
         var opened = flow()
         _ = opened.start(); _ = opened.observe(running: [], connected: false)
@@ -82,5 +88,45 @@ import Testing
         var alone = LoginFlow(target: work, running: [], codeSessions: [:])
         #expect(alone.start() == [.open("work")])
         #expect(alone.cancel() == [])
+    }
+
+    @Test func anAccountThatAlreadyLooksConnectedMustFlipFirst() {
+        // An expired session whose files remain: "connected" from the start proves nothing.
+        var f = LoginFlow(target: work, running: [personal], codeSessions: [:], connectedAtStart: true)
+        _ = f.start()
+        _ = f.observe(running: [], connected: true)
+        _ = f.observe(running: ["work"], connected: true)
+        #expect(f.step == .opened)
+        #expect(!f.canReopen)
+        _ = f.observe(running: ["work"], connected: false)
+        _ = f.observe(running: ["work"], connected: true)
+        #expect(f.step == .connected)
+        #expect(f.canReopen)
+    }
+
+    @Test func aLoginWithNothingToCloseEndsWithDone() {
+        var alone = LoginFlow(target: work, running: [], codeSessions: [:])
+        #expect(alone.closeLabel == "Cancel")
+        _ = alone.start()
+        #expect(alone.closeLabel == "Done")
+        #expect(!alone.canConfirm)
+        var f = flow()
+        _ = f.start()
+        _ = f.observe(running: [], connected: false)
+        #expect(f.closeLabel == "Cancel")
+        #expect(f.canConfirm)
+    }
+
+    @Test func theCardShowsLogInWhenItMustAndItsMenuAlways() {
+        func account(desktop: Bool = true, session: Bool) -> Account {
+            Account(identity: Identity(slug: "work", name: "Work", isPrimary: false, surfaces: Surfaces(desktop: desktop)),
+                    isRunning: false, hasSession: session)
+        }
+        #expect(AccountsView.showsLogInButton(account(session: false), opening: false))
+        #expect(!AccountsView.showsLogInButton(account(session: false), opening: true))
+        #expect(!AccountsView.showsLogInButton(account(session: true), opening: false))
+        // A session that expired can keep its files: the menu still offers it.
+        #expect(AccountsView.offersLogIn(account(session: true)))
+        #expect(!AccountsView.offersLogIn(account(desktop: false, session: false)))
     }
 }

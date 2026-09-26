@@ -396,7 +396,7 @@ import BrainmergeTestSupport
         #expect(m.lastShownProcess == 900)
     }
 
-    @Test func addingAnAccountWhileAnotherIsOpenAsksToQuitFirst() async throws {
+    @Test func addingAnAccountWhileAnotherIsOpenLeadsToItsLogIn() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let exe = e.claude.executable.path
@@ -405,11 +405,18 @@ import BrainmergeTestSupport
         var form = AddAccountForm(); form.name = "Work"
         #expect(await m.add(form))
         #expect(m.accounts.map(\.identity.slug).contains("work"))
-        // The login link would open in the window that's already running: no launch, a sentence and a button.
+        // The login link would open in the window that's already running: no launch and no alert, but the Log in
+        // sheet once the add sheet has gone (two sheets never show at once). Nothing is closed before Start.
         #expect(m.opening.isEmpty)
-        #expect(m.message?.title == "Close your other Claude windows first")
-        #expect(m.message?.action == .quitOthersThenOpen(slug: "work"))
+        #expect(m.message == nil)
+        #expect(m.login == nil)
+        m.beginPendingLogin()
+        #expect(m.login?.title == "Log in to Work")
+        #expect(m.login?.step == .ready)
         #expect(m.working == nil)
+        m.cancelLogin()
+        m.beginPendingLogin()
+        #expect(m.login == nil)
     }
 
     @Test func addingWithoutOpeningJustAdds() async throws {

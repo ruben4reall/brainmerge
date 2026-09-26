@@ -10,7 +10,8 @@ public struct LoginFlow: Equatable, Sendable {
         public init(slug: String, name: String) { self.slug = slug; self.name = name }
     }
 
-    public enum Effect: Equatable, Sendable { case quit(String), open(String) }
+    /// `openOnceClosed`: reopen a window asked to close as soon as it has exited, never on top of its exit.
+    public enum Effect: Equatable, Sendable { case quit(String), open(String), openOnceClosed(String) }
 
     public enum Step: Equatable, Sendable { case ready, closing, opened, connected, finished }
 
@@ -23,11 +24,16 @@ public struct LoginFlow: Equatable, Sendable {
     private var closed: [Member] = []
     private var stillRunning: [Member] = []
     private var confirmed = false
+    /// The target was seen without a session: from then on, a session means it logged in.
+    private var sawDisconnected: Bool
 
-    public init(target: Member, running: [Member], codeSessions: [String: Int]) {
+    /// `connectedAtStart`: the target already looked connected (an expired session keeps its files), so only a
+    /// session that goes and comes back counts as a login.
+    public init(target: Member, running: [Member], codeSessions: [String: Int], connectedAtStart: Bool = false) {
         self.target = target
         self.others = running.filter { $0.slug != target.slug }
         self.codeSessions = codeSessions
+        self.sawDisconnected = !connectedAtStart
     }
 
     public var title: String { "Log in to \(target.name)" }
@@ -53,7 +59,9 @@ public struct LoginFlow: Equatable, Sendable {
     public var canReopen: Bool { (step == .connected || (step == .opened && confirmed)) && !closed.isEmpty }
     public var reopenLabel: String { "Reopen \(Self.list(closed.map(\.name)))" }
     /// Shown while waiting for the login, for a connection the file names did not show.
-    public var canConfirm: Bool { step == .opened && !confirmed }
+    public var canConfirm: Bool { step == .opened && !confirmed && !others.isEmpty }
+    /// The button that ends the sheet: nothing to reopen once it has started alone, so it is done.
+    public var closeLabel: String { step != .ready && others.isEmpty ? "Done" : "Cancel" }
 
     public mutating func start() -> [Effect] {
         guard step == .ready else { return [] }
@@ -73,7 +81,7 @@ public struct LoginFlow: Equatable, Sendable {
             step = .opened
             return [.open(target.slug)]
         case .opened:
-            if connected { step = .connected }
+            if !connected { sawDisconnected = true } else if sawDisconnected { step = .connected }
             return []
         default: return []
         }
@@ -87,10 +95,11 @@ public struct LoginFlow: Equatable, Sendable {
         return closed.map { .open($0.slug) }
     }
 
-    /// At any step: reopens only what it closed, nothing when it closed nothing.
+    /// At any step: reopens only what it closed, nothing when it closed nothing; a window still closing opens again
+    /// once it has exited.
     public mutating func cancel() -> [Effect] {
-        defer { closed = []; step = .finished }
-        return closed.map { .open($0.slug) }
+        defer { closed = []; stillRunning = []; step = .finished }
+        return closed.map { member in stillRunning.contains(member) ? .openOnceClosed(member.slug) : .open(member.slug) }
     }
 
     static func list(_ names: [String]) -> String {

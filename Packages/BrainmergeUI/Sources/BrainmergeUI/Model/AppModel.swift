@@ -40,7 +40,7 @@ public enum LaunchPhase: Equatable, Sendable { case loading, ready }
 public struct UserMessage: Identifiable, Equatable, Sendable {
     /// What a message's button does: typed, so it never depends on a label.
     public enum Action: Equatable, Sendable {
-        case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications, installAppleTools
+        case quit(slug: String), getClaude, openSettings, moveToApplications, installAppleTools
         /// Quits the bare Claude gracefully, then opens this account through its own app.
         case reopenInstead(slug: String)
     }
@@ -263,21 +263,25 @@ public final class AppModel {
     public internal(set) var staleAccounts: Set<String> = []
     /// Accounts waiting for their Claude Code sessions to end before they restart.
     public internal(set) var restartingWhenIdle: Set<String> = []
+    /// Accounts being restarted now: a second click waits for the first instead of opening the window twice.
+    public internal(set) var restarting: Set<String> = []
+    /// How often Restart When Idle looks at the window's Claude Code sessions.
+    @ObservationIgnored var idlePoll: Duration = .seconds(5)
     @ObservationIgnored var now: () -> Date = { Date() }
     @ObservationIgnored var abstimeNow: () -> UInt64 = { mach_absolute_time() }
     @ObservationIgnored var ticksPerSecond: Double = UpdateWatch.ticksPerSecond
-    @ObservationIgnored var claudeChange: UpdateWatch.Change?
-    @ObservationIgnored var seenClaudeVersion: String?
-    @ObservationIgnored var runningBefore: Set<String>?
-    @ObservationIgnored var lastSecondaryExit: (slug: String, at: Date)?
-    @ObservationIgnored var primaryAppearedAt: Date?
-    @ObservationIgnored var openRequests: [String: Date] = [:]
+    /// What the reloads saw of Claude's version and the windows (see UpdateWatch).
+    @ObservationIgnored var updateWatch = UpdateWatch()
 
     /// The "Log in to …" sheet's flow, while it shows (see AppModel+Login).
     public internal(set) var login: LoginFlow?
     /// A clean quit and a launch through the account's app: replaced in tests, which never signal or start a process.
     @ObservationIgnored var quitAccount: ((Identity) -> Void)?
     @ObservationIgnored var launchAccount: ((String) -> Void)?
+    /// An account just added that must log in while other windows run: its Log in sheet shows once the add sheet is gone.
+    @ObservationIgnored var pendingLogin: String?
+    /// Windows a cancelled login asked to close and wants back, since when: each opens once `reload()` sees it gone.
+    @ObservationIgnored var reopenOnceClosed: [String: Date] = [:]
 
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
@@ -919,16 +923,11 @@ public final class AppModel {
     }
 
     /// A brand-new account opens Claude to log in. The browser's login link opens in the Claude instance
-    /// that's already running: if there is one, we ask to close it first. An adopted account is already logged in.
+    /// that's already running: if there is one, its Log in sheet follows the add sheet (see `beginPendingLogin`),
+    /// which closes the others on Start. An adopted account is already logged in.
     func openNewAccount(_ identity: Identity) {
         let others = openAccounts.filter { $0.id != identity.slug }
-        if identity.desktopDataPath == nil, !others.isEmpty {
-            let names = others.map(\.identity.name).joined(separator: ", ")
-            message = UserMessage(title: "Close your other Claude windows first",
-                                  detail: "\(identity.name) needs to log in. The login link from your browser opens in the Claude window that is already running (\(names)), so quit it first, then open \(identity.name) and log in.",
-                                  action: .quitOthersThenOpen(slug: identity.slug), actionLabel: "Quit and open \(identity.name)")
-            return
-        }
+        if identity.desktopDataPath == nil, !others.isEmpty { pendingLogin = identity.slug; return }
         open(identity.slug)
     }
 

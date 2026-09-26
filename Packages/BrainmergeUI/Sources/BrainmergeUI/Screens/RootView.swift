@@ -61,8 +61,7 @@ public struct RootView: View {
         .focusedSceneValue(\.brainmergeSection, model.launchPhase == .ready && !model.needsOnboarding && onboarding.finished ? $section : nil)
         .alert(model.message?.title ?? "", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } }), presenting: model.message) { m in
             if m.action != nil { Button(m.actionLabel ?? "OK") { perform(m) } }
-            if let cancel = m.cancelLabel { Button(cancel, role: .cancel) {} }
-            Button(m.action == .moveToApplications ? "Not now" : "OK", role: .cancel) { if m.action == .moveToApplications { Installer.remember(declined: Installer.bundlePath) } }
+            Button(Self.cancelTitle(for: m), role: .cancel) { if m.action == .moveToApplications { Installer.remember(declined: Installer.bundlePath) } }
         } message: { m in
             Text(m.detail)
         }
@@ -142,7 +141,7 @@ public struct RootView: View {
         let othersOpen = model.openAccounts.contains { $0.id != account.id }
         let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
                                              othersOpen: othersOpen, appExists: model.appURL(of: account.id) != nil)
-        let help = action.help(for: account, othersOpen: othersOpen)
+        let help = action.help(for: account, othersOpen: othersOpen, staleVersion: model.staleVersion(of: account.id))
         return Button { Task { await model.perform(action, on: account.id) } } label: {
             HStack(spacing: 9) {
                 OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 22)
@@ -187,10 +186,14 @@ public struct RootView: View {
         .padding(.horizontal, 6).padding(.bottom, 2)
     }
 
+    /// The alert's one button that changes nothing: the message's own word ("Keep Personal") when it has one.
+    nonisolated static func cancelTitle(for m: UserMessage) -> String {
+        m.cancelLabel ?? (m.action == .moveToApplications ? "Not now" : "OK")
+    }
+
     func perform(_ m: UserMessage) {
         switch m.action {
         case .quit(let slug): model.quit(slug)
-        case .quitOthersThenOpen(let slug): model.quitOthers(then: slug)
         case .getClaude: if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) }
         case .openSettings: section = .settings
         case .moveToApplications: Installer.moveAndRelaunch { error in model.present(error) }

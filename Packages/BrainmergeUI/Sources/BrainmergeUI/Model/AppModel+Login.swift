@@ -15,7 +15,15 @@ extension AppModel {
             }
         }
         let member = { (a: Account) in LoginFlow.Member(slug: a.id, name: a.identity.name) }
-        login = LoginFlow(target: member(target), running: openAccounts.map(member), codeSessions: sessions)
+        login = LoginFlow(target: member(target), running: openAccounts.map(member), codeSessions: sessions,
+                          connectedAtStart: target.hasSession)
+    }
+
+    /// The add sheet has gone: the account it added and that must log in gets its Log in sheet, once.
+    public func beginPendingLogin() {
+        guard let slug = pendingLogin else { return }
+        pendingLogin = nil
+        beginLogin(slug)
     }
 
     public func startLogin() { run(login.map { var f = $0; defer { login = f }; return f.start() } ?? []) }
@@ -36,10 +44,15 @@ extension AppModel {
         run(flow.cancel())
     }
 
-    /// Follows the flow on each reload: the exits it waits for, then the target's session.
+    /// Follows the flow on each reload: the exits it waits for, then the target's session. A window Cancel asked back
+    /// while it was still closing opens once it has exited, within 30 s: one quit by hand later stays closed.
     func advanceLogin() -> Bool {
-        guard var flow = login else { return false }
         let running = Set(openAccounts.map(\.id))
+        for (slug, since) in reopenOnceClosed.sorted(by: { $0.key < $1.key }) {
+            if now().timeIntervalSince(since) > 30 { reopenOnceClosed[slug] = nil; continue }
+            if !running.contains(slug) { reopenOnceClosed[slug] = nil; launchWindow(slug) }
+        }
+        guard var flow = login else { return false }
         let connected = accounts.first { $0.id == flow.target.slug }?.hasSession ?? false
         let effects = flow.observe(running: running, connected: connected)
         let changed = flow != login
@@ -53,10 +66,11 @@ extension AppModel {
             switch effect {
             case .quit(let slug):
                 guard let a = accounts.first(where: { $0.id == slug }) else { continue }
-                if let quitAccount { quitAccount(a.identity) } else { try? manager.quit(a.identity) }
+                quitWindow(a.identity)
             case .open(let slug):
-                if let launchAccount { launchAccount(slug); continue }
-                do { try manager.launch(slug: slug); markOpening(slug) } catch { present(error) }
+                launchWindow(slug)
+            case .openOnceClosed(let slug):
+                reopenOnceClosed[slug] = now()
             }
         }
     }

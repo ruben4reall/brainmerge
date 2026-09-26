@@ -47,19 +47,22 @@ public enum SidebarAccountAction: Equatable, Sendable {
     public var isEnabled: Bool { self != .opening && self != .updating }
 
     /// The tooltip and the VoiceOver hint: what the click does, in one plain sentence.
-    public func help(for account: Account, othersOpen: Bool) -> String {
+    /// `staleVersion`: the Claude installed now, when this account's window started before it was updated.
+    public func help(for account: Account, othersOpen: Bool, staleVersion: String? = nil) -> String {
         let name = account.identity.name
         switch self {
         case .open:
             // Logging in while another Claude runs: the browser's login link lands in the window already open.
-            // Say so, and never offer to quit the others from here (one of them may be the primary Claude).
+            // Point at the card's Log in, which asks before closing them; never quit the others from here.
             if account.needsLogin, othersOpen {
-                return "Opens Claude to log in. Quit your other Claude windows first, so the login lands in this one."
+                return "Opens Claude to log in. Use Log in on its card instead: it closes your other Claude windows first, so the login lands in this one."
             }
             // The email Claude Code uses, when known: it tells two accounts with similar names apart.
             let email = account.codeAccount.map { " (\($0.email))" } ?? ""
             return Self.withVersion("Open Claude as \(name)\(email)", account)
-        case .show: return Self.withVersion("Show \(name)'s Claude window", account)
+        case .show:
+            if let staleVersion { return "Show \(name)'s Claude window. Runs the previous Claude. Restart to use \(staleVersion)." }
+            return Self.withVersion("Show \(name)'s Claude window", account)
         case .opening: return "Opening \(name)…"
         case .updating: return "Brainmerge is working on \(name)'s app. Try again in a moment."
         case .rebuild: return "\(name)'s app is missing. Click to build it again."

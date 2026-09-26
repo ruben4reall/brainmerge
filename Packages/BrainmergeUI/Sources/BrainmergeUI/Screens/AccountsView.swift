@@ -45,7 +45,7 @@ public struct AccountsView: View {
             .padding(Theme.Layout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .sheet(isPresented: $showAdd) { AddAccountSheet(model: model, isPresented: $showAdd) }
+        .sheet(isPresented: $showAdd, onDismiss: { model.beginPendingLogin() }) { AddAccountSheet(model: model, isPresented: $showAdd) }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory, attach: newMemoryFor) }
         .sheet(isPresented: Binding(get: { model.login != nil }, set: { if !$0 { model.cancelLogin() } })) { LoginSheet(model: model) }
         .sheet(item: $editing) { account in
@@ -129,19 +129,21 @@ public struct AccountsView: View {
                         Text(Self.status(of: account, memory: memory))
                             .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                     }
-                    if model.staleAccounts.contains(account.id), let version = model.claude?.version {
+                    if let version = model.staleVersion(of: account.id) {
+                        let waiting = model.restartingWhenIdle.contains(account.id)
                         HStack(spacing: 6) {
-                            Text(Self.staleLine(version: version)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.accentLight)
+                            Text(Self.staleLine(version: version, waiting: waiting)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.accentLight)
                                 .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                             Button("Restart") { Task { await model.restart(account.id) } }.buttonStyle(.glass).controlSize(.mini)
-                                .disabled(model.restartingWhenIdle.contains(account.id))
+                                .disabled(waiting || model.restarting.contains(account.id))
                                 .help("Quits this window, waits for it to close, then opens it again on Claude \(version)")
                         }
                     }
                 }
                 Spacer(minLength: 8)
-                if account.needsLogin, !opening {
+                if Self.showsLogInButton(account, opening: opening) {
                     Button("Log in") { model.beginLogin(account.id) }.buttonStyle(.glass).controlSize(.small)
+                        .disabled(model.accountsBusy.contains(account.id))
                         .help("Closes your other Claude windows, opens \(account.identity.name) to log in, then reopens the others on your click")
                 }
                 if let button = Self.cardButton(for: account, action: action) { cardButton(button, for: account, action: action) }
@@ -172,7 +174,7 @@ public struct AccountsView: View {
         }
         let help = button.run == .update
             ? (account.isRunning ? "Quits this account, rebuilds its copy of Claude for the version installed, and opens it again" : "Rebuilds this account's copy of Claude for the version installed, then you can open it")
-            : action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id })
+            : action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id }, staleVersion: model.staleVersion(of: account.id))
         if button.isProminent {
             Button(button.label, action: run).buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
                 .disabled(!button.isEnabled).help(help)
@@ -209,7 +211,7 @@ public struct AccountsView: View {
 
     @ViewBuilder func actions(_ account: Account) -> some View {
         Button("Edit…") { startEditing(account) }
-        if account.needsLogin { Button("Log in…") { model.beginLogin(account.id) } }
+        if Self.offersLogIn(account) { Button("Log in…") { model.beginLogin(account.id) }.disabled(model.accountsBusy.contains(account.id)) }
         Menu("Memory") {
             let current = model.brainName(of: account.identity)
             ForEach(model.brains) { folder in
@@ -224,7 +226,7 @@ public struct AccountsView: View {
         if account.isOutdated { Button("Update for Claude") { Task { await model.updateAccount(account.id) } } }
         if !account.identity.isPrimary { Button(account.identity.iconMode == .tintedClone ? "Rebuild icon" : "Rebuild launcher") { Task { await model.rebuild(account.id) } } }
         else if account.identity.appURL(in: model.paths) != nil { Button("Rebuild app") { Task { await model.rebuild(account.id) } } }
-        if model.staleAccounts.contains(account.id), !model.restartingWhenIdle.contains(account.id) {
+        if model.staleVersion(of: account.id) != nil, !model.restartingWhenIdle.contains(account.id), !model.restarting.contains(account.id) {
             Button("Restart When Idle") { model.restartWhenIdle(account.id) }
         }
         if account.isRunning { Button("Quit") { model.quit(account.id) } }
@@ -258,8 +260,16 @@ public struct AccountsView: View {
         }
     }
 
+    /// "Log in" on the card: an account that has not logged in, or whose session is gone.
+    nonisolated static func showsLogInButton(_ account: Account, opening: Bool) -> Bool { account.needsLogin && !opening }
+    /// "Log in…" in the card's menu: every account with a Claude window, since an expired session can keep the files
+    /// Brainmerge looks at, and then only the person knows.
+    nonisolated static func offersLogIn(_ account: Account) -> Bool { account.identity.surfaces.desktop }
+
     /// Under the status of a window that started before Claude was updated.
-    nonisolated static func staleLine(version: String) -> String { "Runs the previous Claude. Restart to use \(version)." }
+    nonisolated static func staleLine(version: String, waiting: Bool = false) -> String {
+        waiting ? "Runs the previous Claude. Restarts when its Claude Code sessions end." : "Runs the previous Claude. Restart to use \(version)."
+    }
 
     /// The card's main button.
     struct CardButton: Equatable {
