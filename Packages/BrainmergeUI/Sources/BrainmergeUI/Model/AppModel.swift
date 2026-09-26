@@ -1424,18 +1424,20 @@ public final class AppModel {
 
     /// Saves one setting on the core queue, after any work already there, which saves the same file (a rebuild records
     /// its Claude version): a save from the main thread meanwhile would be undone by the state that work read before.
-    /// The value on screen has already moved; the task ends once it is saved.
+    /// The value on screen has already moved; the task ends once it is saved. Queued right away, in the order the settings
+    /// changed: never behind whatever else waits for the main actor.
     func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
         pendingSaves[setting, default: 0] += 1
-        let store = self.store, queue = coreQueue, begins = saveBegins
+        let store = self.store, begins = saveBegins, saved = DispatchGroup()
+        coreQueue.async(group: saved) {
+            begins()
+            // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
+            try? store.update { change(&$0) }
+        }
         return Task {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                queue.async {
-                    begins()
-                    // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
-                    try? store.update { change(&$0) }
-                    done.resume()
-                }
+                // Sendable: a closure made here would otherwise claim the main actor, and trap on the queue that runs it.
+                saved.notify(queue: .global(qos: .userInitiated)) { @Sendable in done.resume() }
             }
             pendingSaves[setting, default: 1] -= 1
         }

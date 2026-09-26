@@ -85,6 +85,26 @@ import BrainmergeTestSupport
         #expect(try e.store.load().autoRebuild == false)
     }
 
+    /// A save reaches the core queue at once, never behind whatever else waits for the main actor: with the whole suite
+    /// running, the main actor can stay busy longer than the lock test above waits.
+    @Test func aSaveBeginsWhileTheMainActorIsBusy() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        let begun = DispatchSemaphore(value: 0)
+        m.saveBegins = { begun.signal() }
+        let (task, began) = Self.saveHoldingTheMainActor(m, begun: begun)
+        #expect(began)
+        await task.value
+        #expect(try e.store.load().autoRebuild == false)
+    }
+
+    /// Starts a save and waits for it to begin without ever letting go of the main actor.
+    static func saveHoldingTheMainActor(_ m: AppModel, begun: DispatchSemaphore) -> (Task<Void, Never>, Bool) {
+        let task = m.setAutoRebuild(false)
+        return (task, begun.wait(timeout: .now() + 2) == .success)
+    }
+
     @Test func choosingAnUnsignedClaudeIsRefusedAndNothingIsSaved() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
