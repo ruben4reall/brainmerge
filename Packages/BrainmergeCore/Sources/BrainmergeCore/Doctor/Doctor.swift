@@ -43,6 +43,14 @@ public struct Doctor: Sendable {
         }
     }
 
+    /// A word of a "Run:" line as a shell reads it: as is when it is plain, else in single quotes, so a name or a folder
+    /// with spaces pastes as one argument.
+    static func quoted(_ word: String) -> String {
+        let plain = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./@%+=:,")
+        if !word.isEmpty, word.allSatisfy(plain.contains) { return word }
+        return "'" + word.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     /// A path as the person reads it: the home folder as ~.
     func shown(_ path: String) -> String {
         let home = paths.home.path
@@ -92,9 +100,10 @@ public struct Doctor: Sendable {
                                         plain: git ? "The memory \(folder.name) is ready." : "The history of the memory \(folder.name) can't be read."))
                 if git { findings += savesWait(folder, brain: candidate) }
             } else {
-                // "brain init" only ever sets up the default memory: advised for it alone, with its own folder.
-                let advice = index == 0 ? "Run: brainmerge brain init \(folder.path)"
-                    : "Run: brainmerge brain forget \(folder.id), then brainmerge brain add --name \(folder.name) \(folder.path)"
+                // "brain init" only ever sets up the default memory: advised for it alone, with its own folder. Another
+                // memory is pointed at its folder again, its accounts with it (forgetting it is refused while one uses it).
+                let advice = index == 0 ? "Run: brainmerge brain init \(Self.quoted(folder.path))"
+                    : "Run: brainmerge brain relocate \(folder.id) \(Self.quoted(folder.path))"
                 findings.append(Finding(level: .error, title: "Memory: \(folder.name)", detail: "Missing or not initialized at \(folder.path). \(advice)",
                                         plain: "The memory \(folder.name) is missing from \(shown(folder.path)).", fix: .chooseMemory(brainID: folder.id)))
             }
@@ -221,7 +230,7 @@ public struct Doctor: Sendable {
         if case .external(let target) = state, let root = Self.memoryRoot(containing: target),
            !known.contains(where: { $0.resolvingSymlinksInPath().path == root.resolvingSymlinksInPath().path }) {
             return Finding(level: .warning, title: title,
-                           detail: "points to \(target), in \(root.path): a memory Brainmerge no longer knows, so the notes written there are not saved. Run: brainmerge brain add --name NAME \(root.path), then brainmerge identity edit \(identity.slug) --brain ID",
+                           detail: "points to \(target), in \(root.path): a memory Brainmerge no longer knows, so the notes written there are not saved. Run: brainmerge brain add --name NAME \(Self.quoted(root.path)), then brainmerge identity edit \(identity.slug) --brain ID",
                            plain: "The notes of \(project) for \(identity.name) go to \(shown(root.path)), a memory Brainmerge no longer knows: they are not saved.")
         }
         return switch state {

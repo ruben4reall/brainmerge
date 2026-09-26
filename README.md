@@ -159,6 +159,7 @@ For people who like one. The app links `brainmerge` into `~/.local/bin` at the e
 ```
 brainmerge brain init [path] [--lang en|fr]     create the default memory
 brainmerge brain list | add --name NAME [path] | forget ID | rename ID --name NAME
+brainmerge brain relocate ID PATH               a memory whose folder is gone: where it is now, or an empty folder
 brainmerge brain status | wire | timeline [--brain ID]
 brainmerge brain health [--json] [--brain ID]   notes Claude will not load, and what to tidy (read only)
 brainmerge adopt-primary [--name NAME]          your current Claude becomes the first account

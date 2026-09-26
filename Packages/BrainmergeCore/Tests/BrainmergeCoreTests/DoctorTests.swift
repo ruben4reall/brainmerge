@@ -296,6 +296,6 @@ import BrainmergeTestSupport
         #expect(finding?.level == .error)
         // Never "brain init" for a memory that is not the default one: that command moves the default memory.
         #expect(finding?.detail.contains("brain init") == false)
-        #expect(finding?.detail.contains("brain forget work") == true)
+        #expect(finding?.detail.contains("brain relocate work") == true)
     }
 }
