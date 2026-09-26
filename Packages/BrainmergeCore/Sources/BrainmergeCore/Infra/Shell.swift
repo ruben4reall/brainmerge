@@ -96,7 +96,11 @@ public struct Shell: Sendable {
         let out = StreamReader(outPipe), err = StreamReader(errPipe)
         if exited.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
-            _ = exited.wait(timeout: .now() + 2)
+            // A program that ignores the polite signal is killed: nothing started here outlives its time.
+            if exited.wait(timeout: .now() + 2) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 1)
+            }
             out.stop(); err.stop()
             throw BrainmergeError.timedOut(command: ([executable] + arguments).joined(separator: " "))
         }

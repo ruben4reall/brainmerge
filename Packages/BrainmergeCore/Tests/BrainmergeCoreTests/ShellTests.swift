@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import BrainmergeTestSupport
 @testable import BrainmergeCore
@@ -54,4 +55,18 @@ import BrainmergeTestSupport
             try Shell().runIsolated("/nonexistent/program", [], cwd: nil, environment: [:], timeout: 5)
         }
     }
+
+    /// A program that outlives its time is stopped, and one that ignores the polite signal is killed after a short grace:
+    /// "Check limits" never leaves a Claude Code running behind.
+    @Test func aProgramThatIgnoresTheStopIsKilled() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let pidFile = home.url.appending(path: "pid")
+        let script = "trap '' TERM; echo $$ > '\(pidFile.path)'; while true; do sleep 1; done"
+        #expect(throws: (any Error).self) {
+            try Shell().runIsolated("/bin/sh", ["-c", script], cwd: nil, environment: ["PATH": "/usr/bin:/bin"], timeout: 1)
+        }
+        let pid = try #require(Int32(try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(Darwin.kill(pid, 0) != 0, "the program must be gone")
+    }
+
 }
