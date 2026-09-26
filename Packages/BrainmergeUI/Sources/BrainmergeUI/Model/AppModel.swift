@@ -1733,7 +1733,9 @@ public final class AppModel {
                     let edits = OwnEdits(brain: brain, git: repo, held: HeldStore(paths: paths, memoryID: folder.id))
                     let outcome = try? repo.withLock(timeout: 0) { () throws -> OwnEdits.Outcome in
                         guard state.saveOwnEdits else { try? repo.catchUpIndex(); return .nothing }
-                        return try edits.save(now: now, sessionRunning: running)
+                        // The accounts of this memory: a list no turn will save goes under its account's name.
+                        let accounts = state.identities.filter { state.brain(for: $0)?.id == folder.id }
+                        return try edits.save(now: now, sessionRunning: running, accounts: accounts)
                     }
                     if case .saved = outcome { any = true }
                 }

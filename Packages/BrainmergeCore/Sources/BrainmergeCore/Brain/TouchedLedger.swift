@@ -75,6 +75,12 @@ public struct TouchedLedger: Sendable {
         }
     }
 
+    /// The paths one account wrote and has not saved yet, both of its lists.
+    static func claimed(in brain: Brain, slug: String) -> Set<String> {
+        let ledger = TouchedLedger(brain: brain, slug: slug)
+        return Set([ledger.file, ledger.sending].flatMap { (try? readLocked($0)) ?? [] })
+    }
+
     /// Every path some account wrote and has not saved yet: the person's own edits never include them.
     public static func claimed(in brain: Brain) -> Set<String> {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: brain.touchedDir.path)) ?? []

@@ -95,18 +95,34 @@ public struct OwnEdits: Sendable {
         return try git.status(scope: Brain.ownEditsScope).filter { !claimed.contains($0) }
     }
 
-    /// Run under the memory's lock. `sessionRunning`: a Claude Code session of any account is running now.
-    public func save(now: Date, sessionRunning: Bool) throws -> Outcome {
+    /// Run under the memory's lock. `sessionRunning`: a Claude Code session of any account is running now. `accounts`:
+    /// whose quiet lists this pass saves under their own names first (see `saveQuietLists`).
+    public func save(now: Date, sessionRunning: Bool, accounts: [Identity] = []) throws -> Outcome {
         // The real index catches up with an account's save first, session or not: a plain commit of yours never undoes it.
         try? git.catchUpIndex()
         if sessionRunning { return .sessionRunning }
+        let quiet = saveQuietLists(of: accounts, now: now)
         let paths = try pending()
-        guard !paths.isEmpty else { return .nothing }
-        if let newest = newestChange(of: paths), now.timeIntervalSince(newest) < Self.quietPeriod { return .tooRecent }
+        guard !paths.isEmpty else { return quiet.isEmpty ? .nothing : .saved(quiet) }
+        if let newest = newestChange(of: paths), now.timeIntervalSince(newest) < Self.quietPeriod { return quiet.isEmpty ? .tooRecent : .saved(quiet) }
         // Guarded like an account's save: a note that looks like it holds a key waits, with the others saved.
         let result = try GuardedCommit(brain: brain, git: git, held: held)
             .run(paths: paths, author: Self.author, account: nil) { MemorySentence.message(name: Self.author.name, files: $0, byYou: true) }
-        return result.saved.isEmpty ? .nothing : .saved(result.saved)
+        let saved = (quiet + result.saved).sorted()
+        return saved.isEmpty ? .nothing : .saved(saved)
+    }
+
+    /// An account's list that no turn will save (a turn stopped with Esc, which skips the Stop hook; notes adopted for an
+    /// account used only in the chat): once its notes have not moved for as long as your own edits wait, and no session
+    /// runs, saved under that account's name, exactly as its own save would. Returns the paths committed.
+    func saveQuietLists(of accounts: [Identity], now: Date) -> [String] {
+        accounts.flatMap { identity -> [String] in
+            let ledger = TouchedLedger(brain: brain, slug: identity.slug)
+            let listed = TouchedLedger.claimed(in: brain, slug: identity.slug)
+            guard !listed.isEmpty, FileManager.default.fileExists(atPath: ledger.file.path) else { return [] }
+            if let newest = newestChange(of: Array(listed)), now.timeIntervalSince(newest) < Self.quietPeriod { return [] }
+            return (try? AccountSave(brain: brain, git: git, held: held).run(for: identity).saved) ?? []
+        }
     }
 
     /// When the latest of these changes happened: a file's modification date, or for a file that is gone, that of the
