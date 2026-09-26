@@ -41,6 +41,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case noteExists(name: String, project: String)
     case indexIsALink(project: String)
     case accountsNotRestored([String])
+    case folderUsedByAccount(String)
     case unreadableText(String)
     case sharedHistoryNeedsSameMemory
 
@@ -86,6 +87,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .noteBeingWritten: return "This note is being written. Try again in a moment."
         case .noteNotSaved: return "This note has changes that are not saved yet. Try again once they are saved."
         case .noteExists(let name, let project): return "There is already a note called \(name) in \(project)."
+        case .folderUsedByAccount(let name): return "\(name) already uses this folder. Each account needs folders of its own."
         case .accountsNotRestored(let names): return "\(names.joined(separator: " and ")) could not be put back as they were. Open Edit on each and save it again."
         case .indexIsALink(let project): return "The index of \(project) is a link to another file. Brainmerge moves nothing into it."
         case .unreadableText(let p): return "\(p) is not UTF-8 text, so Brainmerge left it as it is. Save it as UTF-8, then try again."

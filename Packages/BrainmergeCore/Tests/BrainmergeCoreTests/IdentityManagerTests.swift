@@ -263,6 +263,24 @@ import BrainmergeTestSupport
         #expect(held.load().held.map(\.account) == [nil, "perso"])
     }
 
+    /// A folder another account already uses (the first account's ~/.claude, another account's Claude Code or Claude
+    /// data folder) is never adopted: the new account's hooks would sign the other's notes, and removing one would strip
+    /// the other's hooks.
+    @Test func aFolderAnotherAccountUsesIsNeverAdopted() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        var request = IdentityManager.AddRequest(name: "Work")
+        request.adoptCLIProfile = e.primaryProfile.directory
+        #expect(throws: BrainmergeError.folderUsedByAccount("Perso")) { try e.manager.add(request) }
+        request.adoptCLIProfile = client.cliProfile(in: e.home.paths)
+        #expect(throws: BrainmergeError.folderUsedByAccount("Client")) { try e.manager.add(request) }
+        request.adoptCLIProfile = nil
+        request.adoptDesktopData = client.desktopData(in: e.home.paths)
+        #expect(throws: BrainmergeError.folderUsedByAccount("Client")) { try e.manager.add(request) }
+        #expect(try e.store.load().identities.map(\.name) == ["Perso", "Client"])
+    }
+
     @Test func addWithoutBrainCreatesNothing() throws {
         let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
         #expect(throws: BrainmergeError.brainNotConfigured) { try e.manager.add(IdentityManager.AddRequest(name: "Client")) }

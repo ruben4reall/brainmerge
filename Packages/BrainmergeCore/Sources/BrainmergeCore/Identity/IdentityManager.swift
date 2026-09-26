@@ -87,6 +87,7 @@ public final class IdentityManager: @unchecked Sendable {
                                 cliProfilePath: request.adoptCLIProfile?.path,
                                 desktopDataPath: request.adoptDesktopData?.path,
                                 brain: request.brain)
+        try ensureFoldersFree(identity, in: state)
         if identity.sharedHistory {
             guard !request.ownBrain else { throw BrainmergeError.sharedHistoryNeedsSameMemory }
             var candidate = state
@@ -578,6 +579,20 @@ public final class IdentityManager: @unchecked Sendable {
             else if let registryBefore { try? registryBefore.write(to: brain.identitiesFile, options: .atomic) }
         }
         for folder in created { try? fm.removeItem(at: folder) }
+    }
+
+    /// An adopted folder no other account uses, links resolved: two accounts on one Claude Code folder would sign each
+    /// other's notes, and removing one would strip the other's hooks.
+    func ensureFoldersFree(_ identity: Identity, in state: AppState) throws {
+        func key(_ url: URL) -> String { url.resolvingSymlinksInPath().standardizedFileURL.path.lowercased() }
+        let adopted = [identity.cliProfilePath, identity.desktopDataPath].compactMap { $0 }.map { key(URL(fileURLWithPath: $0)) }
+        guard !adopted.isEmpty else { return }
+        for other in state.identities {
+            let folders = [other.cliProfile(in: paths), other.desktopData(in: paths)].map(key)
+            if adopted.contains(where: folders.contains) { throw BrainmergeError.folderUsedByAccount(other.name) }
+        }
+        // The first account's folders, before it is adopted too.
+        if state.primary == nil, adopted.contains(key(paths.primaryCLIProfile)) { throw BrainmergeError.folderUsedByAccount("Claude") }
     }
 
     /// The memory's list of accounts before an attach, for `undoAttach`: empty when there is none, nil when unreadable.

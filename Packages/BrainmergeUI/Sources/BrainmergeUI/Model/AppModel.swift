@@ -2027,7 +2027,7 @@ public final class AppModel {
             return UserMessage(title: "That memory is gone", detail: "It is no longer in the list. Pick another one.")
         case .brainNameTaken(let name):
             return UserMessage(title: "Name already used", detail: "There is already a memory called \(name). Pick another name.")
-        case .memoryInsideRepository:
+        case .memoryInsideRepository, .folderUsedByAccount:
             // The sentence stands alone: the sheets show the detail only.
             return UserMessage(title: "Choose another folder", detail: e.description)
         case .nameInvalid:
