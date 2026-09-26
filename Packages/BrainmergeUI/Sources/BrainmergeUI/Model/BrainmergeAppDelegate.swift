@@ -10,6 +10,17 @@ public final class BrainmergeAppDelegate: NSObject, NSApplicationDelegate {
     private var quitting = false
     private var menuObserver: NSObjectProtocol?
 
+    /// Before AppKit restores windows: an older version's saved window would leave the app with none (see AppLifecycle).
+    public func applicationWillFinishLaunching(_ notification: Notification) {
+        AppLifecycle.forgetSavedWindows(bundleID: Bundle.main.bundleIdentifier, home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    public func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
+
+    public func application(_ app: NSApplication, shouldRestoreSecureApplicationState coder: NSCoder) -> Bool {
+        AppLifecycle.restoresWindows
+    }
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         // With no window on screen, macOS may slow the clocks down (App Nap), so the menu reads the accounts again as it
         // opens. Only while Brainmerge is not the active app: the icon's menu is then the only one that can open.
