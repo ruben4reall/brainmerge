@@ -169,18 +169,26 @@ public struct OnboardingView: View {
         }
     }
 
+    /// The first account: named here on a fresh Mac; shown as it is when it already exists (the guide opened over it),
+    /// with no field, since the core keeps the first account it has.
     var adopt: some View {
-        VStack(spacing: 20) {
+        let first = model.firstAccount
+        return VStack(spacing: 20) {
             Text("Your first account").font(Theme.Fonts.onboardingTitle)
-            Text("The Claude already installed becomes your first account, with everything it remembers. Give it a name.")
+            Text(model.adoptSentence)
                 .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
             GlassCard {
                 HStack(spacing: 16) {
-                    OrbView(name: model.primaryName, tint: .orange, size: 44)
+                    OrbView(name: first?.identity.name ?? model.primaryName, tint: first?.identity.tint ?? .orange,
+                            logo: first.flatMap { model.app.logo(for: $0.identity) }, size: 44)
                     VStack(alignment: .leading, spacing: 4) {
-                        TextField("Name", text: $model.primaryName).textFieldStyle(.plain).font(.system(size: 16, weight: .semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        if let first {
+                            Text(first.identity.name).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                        } else {
+                            TextField("Name", text: $model.primaryName).textFieldStyle(.plain).font(.system(size: 16, weight: .semibold))
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                                .background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
                         Text("Your current Claude\(model.claude.map { " \($0.version)" } ?? "") · \(model.projectCount) projects remembered").foregroundStyle(Theme.Colors.textMuted)
                     }
                 }
@@ -195,7 +203,7 @@ public struct OnboardingView: View {
     var secondAccount: some View {
         let added = model.addedAccount
         return VStack(spacing: 18) {
-            Text("Add a second account").font(Theme.Fonts.onboardingTitle)
+            Text(model.secondAccountTitle).font(Theme.Fonts.onboardingTitle)
             Text("Another Claude account, for work or a client? Give it a name and a color. It opens in its own Claude window where you log in as usual. You can also do this later from the Accounts screen.")
                 .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
             // One card for the form and for the account it made, its orb staying in place: the form's words fade out while

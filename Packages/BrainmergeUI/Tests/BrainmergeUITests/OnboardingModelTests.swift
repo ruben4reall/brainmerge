@@ -180,6 +180,47 @@ import BrainmergeTestSupport
         #expect(claudeMD.contains(Brain(root: newRoot).root.path) && !claudeMD.contains(oldRoot.path))
     }
 
+    /// The guide can open over a first account that already exists: its memory folder went missing ("Your memory folder is
+    /// missing." then the whole guide), or a demo forced the guide. The step shows that account as it is, with its own name,
+    /// and asks for none (a name typed there was dropped: the account kept its own); Continue keeps it. The next step, with
+    /// several accounts already there, adds another one, not a second.
+    @Test func aGuideOverAnExistingFirstAccountShowsItAsItIs() async throws {
+        let (e, app, _) = try setup(withBrain: true); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        for name in ["Studio", "Client"] { _ = try e.manager.add(IdentityManager.AddRequest(name: name)) }
+        try FileManager.default.removeItem(at: e.brain.root)
+        app.reload()
+        #expect(app.needsOnboarding)
+        let onboarding = OnboardingModel(app: app)
+        #expect(onboarding.firstAccount?.identity.name == "Personal")
+        #expect(onboarding.primaryName == "Personal")
+        #expect(onboarding.adoptSentence == "Personal is your first account, with everything it remembers.")
+        onboarding.step = .adopt
+        await onboarding.finish()
+        #expect(onboarding.error == nil && onboarding.step == .secondAccount)
+        #expect(app.accounts.map(\.identity.name) == ["Personal", "Studio", "Client"])
+        #expect(onboarding.secondAccountTitle == "Add another account")
+        onboarding.secondAccount.name = "Freelance"
+        #expect(await onboarding.addSecondAccount())
+        #expect(onboarding.secondAccountTitle == "Add another account")
+    }
+
+    /// On a fresh Mac the step asks for the first account's name, and the next one adds a second account, before and
+    /// after it is added.
+    @Test func aFreshGuideNamesTheFirstAccountThenAddsASecond() async throws {
+        let (e, _, onboarding) = try setup(); defer { e.home.remove() }
+        #expect(onboarding.firstAccount == nil)
+        #expect(onboarding.adoptSentence == "The Claude already installed becomes your first account, with everything it remembers. Give it a name.")
+        #expect(onboarding.secondAccountTitle == "Add a second account")
+        onboarding.primaryName = "Personal"
+        await onboarding.finish()
+        #expect(onboarding.firstAccount?.identity.name == "Personal")
+        #expect(onboarding.secondAccountTitle == "Add a second account")
+        onboarding.secondAccount.name = "Work"
+        #expect(await onboarding.addSecondAccount())
+        #expect(onboarding.secondAccountTitle == "Add a second account")
+    }
+
     /// "Continue" on the first account moves on at once: the memory folder and the account are made on the core queue while
     /// the next step slides in (its "Add account" waits for them), never while the window waits.
     @Test func doneMovesOnAtOnceWhileTheMemoryIsMade() async throws {

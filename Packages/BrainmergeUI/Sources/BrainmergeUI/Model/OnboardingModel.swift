@@ -48,9 +48,11 @@ public final class OnboardingModel {
         app.runBeforeReady { [weak self] in self?.decide() }
     }
 
-    /// Everything already in place: no guide. BRAINMERGE_ONBOARDING_STEP forces it (captures, demos).
+    /// Everything already in place: no guide. BRAINMERGE_ONBOARDING_STEP forces it (captures, demos). A first account
+    /// already there keeps its own name.
     public func decide() {
         finished = !app.needsOnboarding && ProcessInfo.processInfo.environment["BRAINMERGE_ONBOARDING_STEP"] == nil
+        if let first = firstAccount { primaryName = first.identity.name }
     }
 
     public func complete() { finished = true }
@@ -60,6 +62,21 @@ public final class OnboardingModel {
         guard await app.add(secondAccount, open: false) else { return false }
         addedSlug = secondAccount.request.name.isEmpty ? nil : app.accounts.last?.id
         return addedSlug != nil
+    }
+
+    /// The first account, when it already exists: the guide opened over it (its memory folder went missing, a demo), or
+    /// this guide made it and went back. Its step then shows it as it is, and asks for no name (one typed there was
+    /// dropped: the core keeps the first account it has).
+    public var firstAccount: Account? { app.accounts.first { $0.identity.isPrimary } }
+    /// What the first account's step says.
+    public var adoptSentence: String {
+        if let first = firstAccount { return "\(first.identity.name) is your first account, with everything it remembers." }
+        return "The Claude already installed becomes your first account, with everything it remembers. Give it a name."
+    }
+    /// The title of the step that adds an account: a second one, unless there were several already (the one this step
+    /// added does not count).
+    public var secondAccountTitle: String {
+        app.accounts.filter { $0.id != addedSlug }.count > 1 ? "Add another account" : "Add a second account"
     }
 
     public var addedAccount: Account? { addedSlug.flatMap { slug in app.accounts.first { $0.id == slug } } }
