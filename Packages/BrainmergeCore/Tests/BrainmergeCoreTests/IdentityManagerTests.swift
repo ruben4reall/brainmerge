@@ -604,6 +604,24 @@ import BrainmergeTestSupport
         #expect(try launcherConfig(e.home.paths.launcherApp(name: "Work")).dataDir == client.desktopData(in: e.home.paths).path)
     }
 
+    /// The note is shown only in Brainmerge, never in the account's app: changing it rebuilds nothing, so the account
+    /// may stay open, and its app is left exactly as it was.
+    @Test func changingOnlyTheNoteRebuildsNothing() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let agency = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
+        let exe = e.claude.executable.path, data = agency.desktopData(in: e.home.paths).path
+        let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath, claudeAppURL: e.claude.url,
+                                      registerLaunchers: false, monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe) --user-data-dir=\(data)\n" }))
+        let app = e.home.paths.launcherApp(name: "Agency")
+        try pinDates([app])
+        let updated = try manager.update(slug: "agency", name: nil, tint: nil, logo: nil, note: "Client work")
+        #expect(updated.note == "Client work")
+        #expect(try e.store.load().identity(slug: "agency")?.note == "Client work")
+        #expect(try dates([app]) == [Date(timeIntervalSince1970: 1_700_000_000)])
+        #expect(throws: BrainmergeError.identityRunning("agency")) { try manager.update(slug: "agency", name: "Agency 2", tint: nil, logo: nil) }
+    }
+
     @Test func swappingNamesWithAnOpenSecondaryChangesNothing() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")

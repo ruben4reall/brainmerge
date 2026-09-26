@@ -147,7 +147,6 @@ public final class IdentityManager: @unchecked Sendable {
             try ensureNameAvailable(name, excluding: slug, in: state)
         }
         if identity.isPrimary, iconMode == .tintedClone { throw BrainmergeError.primaryIsClaude }
-        try ensureEditable(identity)
         let before = identity
         if let name { identity.name = name }
         if let tint { identity.tint = tint }
@@ -156,6 +155,15 @@ public final class IdentityManager: @unchecked Sendable {
         if let note { identity.note = NameRules.clean(note) }
         if let iconMode { identity.iconMode = iconMode }
         if let ownApp, identity.isPrimary { identity.ownApp = ownApp }
+        // Only the note, which only Brainmerge shows: no app to rebuild, so the account may stay open.
+        var appSide = identity
+        appSide.note = before.note
+        if appSide == before, identity != before {
+            state.identities = state.identities.map { $0.slug == slug ? identity : $0 }
+            try store.save(state)
+            return identity
+        }
+        try ensureEditable(before)
         return try commit([(before, identity)], in: &state)[0]
     }
 
