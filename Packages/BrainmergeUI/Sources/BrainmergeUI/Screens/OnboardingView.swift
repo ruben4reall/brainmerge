@@ -226,8 +226,7 @@ public struct OnboardingView: View {
                     check(model.app.brain != nil, "Memory folder: \(model.app.brain.map { Self.tilde($0.root.path, home: model.app.paths.home.path) } ?? "not chosen") · opens with \(NotesApps.target(for: model.app.notesApp, installed: NotesApps.installed()).label.replacingOccurrences(of: "Open ", with: ""))\(model.app.brains.count > 1 ? " · \(model.app.brains.count) memories" : "")")
                     check(!model.app.accounts.isEmpty, "\(model.app.accounts.count) account\(model.app.accounts.count > 1 ? "s" : ""): \(model.app.accounts.map(\.identity.name).joined(separator: ", "))")
                     check(model.gitFound, model.gitFound ? "git: Found" : "git: Not found")
-                    check(model.claudeCodeFound, model.claudeCodeFound ? "Claude Code: Found"
-                          : "Claude Code: Not found: your accounts still work in the Claude app. Install Claude Code to use them in a terminal.")
+                    check(model.claudeCodeFound, OnboardingModel.claudeCodeRow(found: model.claudeCodeFound))
                     check(model.app.commandLineInstalled, model.app.commandLineInstalled ? "Command line linked at ~/.local/bin/brainmerge" : "Command line not linked (Settings)")
                 }
                 .padding(14)

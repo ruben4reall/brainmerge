@@ -67,6 +67,13 @@ public final class OnboardingModel {
     public private(set) var gitFound = false
     public private(set) var claudeCodeFound = false
 
+    /// The All set row. Only the usual places are looked at (a Claude Code from npm under nvm lives elsewhere), so a miss
+    /// says where it looked rather than that there is none.
+    public static func claudeCodeRow(found: Bool) -> String {
+        found ? "Claude Code: Found"
+            : "Claude Code: Not found in the usual places. Your accounts still work in the Claude app. Install Claude Code to use them in a terminal."
+    }
+
     /// What the setup shows as found. Git and Claude Code are looked for off the main thread: `xcode-select` is a process,
     /// and Claude Code's signature check reads the whole program.
     public func detect() async {

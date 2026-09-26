@@ -82,6 +82,13 @@ import BrainmergeTestSupport
         #expect(onboarding.claudeCodeFound)
     }
 
+    /// Only three places are looked at (a Claude Code from npm under nvm lives elsewhere): the row says so, never "none".
+    @Test func claudeCodeNotFoundSaysOnlyTheUsualPlacesWereLookedAt() {
+        #expect(OnboardingModel.claudeCodeRow(found: true) == "Claude Code: Found")
+        #expect(OnboardingModel.claudeCodeRow(found: false)
+                == "Claude Code: Not found in the usual places. Your accounts still work in the Claude app. Install Claude Code to use them in a terminal.")
+    }
+
     @Test func claudeCodeIsLookedForOffTheMainThread() async throws {
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }
         let seen = Threads()

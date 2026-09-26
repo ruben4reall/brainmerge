@@ -27,7 +27,7 @@ Brainmerge is a native macOS app that turns each of your Claude accounts into a 
 
 ## Safe for your accounts, by design
 
-Brainmerge is built so that there is nothing in it Anthropic's terms could object to. It only starts the official Claude app and the official Claude Code, each account logs in by itself, and it never reads, stores or sends a password, a token or a cookie. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it nowhere. It has no account switching, no rotation, no pooled usage, and it makes no network call of its own. Those are not just words: tests scan the source tree at every run to keep them true, and `SECURITY.md` lists exactly what the app touches on your Mac. One account is one person; Brainmerge keeps several of yours tidy, nothing more.
+Brainmerge is built so that there is nothing in it Anthropic's terms could object to. Of Anthropic's software, it only starts the official Claude app and the official Claude Code, each account logs in by itself, and it never reads, stores or sends a password, a token or a cookie. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it nowhere. It has no account switching, no rotation, no pooled usage, and it makes no network call of its own. Those are not just words: tests scan the source tree at every run to keep them true, and `SECURITY.md` lists exactly what the app touches on your Mac. One account is one person; Brainmerge keeps several of yours tidy, nothing more.
 
 ## What you get
 
@@ -120,7 +120,7 @@ Releases are signed with a Developer ID and notarized by Apple: the first time, 
 
 Anthropic's Consumer Terms forbid sharing or lending accounts, rotating accounts to get around usage limits, and using a subscription token outside Claude Code and the Claude apps. Brainmerge is built to stay on the right side of every one of those rules:
 
-1. It only launches the official Claude app and the official Claude Code that are already installed, and, on your click, Apple's own installer for its Command Line Tools. Each account logs in by itself, inside Claude.
+1. Of Anthropic's software, it only launches the official Claude app and the official Claude Code that are already installed. On your click it can also start Apple's own installer for its Command Line Tools, or your browser in the profile you picked for an account. Each account logs in by itself, inside Claude.
 2. It never reads, stores or transmits a password, a credential or a token. There is no code path for it. Even "Connected" is decided from file names alone, and the account a card shows is the email and name Claude Code writes down for display, not a credential.
 3. It separates accounts with `CLAUDE_CONFIG_DIR`, a variable documented by Anthropic, and with a data folder per instance, a standard setting of the app.
 4. The memory is a folder of local files. Brainmerge itself makes no network call, to Anthropic or to anyone else. "Check limits" runs the account's own Claude Code, which does what typing /usage does.
