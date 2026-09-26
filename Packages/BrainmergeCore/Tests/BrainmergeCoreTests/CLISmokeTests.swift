@@ -176,12 +176,13 @@ import BrainmergeTestSupport
     }
 
     /// Like Claude Code runs a hook: the session's JSON on the standard input, which is then closed.
-    func run(_ e: ManagerEnv, _ arguments: [String], input: String) throws -> ShellResult {
+    /// `without`: variables the run must not inherit from the test's own environment.
+    func run(_ e: ManagerEnv, _ arguments: [String], input: String, without: Set<String> = []) throws -> ShellResult {
         let process = Process()
         process.executableURL = Products.brainmerge
         process.arguments = arguments
         process.environment = ProcessInfo.processInfo.environment.merging(
-            ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path]) { $1 }
+            ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path]) { $1 }.filter { !without.contains($0.key) }
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin; process.standardOutput = stdout; process.standardError = stderr
         try process.run()
@@ -228,6 +229,27 @@ import BrainmergeTestSupport
         #expect(missing.status == 0 && missing.stdout.isEmpty)
         #expect(!FileManager.default.fileExists(atPath: e.brain.root.path))
         #expect(!FileManager.default.fileExists(atPath: e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.home.url.path + "/other")).path))
+    }
+
+    /// The SessionStart hook's own bound on the memory's lock, with nothing overriding it: a save holding the lock never
+    /// keeps a session start near Claude Code's 5 seconds for the hook. The project is linked at the next session start.
+    @Test func wireHookGivesUpOnAHeldLockWellWithinItsTime() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let git = BrainGit(brain: e.brain)
+        let acquired = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async { try? git.withLock(timeout: 5) { acquired.signal(); release.wait() } }
+        acquired.wait()
+        let start = Date()
+        let result = try run(e, ["wire", "--identity", "perso", "--hook"], input: #"{"cwd":"\#(e.home.url.path)/kayak"}"#,
+                             without: ["BRAINMERGE_LOCK_TIMEOUT"])
+        let elapsed = Date().timeIntervalSince(start)
+        release.signal()
+        #expect(result.status == 0 && result.stdout.isEmpty && result.stderr.isEmpty, "\(result.stderr)")
+        #expect(elapsed < 4, "\(elapsed) s")
+        let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
+        #expect(log.contains("perso: memory lock held by another process, link skipped"), "\(log)")
     }
 
     /// What Claude Code sends after an edit tool wrote a file.
