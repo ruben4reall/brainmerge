@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **The menu bar icon no longer turns itself off.** When macOS hides Brainmerge's icon (System Settings, Menu Bar, or the icon dragged out), the "Show in the menu bar" switch stays on, since only macOS can show the icon again. Settings says so and opens System Settings at Menu Bar. With the icon hidden, closing the window quits Brainmerge, as with the switch off.
+
 ## 0.6.0 (2026-09-26)
 
 Brainmerge 0.6 shows what each account takes on your Mac, puts your accounts in the menu bar and one shortcut away from any app, draws your Obsidian vault, and saves exactly what each account wrote, never a key.

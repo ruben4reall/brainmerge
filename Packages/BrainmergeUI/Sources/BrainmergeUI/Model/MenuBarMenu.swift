@@ -27,6 +27,10 @@ public enum MenuBarMenu {
     public static let fixedItems = [openTitle, settingsTitle, starTitle, quitTitle]
 
     public static let settingTitle = "Show in the menu bar"
+    public static let hiddenByMacOSNote = "macOS hides Brainmerge's icon. Turn it on in System Settings, Menu Bar, under Allow in the Menu Bar."
+    public static let openMenuBarSettingsTitle = "Open Menu Bar Settings…"
+    /// System Settings at Menu Bar, where macOS keeps which apps may show an icon.
+    public static let menuBarSettings = URL(string: "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension")!
     public static let settingFootnote = "Open or show any account from the top right of your screen. With it on, closing this window keeps Brainmerge running there. With it off, closing the window quits Brainmerge, unless the quick opener is on."
 
     /// The sidebar's rows, in its order. Accounts without a Claude window are left out: the menu opens windows.
