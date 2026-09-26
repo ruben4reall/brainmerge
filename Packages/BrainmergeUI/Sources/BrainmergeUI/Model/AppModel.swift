@@ -273,6 +273,12 @@ public final class AppModel {
     @ObservationIgnored var primaryAppearedAt: Date?
     @ObservationIgnored var openRequests: [String: Date] = [:]
 
+    /// The "Log in to …" sheet's flow, while it shows (see AppModel+Login).
+    public internal(set) var login: LoginFlow?
+    /// A clean quit and a launch through the account's app: replaced in tests, which never signal or start a process.
+    @ObservationIgnored var quitAccount: ((Identity) -> Void)?
+    @ObservationIgnored var launchAccount: ((String) -> Void)?
+
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
         appFolders = ExistingApps.folders(for: paths)
@@ -482,6 +488,7 @@ public final class AppModel {
         // A window that showed up is no longer "opening".
         set(\.opening, opening.subtracting(openAccounts.map(\.id)))
         if watchUpdates(snapshot: snapshot) { changed = true }
+        if advanceLogin() { changed = true }
         return changed
     }
 

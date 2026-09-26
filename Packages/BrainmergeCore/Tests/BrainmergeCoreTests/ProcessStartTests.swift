@@ -22,3 +22,15 @@ import Testing
         #expect(!snapshot.hasClaudeCode(under: 401))
     }
 }
+
+@Suite struct ClaudeCodeCountTests {
+    @Test func sessionsUnderAWindowAreCounted() {
+        let ps = """
+          403 1 1 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/x/Claude-work
+          409 403 1 /x/Claude-work/claude-code/2.1.280/claude
+          411 403 1 /opt/homebrew/bin/claude --resume
+          412 411 1 /bin/zsh -c ls
+        """
+        #expect(ProcessMonitor.snapshot(psOutput: ps).claudeCodeSessions(under: 403) == 2)
+    }
+}

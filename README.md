@@ -110,7 +110,7 @@ Each account with Claude Code has a "Check limits" button on its card, Claude Co
 
 1. Download the disk image from the releases page, open it and drag Brainmerge to Applications. If you open the app from somewhere else, it offers to move itself there.
 2. Open Brainmerge and follow the guided setup. That is all: no terminal, no configuration file.
-3. Add a second account whenever you like. Claude opens in a new window and asks you to log in.
+3. Add a second account whenever you like. Its card shows "Log in": Brainmerge closes your other Claude windows, opens the account for you to log in as usual, then reopens the others when you click. It never touches your browser or your password.
 
 Brainmerge needs macOS 26, the Claude app and git, Apple's free Command Line Tools, which the setup offers. The first time a new account opens, macOS asks once to allow "Claude Safe Storage" in the keychain: click Always Allow. It may also ask whether the new account may access your Documents folder: click Allow. Both prompts come from the Claude app doing exactly what it does on first launch, under the new account's name. Quit your other Claude windows before logging a new account in: the login link from your browser opens in the Claude window that is already running.
 

@@ -47,6 +47,7 @@ public struct AccountsView: View {
         }
         .sheet(isPresented: $showAdd) { AddAccountSheet(model: model, isPresented: $showAdd) }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory, attach: newMemoryFor) }
+        .sheet(isPresented: Binding(get: { model.login != nil }, set: { if !$0 { model.cancelLogin() } })) { LoginSheet(model: model) }
         .sheet(item: $editing) { account in
             EditAccountSheet(model: model, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }), account: account, otherApps: editingApps)
         }
@@ -139,6 +140,10 @@ public struct AccountsView: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if account.needsLogin, !opening {
+                    Button("Log in") { model.beginLogin(account.id) }.buttonStyle(.glass).controlSize(.small)
+                        .help("Closes your other Claude windows, opens \(account.identity.name) to log in, then reopens the others on your click")
+                }
                 if let button = Self.cardButton(for: account, action: action) { cardButton(button, for: account, action: action) }
                 moreMenu(account)
             }
@@ -204,6 +209,7 @@ public struct AccountsView: View {
 
     @ViewBuilder func actions(_ account: Account) -> some View {
         Button("Edit…") { startEditing(account) }
+        if account.needsLogin { Button("Log in…") { model.beginLogin(account.id) } }
         Menu("Memory") {
             let current = model.brainName(of: account.identity)
             ForEach(model.brains) { folder in

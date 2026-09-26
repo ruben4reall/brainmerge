@@ -90,11 +90,17 @@ public struct ProcessMonitor: Sendable {
             return TerminalUse(sessions: sessions.count, bytes: bytes)
         }
 
-        /// A Claude Code session runs somewhere below this window (the Code tab, or a terminal started from it).
-        public func hasClaudeCode(under pid: Int32) -> Bool {
+        /// Claude Code sessions below this window (the Code tab, or a terminal started from it); a session's own tools
+        /// that are Claude Code too are not counted again.
+        public func claudeCodeSessions(under pid: Int32) -> Int {
             // The Code tab's own Claude Code lives in the data folder, whose path holds a space: its folder name tells it.
-            tree(of: pid).contains { $0.pid != pid && (ProcessMonitor.isClaudeCode(arguments: $0.arguments) || $0.arguments.contains("/claude-code/")) }
+            func isCode(_ p: Running) -> Bool { ProcessMonitor.isClaudeCode(arguments: p.arguments) || p.arguments.contains("/claude-code/") }
+            let nodes = tree(of: pid).filter { $0.pid != pid }
+            let codePids = Set(nodes.filter(isCode).map(\.pid))
+            return nodes.filter { isCode($0) && !codePids.contains($0.ppid) }.count
         }
+
+        public func hasClaudeCode(under pid: Int32) -> Bool { claudeCodeSessions(under: pid) > 0 }
 
         /// Every process in a Claude window's tree or a terminal session's tree: the only ones measuring asks about.
         var claudePids: Set<Int32> {
