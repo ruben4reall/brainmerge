@@ -59,12 +59,34 @@ import BrainmergeTestSupport
         #expect(m.saveOwnEdits)
         await m.setSaveOwnEdits(false).value
         #expect(try e.store.load().saveOwnEdits == false)
-        #expect(m.saveOwnEditsIfQuiet(now: Date().addingTimeInterval(7200)) == nil)
+        await m.saveOwnEditsIfQuiet(now: Date().addingTimeInterval(7200))?.value
         #expect(try BrainGit(brain: e.brain).log().isEmpty)
         m.reload()
         #expect(!m.saveOwnEdits)
         await m.setSaveOwnEdits(true).value
         #expect(try e.store.load().saveOwnEdits)
+    }
+
+    /// With the switch off, the minute pass still brings git's index up to an account's save that another git held it
+    /// through: a plain `git commit` of yours never undoes that save, whatever the setting.
+    @Test func theIndexCatchesUpWithTheSwitchOff() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let perso = try e.manager.adoptPrimary(name: "Perso")
+        try note(e, "memory/acme/idea.md")
+        try TouchedLedger(brain: e.brain, slug: "perso").append("memory/acme/idea.md")
+        let lock = e.brain.gitDir.appending(path: "index.lock")
+        FileManager.default.createFile(atPath: lock.path, contents: nil)
+        let git = BrainGit(brain: e.brain)
+        _ = try AccountSave(brain: e.brain, git: git, held: HeldStore(paths: e.home.paths, memoryID: "shared")).run(for: perso)
+        #expect(!git.indexBehind.isEmpty)
+        try FileManager.default.removeItem(at: lock)
+
+        let m = model(e)
+        m.reload()
+        await m.setSaveOwnEdits(false).value
+        await m.saveOwnEditsIfQuiet(now: Date())?.value
+        #expect(git.indexBehind.isEmpty)
+        #expect(try Shell().check("/usr/bin/git", ["diff", "--cached", "--name-only"], cwd: e.brain.root).isEmpty)
     }
 
     static func nestedSentence(_ top: URL) -> String {

@@ -16,6 +16,21 @@ extension AppModel {
     }
     nonisolated static let connectorsGuide = "Gmail, Calendar and Drive belong to each Claude account: connect the work Gmail in one account and the personal one in another."
     nonisolated static let demoConnectionsSentence = "Brainmerge does not open a browser in a demo."
+    nonisolated static let noBrowserSentence = "No Chrome, Arc, Brave or Edge profile was found on this Mac."
+
+    /// Why the Connections section has no browser picker: said once the browsers are read and none has a profile.
+    public var noBrowserNote: String? {
+        guard let browsers = installedBrowsers, browsers.allSatisfy(\.profiles.isEmpty) else { return nil }
+        return Self.noBrowserSentence
+    }
+
+    /// What the edit sheet needs before it opens, read off the main thread: the apps made by hand for the account, and
+    /// the connections. The sheet then opens at its full size, and nothing moves under the pointer afterwards.
+    public func prepareEdit(_ slug: String) async -> [ExistingApp] {
+        async let apps = otherApps(opening: slug)
+        await loadConnections()
+        return await apps
+    }
 
     /// Reads the browsers' profiles and every account's server names, off the main thread.
     public func loadConnections() async {
@@ -33,17 +48,20 @@ extension AppModel {
     }
 
     /// Saves which browser profile goes with the account (nil: none) on the core queue, then shows it. The sheet calls it
-    /// on Save (see `apply`).
-    @discardableResult
-    func setBrowser(_ slug: String, _ choice: BrowserChoice?) -> Task<Void, Never> {
-        let saved = save(.browser(slug)) { state in
+    /// on Save (see `apply`), which says the problem when the pick could not be saved.
+    func setBrowser(_ slug: String, _ choice: BrowserChoice?) -> Task<UserMessage?, Never> {
+        let saved = saveReporting(.browser(slug)) { state in
             state.identities = state.identities.map { identity in
                 var identity = identity
                 if identity.slug == slug { identity.browser = choice }
                 return identity
             }
         }
-        return Task { await saved.value; reload() }
+        return Task {
+            let problem = await saved.value
+            reload()
+            return problem
+        }
     }
 
     /// "None", then every profile of every browser found, then the pick itself when its profile is gone, so the picker

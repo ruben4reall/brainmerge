@@ -145,6 +145,8 @@ public final class AppModel {
     public private(set) var usageRefreshing = false
     /// What each account's last "Check limits" found, by slug. Asked only on a click (see `checkLimits`).
     public private(set) var limits: [String: LimitsState] = [:]
+    /// The Claude Code login each account's limits were asked with, when it was known (memory only, like `limits`).
+    @ObservationIgnored private var limitsLogin: [String: ClaudeCodeAccount] = [:]
     /// Finds the Claude Code to run and checks Anthropic's signature on it; a fake in tests.
     @ObservationIgnored public var limitsBinary: @Sendable (URL) -> ClaudeCodeBinary.Resolution = { home in
         ClaudeCodeBinary.resolve(candidates: ClaudeCodeBinary.candidates(home: home))
@@ -544,6 +546,22 @@ public final class AppModel {
             return account
         }
         if updated != accounts { accounts = updated }
+        forgetLimitsOfAnotherLogin()
+    }
+
+    /// Logged out of Claude Code and in again as someone else, in the same folder: another person's card starts empty.
+    /// Only two known logins that differ count: a logout alone or a file not read yet says nothing about who comes next.
+    private func forgetLimitsOfAnotherLogin() {
+        for (slug, then) in limitsLogin {
+            guard let now = codeAccounts[slug], !Self.isSameLogin(then, now) else { continue }
+            limits[slug] = nil
+            limitsLogin[slug] = nil
+        }
+    }
+
+    /// The same email (whatever its case) in the same organization: the same person's limits.
+    nonisolated static func isSameLogin(_ a: ClaudeCodeAccount, _ b: ClaudeCodeAccount) -> Bool {
+        a.email.caseInsensitiveCompare(b.email) == .orderedSame && a.organization == b.organization
     }
 
     /// An account with Claude Code off shows nothing, even if its folder holds an entry (the Claude app's Code tab can write one).
@@ -632,7 +650,7 @@ public final class AppModel {
             }) { return failure }
         }
         // The browser profile touches no app: saved even while the account runs, only once the rest went through.
-        if edit.browser != identity.browser { await setBrowser(slug, edit.browser).value }
+        if edit.browser != identity.browser, let problem = await setBrowser(slug, edit.browser).value { return say(problem) }
         if movesMemory { return await setBrain(of: slug, to: edit.memory) }
         return nil
     }
@@ -833,6 +851,7 @@ public final class AppModel {
             return
         }
         limits[slug] = .checking
+        limitsLogin[slug] = codeAccounts[slug]
         let home = paths.home, configDir = ClaudeCodeLimits.configDir(of: identity, paths: paths)
         let binary = limitsBinary, run = limitsRunner
         let outcome = await Task.detached(priority: .userInitiated) {
@@ -856,6 +875,7 @@ public final class AppModel {
             return isSameLogin(before, now)
         }
         if kept.count != limits.count { limits = kept }
+        limitsLogin = limitsLogin.filter { kept[$0.key] != nil }
     }
 
     private func isSameLogin(_ before: Identity, _ now: Identity) -> Bool {
@@ -1304,25 +1324,30 @@ public final class AppModel {
 
     /// The person's own edits to the notes, in every memory, saved as You: by the app, never by a hook, on the minute
     /// clock (the window may be closed), once nothing moved for ten minutes and while no Claude Code session of any account
-    /// runs (see OwnEdits). Each memory is skipped when a save holds its lock. Nil when nothing starts: the setting is off,
-    /// git is missing, a capture or a demo runs, or a pass is still running.
+    /// runs (see OwnEdits). With the setting off, the pass only brings git's index up to the accounts' saves (see
+    /// BrainGit.catchUpIndex). Each memory is skipped when a save holds its lock. Nil when nothing starts: git is missing,
+    /// a capture or a demo runs, or a pass is still running.
     @discardableResult
     func saveOwnEditsIfQuiet(now: Date = Date()) -> Task<Void, Never>? {
-        guard saveOwnEdits, gitAvailable, !savingOwnEdits, !AppLifecycle.isCaptureOrDemo(environment: environment) else { return nil }
+        guard gitAvailable, !savingOwnEdits, !AppLifecycle.isCaptureOrDemo(environment: environment) else { return nil }
         savingOwnEdits = true
         let store = self.store, monitor = manager.monitor, git = self.git, paths = self.paths
         return Task {
             let saved = await Task.detached(priority: .utility) { () -> Bool in
-                guard let state = try? store.load(), state.saveOwnEdits else { return false }
-                // Not knowing what runs counts as a session running: the edits wait for the next minute.
-                let running = (try? monitor.snapshot())?.hasClaudeCodeSession ?? true
+                guard let state = try? store.load() else { return false }
+                // Not knowing what runs counts as a session running: the edits wait for the next minute. Not asked
+                // with the setting off.
+                let running = !state.saveOwnEdits || ((try? monitor.snapshot())?.hasClaudeCodeSession ?? true)
                 var any = false
                 for folder in state.brains {
                     let brain = Brain(root: folder.url)
                     guard brain.isInitialized else { continue }
                     let repo = BrainGit(brain: brain, availability: git)
                     let edits = OwnEdits(brain: brain, git: repo, held: HeldStore(paths: paths, memoryID: folder.id))
-                    let outcome = try? repo.withLock(timeout: 0) { try edits.save(now: now, sessionRunning: running) }
+                    let outcome = try? repo.withLock(timeout: 0) { () throws -> OwnEdits.Outcome in
+                        guard state.saveOwnEdits else { try? repo.catchUpIndex(); return .nothing }
+                        return try edits.save(now: now, sessionRunning: running)
+                    }
                     if case .saved = outcome { any = true }
                 }
                 return any
@@ -1466,18 +1491,27 @@ public final class AppModel {
 
     /// Saves one setting on the core queue, after any work already there, which saves the same file (a rebuild records
     /// its Claude version): a save from the main thread meanwhile would be undone by the state that work read before.
-    /// The value on screen has already moved; the task ends once it is saved.
+    /// The value on screen has already moved; the task ends once it is saved. A save that fails (the command line held
+    /// the lock past its 10 s, a folder that refuses the write) is said, and the screen goes back to what is saved.
     func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
+        let saving = saveReporting(setting, change)
+        return Task { if let problem = await saving.value { _ = say(problem) } }
+    }
+
+    /// Like `save`, for a caller that says the problem itself (the edit sheet's Save): nil once saved, else what went
+    /// wrong, with the screen already back to what is saved.
+    func saveReporting(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<UserMessage?, Never> {
         pendingSaves[setting, default: 0] += 1
         let store = self.store, begins = saveBegins
         // Queued now, not when the task first runs on the main actor: saves keep their order and a busy main actor
         // cannot delay them. The task only waits for the end.
+        let outcome = SaveOutcome()
         let saved = DispatchGroup()
         saved.enter()
         coreQueue.async {
             begins()
             // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
-            try? store.update { change(&$0) }
+            do { try store.update { change(&$0) } } catch { outcome.failure = error }
             saved.leave()
         }
         return Task {
@@ -1486,7 +1520,15 @@ public final class AppModel {
                 saved.notify(queue: .global(qos: .userInitiated)) { @Sendable in done.resume() }
             }
             pendingSaves[setting, default: 1] -= 1
+            guard let failure = outcome.failure else { return nil }
+            reload()
+            return Self.sentence(for: failure)
         }
+    }
+
+    /// What a save on the core queue ran into, read once the queue is done with it.
+    private final class SaveOutcome: @unchecked Sendable {
+        var failure: Error?
     }
 
     /// The icon was dragged out of the menu bar: the switch turns off. True when the window must open again, as nothing

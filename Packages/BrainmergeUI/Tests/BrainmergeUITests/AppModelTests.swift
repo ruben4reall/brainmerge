@@ -85,6 +85,23 @@ import BrainmergeTestSupport
         #expect(try e.store.load().autoRebuild == false)
     }
 
+    /// A setting the state could not take (its folder refuses the write, or the command line held the lock past its
+    /// 10 s) is said, and the switch goes back to what is saved: never a value that moved on screen but not in the file.
+    @Test func aSettingThatCouldNotBeSavedIsSaidAndGoesBack() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        #expect(m.autoRebuild)
+        let folder = e.home.paths.appSupport
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        await m.setAutoRebuild(false).value
+        #expect(m.message != nil)
+        #expect(m.autoRebuild, "the switch shows what is saved")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        #expect(try e.store.load().autoRebuild)
+    }
+
     /// A setting's save is queued on the core queue when it is made, not once the main actor is free again: a busy main
     /// actor neither delays it nor lets a later save overtake it.
     @Test func aSaveIsQueuedAtOnceWhileTheMainActorIsBusy() async throws {
@@ -556,23 +573,23 @@ import BrainmergeTestSupport
     }
 
     /// Leaving the screen stops the walk: nothing half counted is kept, and the next visit walks again. Bounded: a walk
-    /// that is never told to stop gives up after two minutes and fails the test instead of hanging it (wide bounds: the
-    /// main actor is shared by the whole suite, so a step of this test can wait its turn for a long time).
+    /// that is never told to stop gives up at one deadline shared by every root, two minutes after the test began, and
+    /// fails the test instead of hanging it (wide bounds: the main actor is shared by the whole suite, so a step of this
+    /// test can wait its turn for a long time).
     @Test(.timeLimit(.minutes(5))) func leavingTheScreenCancelsTheWalk() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let m = model(e)
         m.reload()
         let started = PSCounter(), stopped = PSCounter()
+        let deadline = Date().addingTimeInterval(120)
         m.diskMeasure = { _, cancelled in
             started.bump()
-            let deadline = Date().addingTimeInterval(120)
             while !cancelled(), Date() < deadline { usleep(1000) }
             if cancelled() { stopped.bump() }
             return DiskSize(bytes: 1, complete: false)
         }
         let visit = Task { await m.refreshDisk() }
-        let deadline = Date().addingTimeInterval(120)
         while started.value == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
         try #require(started.value > 0, "the walk never started")
         #expect(m.diskMeasuring)

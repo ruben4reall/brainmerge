@@ -2,7 +2,8 @@ import SwiftUI
 import BrainmergeCore
 
 /// The edit sheet's Connections: which browser profile goes with the account (saved with the sheet), a way to open it and
-/// the account's connectors page, and its MCP servers by name. Names only: no value of any file is shown or kept.
+/// the account's connectors page, and its MCP servers by name. Names only: no value of any file is shown or kept. All of
+/// it is read before the sheet opens (see AppModel.prepareEdit).
 struct ConnectionsSection: View {
     @Bindable var model: AppModel
     let account: Account
@@ -22,6 +23,8 @@ struct ConnectionsSection: View {
                     ForEach(options, id: \.self) { option in Text(option.label).tag(option.choice) }
                 }
                 .pickerStyle(.menu).fixedSize()
+            } else if let note = model.noBrowserNote {
+                faint(note)
             }
             if let label = model.openBrowserLabel(choice), let choice {
                 HStack(spacing: 10) {
@@ -39,7 +42,6 @@ struct ConnectionsSection: View {
             faint(AppModel.connectorsGuide)
             servers
         }
-        .task { await model.loadConnections() }
     }
 
     @ViewBuilder var servers: some View {

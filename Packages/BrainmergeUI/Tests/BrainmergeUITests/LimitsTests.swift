@@ -64,6 +64,25 @@ import BrainmergeTestSupport
         return (e, m, fake)
     }
 
+    /// The runner a model starts with, no fake installed, is the one that hands over exactly the invocation's variables:
+    /// Brainmerge's own environment (an API key, another account's CLAUDE_CONFIG_DIR) never reaches Claude Code. A
+    /// system program stands in for Claude Code.
+    /// Wide bounds: the main actor is shared by the whole suite, so this test can wait its turn for a long time.
+    @Test(.timeLimit(.minutes(5))) func theModelsOwnRunnerPassesOnlyTheseVariables() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let runner = model(e).limitsRunner
+        let invocation = ClaudeCodeLimits.Invocation(executable: "/usr/bin/env", arguments: [], directory: e.home.url,
+                                                     environment: ["HOME": e.home.url.path, "PATH": ClaudeCodeLimits.path], timeout: 10)
+        // Off the main actor, like the app runs it.
+        let result = try await Task.detached { try runner(invocation) }.value
+        #expect(result.status == 0)
+        // Only names in a failure's message (a Bool, so the values are not printed): a value handed over by mistake
+        // could be a key.
+        let lines = Set(result.stdout.split(separator: "\n").map(String.init))
+        let exact = lines == ["HOME=\(e.home.url.path)", "PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
+        #expect(exact, "\(lines.map { $0.prefix { $0 != "=" } }.sorted())")
+    }
+
     @Test func aClickAsksThatAccountsClaudeCode() async throws {
         let (e, m, fake) = try setUp(); defer { e.home.remove() }
         await m.checkLimits("client")
@@ -201,6 +220,43 @@ import BrainmergeTestSupport
         m.reload()
         #expect(m.limits["client"] == nil, "\(change)")
         if case .checked = m.limits["ruben"] {} else { Issue.record("\(change): \(String(describing: m.limits["ruben"]))") }
+    }
+
+    /// Logged out of Claude Code and in again as another person, in the same folder: the card starts empty. Only two
+    /// known logins that differ drop it: a logout alone, a file not read yet, or the same person again keep what was found.
+    @Test func anotherLoginInTheSameFolderStartsEmpty() async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        let client = CLIProfile(directory: try #require(try e.store.load().identity(slug: "client")).cliProfile(in: e.home.paths))
+        func record(_ email: String) throws {
+            let json = #"{"oauthAccount":{"emailAddress":"\#(email)","displayName":"Someone"}}"#
+            try Data(json.utf8).write(to: client.accountFile)
+        }
+        func kept(_ step: String) {
+            if case .checked = m.limits["client"] {} else { Issue.record("\(step): \(String(describing: m.limits["client"]))") }
+        }
+        try record("a@example.com")
+        m.refreshCodeAccounts()
+        await m.checkLimits("client")
+        kept("checked")
+        try FileManager.default.removeItem(at: client.accountFile)
+        m.refreshCodeAccounts()
+        kept("logged out")
+        try record("A@example.com")
+        m.refreshCodeAccounts()
+        kept("the same person")
+        try record("b@example.com")
+        m.refreshCodeAccounts()
+        #expect(m.limits["client"] == nil)
+    }
+
+    /// Checked before Claude Code's login was known: nothing to tell another person from, so it stays.
+    @Test func limitsCheckedBeforeTheLoginWasKnownStay() async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        await m.checkLimits("client")
+        let client = CLIProfile(directory: try #require(try e.store.load().identity(slug: "client")).cliProfile(in: e.home.paths))
+        try Data(#"{"oauthAccount":{"emailAddress":"b@example.com"}}"#.utf8).write(to: client.accountFile)
+        m.refreshCodeAccounts()
+        if case .checked = m.limits["client"] {} else { Issue.record("\(String(describing: m.limits["client"]))") }
     }
 
     /// A new name or color is the same person: what was found stays.

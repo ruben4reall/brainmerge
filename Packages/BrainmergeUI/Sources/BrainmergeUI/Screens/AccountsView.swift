@@ -158,11 +158,11 @@ public struct AccountsView: View {
         .contextMenu { actions(account) }
     }
 
-    /// The sheet opens once the apps made by hand for the account are known (a few milliseconds): it opens at its full
-    /// size, and nothing moves under the pointer afterwards.
+    /// The sheet opens once the apps made by hand for the account and its connections are known (a few milliseconds): it
+    /// opens at its full size, and nothing moves under the pointer afterwards.
     func startEditing(_ account: Account) {
         Task {
-            editingApps = await model.otherApps(opening: account.id)
+            editingApps = await model.prepareEdit(account.id)
             editing = account
         }
     }
