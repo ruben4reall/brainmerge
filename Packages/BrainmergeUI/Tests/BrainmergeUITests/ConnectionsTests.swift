@@ -173,6 +173,19 @@ import BrainmergeTestSupport
         #expect(ConnectionsSection.folds(serverCount: 7))
     }
 
+    /// Opening the folded list of servers never prints it over the line under it: that line moves down on the layout's
+    /// ease-out while the list waits for its room (the line within a hundredth of its way), then fades in. It goes at once.
+    @Test func theServerListWaitsForItsRoom() {
+        for i in 0...120 {
+            let t = Double(i) / 240
+            if ConnectionsSection.listOpacity(at: t) > 0.001 {
+                #expect(ConnectionsSection.room(at: t) >= 0.99, "t \(t): list \(ConnectionsSection.listOpacity(at: t)), room \(ConnectionsSection.room(at: t))")
+            }
+        }
+        #expect(ConnectionsSection.listOpacity(at: 0.5) == 1 && ConnectionsSection.room(at: 0.5) == 1)
+        #expect(ConnectionsSection.listDelay + ConnectionsSection.listFade <= 0.32)
+    }
+
     @Test func theGuidesReadAsWritten() {
         let lines = [AppModel.browserGuide(account: "Work"), AppModel.connectorsGuide, AppModel.demoConnectionsSentence]
         #expect(lines[0] == "Log the Claude extension of this profile into Work. Each account then has its own browser, with no logging out.")

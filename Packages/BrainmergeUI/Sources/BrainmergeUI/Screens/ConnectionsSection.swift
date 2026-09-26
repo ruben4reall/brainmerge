@@ -18,9 +18,14 @@ struct ConnectionsSection: View {
     /// never prints over the lines it pushes down; it goes at once.
     static func opens(_ reduceMotion: Bool) -> AnyTransition {
         if reduceMotion { return .fade(true) }
-        return .asymmetric(insertion: AnyTransition.opacity.animation(Theme.Motion.out(0.16).delay(0.1 * Theme.Motion.slow)),
+        return .asymmetric(insertion: AnyTransition.opacity.animation(Theme.Motion.out(listFade).delay(listDelay * Theme.Motion.slow)),
                            removal: AnyTransition.opacity.animation(Theme.Motion.out(0.1)))
     }
+    /// The room is made on the layout's ease-out over `roomTime`; what opens fades in over `listFade` from `listDelay`,
+    /// once the line under it is within a hundredth of its way down.
+    static let roomTime = 0.2, listDelay = 0.13, listFade = 0.16
+    static func room(at t: Double) -> Double { Ease.out(Ease.progress(t, from: 0, over: roomTime)) }
+    static func listOpacity(at t: Double) -> Double { Ease.out(Ease.progress(t, from: listDelay, over: listFade)) }
     static let profileID = "connections.profile", serversEndID = "connections.servers.end"
 
     /// Past this many servers the list folds.
@@ -61,7 +66,7 @@ struct ConnectionsSection: View {
             servers
         }
         .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: options.isEmpty)
-        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: choice)
+        .animation(Theme.Motion.layout(Theme.Motion.out(Self.roomTime), reduceMotion), value: choice)
         .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: serversRead)
         .task { await model.loadConnections() }
         // What opens below the fold is brought into view once it has its room.
@@ -100,8 +105,9 @@ struct ConnectionsSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .leading, spacing: 8) {
                 if Self.folds(serverCount: count) {
-                    DisclosureGroup(isExpanded: $showsServers) { list.padding(.top, 4).transition(Self.opens(reduceMotion)) } label: { title }
-                        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: showsServers)
+                    DisclosureGroup(isExpanded: $showsServers) { list.padding(.top, 4) } label: { title }
+                        .disclosureGroupStyle(ServersDisclosure(reduceMotion: reduceMotion))
+                        .animation(Theme.Motion.layout(Theme.Motion.out(Self.roomTime), reduceMotion), value: showsServers)
                 } else {
                     title
                     list
@@ -114,5 +120,33 @@ struct ConnectionsSection: View {
 
     func faint(_ text: String) -> some View {
         Text(text).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The folded list of servers: the whole title row turns its chevron and opens the list, which comes in like the rest of
+/// the section (`ConnectionsSection.opens`): it waits for its room, then fades in. The platform's own disclosure showed
+/// it at once, printed over the line it pushes down for a frame or two.
+struct ServersDisclosure: DisclosureGroupStyle {
+    let reduceMotion: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { configuration.isExpanded.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(Theme.Colors.textMuted)
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                    configuration.label
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+            if configuration.isExpanded {
+                configuration.content.transition(ConnectionsSection.opens(reduceMotion))
+            }
+        }
     }
 }
