@@ -75,6 +75,10 @@ public struct SettingsView: View {
                         }
                         section("Menu bar") {
                             Toggle(MenuBarMenu.settingTitle, isOn: Binding(get: { model.menuBarIcon }, set: { model.setMenuBarIcon($0) })).toggleStyle(.switch).tint(Theme.Colors.accent)
+                            if model.menuBarIcon && model.menuBarIconHiddenByMacOS {
+                                Text(MenuBarMenu.hiddenByMacOSNote).foregroundStyle(Theme.Colors.textMuted)
+                                Button(MenuBarMenu.openMenuBarSettingsTitle) { NSWorkspace.shared.open(MenuBarMenu.menuBarSettings) }.buttonStyle(.glass)
+                            }
                             Text(MenuBarMenu.settingFootnote)
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }

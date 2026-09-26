@@ -1,0 +1,83 @@
+/* The reading companion (companion.js): the hero creature, its perch, and its wordmark. */
+
+:root { --cm-u: 4px; }
+
+/* The hero creature: its drawing only, so its box never changes. Away on its perch, the hero keeps its place empty. */
+.hero-creature.is-away .cm-body,
+.hero-creature.is-away .cm-shadow,
+.hero-creature.is-away .cm-sprites { opacity: 0; }
+
+/* The finale's creature, while the companion is elsewhere: its place waits, empty, for it to leap back in. */
+.cv-finale.is-away .cv-body,
+.cv-finale.is-away .cv-shadow,
+.cv-finale.is-away .cv-sprites { opacity: 0; }
+
+/* The companion's layer: one creature, 16 by 12 cells (the grid and its shadow row), placed by its feet. Above the nav:
+   it perches in the bar on narrower screens, and a leap is never cut by it. companion.js sets --cm-u (3 px in the bar,
+   2 px when the bar is tight, 4 px beside the column). */
+.companion {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 60;
+  width: calc(16 * var(--cm-u));
+  height: calc(12 * var(--cm-u));
+  transform-origin: calc(8 * var(--cm-u)) calc(11 * var(--cm-u));
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  /* Out of the way at once (something to read came under it), back gently. */
+  transition: opacity var(--t-quick, 150ms) var(--ease-color, ease), visibility 0s linear var(--t-quick, 150ms);
+}
+.companion.is-on {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity var(--t-base, 220ms) var(--ease-out, ease-out), visibility 0s;
+}
+.companion.is-instant { transition: none; }
+.companion .cm-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+/* Only its drawn cells take a click: the rest of its box stays the page's. */
+.companion.is-on .cm-body { pointer-events: visiblePainted; }
+
+/* The perch on wide screens: an invisible box the size of the companion, bottom left, against the column (the app's
+   sidebar footer), 40 px from the text, 22 px from the edge at least, inside the safe areas. Narrower screens perch
+   it in the nav bar instead (companion.js). */
+.cm-perch {
+  position: fixed;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: max(22px, env(safe-area-inset-left), calc((100vw - var(--max, 1080px)) / 2 - 16 * var(--cm-u) - 40px));
+  width: calc(16 * var(--cm-u));
+  height: calc(12 * var(--cm-u));
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Before companion.js takes over, the hero creature and its wordmark wait unseen: the launch starts from nothing, as the
+   app's does. If the script is late, they show at 1.6 s, the length of the launch. With Reduce Motion they are simply
+   there. */
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  .hero-creature:not(.is-live) { animation: cm-failsafe 1ms linear 1600ms both; }
+  html:not(.cm-ready) .hero .hero-name { animation: cm-failsafe 1ms linear 1600ms both; }
+  /* The launch's wordmark: it rises 8 px as it comes in, from 0.52 s over 0.40 s (LaunchDirector.splash). */
+  .cm-intro .hero .hero-name { animation: cm-wordmark 400ms var(--ease-out) 520ms both; }
+  .cm-no-intro .hero .hero-name { animation: rise-in var(--t-rise) var(--ease-out) both; }
+  /* The failsafe already showed it: it stays as it is. */
+  .cm-shown .hero .hero-name { animation: none; }
+}
+
+@keyframes cm-failsafe {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cm-wordmark {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+@media print {
+  .companion, .cm-perch { display: none; }
+}

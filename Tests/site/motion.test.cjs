@@ -146,16 +146,6 @@ test('eyes move one cell at most', () => {
   assert.deepStrictEqual(M.lookAt(5, 5), { x: 0, y: 0 });
 });
 
-test('the hop starts and ends at rest, with offsets in order', () => {
-  for (const k of ['body', 'arms', 'shadow']) {
-    const fr = M.HOP[k];
-    assert.strictEqual(fr[0].offset, 0); assert.strictEqual(fr[fr.length - 1].offset, 1);
-    assert.strictEqual(fr[fr.length - 1].transform, 'none');
-    for (let i = 1; i < fr.length; i++) assert.ok(fr[i].offset >= fr[i - 1].offset);
-  }
-  assert.strictEqual(M.HOP.shadow[M.HOP.shadow.length - 1].opacity, 0);
-});
-
 // ---------- The pages ----------
 
 test('no text on the site uses an em dash or an en dash', () => {
@@ -200,24 +190,10 @@ function heroAnimations(css) {
   return out;
 }
 
-test('the hero creature is still within 5 s of loading', () => {
-  const anims = heroAnimations(read('styles.css'));
-  assert.ok(anims.length >= 7, 'the wake-up and the idle are found: ' + anims.length);
-  for (const a of anims) {
-    const end = a.delay + a.duration * a.iterations;
-    assert.ok(end <= 5000, `${a.selector} (${a.name}) ends at ${end} ms`);
-  }
-});
-
-test('the hero creature never breathes by scale', () => {
+test('the hero creature has no CSS animation of its own: companion.js draws every frame', () => {
   const css = read('styles.css');
-  assert.ok(!/cr-breathe/.test(css), 'the scale breath is gone');
-  // Whatever plays after the wake-up (it ends at 2.28 s) moves in whole cells or by opacity only.
-  for (const a of heroAnimations(css).filter(x => x.delay >= 2280)) {
-    const frames = new RegExp('@keyframes\\s+' + a.name + '\\s*\\{((?:[^{}]*\\{[^{}]*\\})*)[^{}]*\\}').exec(css);
-    assert.ok(frames, 'keyframes for ' + a.name);
-    assert.ok(!/scale/.test(frames[1]), a.name + ' scales the creature');
-  }
+  assert.deepStrictEqual(heroAnimations(css), []);
+  assert.ok(!/cr-breathe|cr-wake/.test(css), 'the old wake-up and breath are gone');
 });
 
 test('the 404 page shows the same version as the home page', () => {
@@ -377,16 +353,6 @@ test('memory saved: a hop with sparkles that ends exactly at rest, inside the dr
   close(late.sx, 1, 0.01); close(late.sy, 1, 0.01);
 });
 
-test('the hero creature\'s gaze moves one whole cell, never up', () => {
-  assert.deepStrictEqual(M.gaze(-500, 0, 7), { x: -1, y: 0 });
-  assert.deepStrictEqual(M.gaze(500, 300, 7), { x: 1, y: 1 });
-  assert.deepStrictEqual(M.gaze(20, -400, 7), { x: 0, y: 0 });
-  for (let dx = -600; dx <= 600; dx += 37) for (let dy = -600; dy <= 600; dy += 41) {
-    const g = M.gaze(dx, dy, 5);
-    assert.ok([-1, 0, 1].includes(g.x) && [0, 1].includes(g.y));
-  }
-});
-
 // ---------- The feature scenes ----------
 
 test('the quick opener scene lists what the app would: the name first, then the note', () => {
@@ -446,7 +412,7 @@ test('the pages hold no inline style or script: the CSP forbids them', () => {
 test('the illustrations\' numbers add up', () => {
   const css = read('styles.css'), html = read('index.html');
   const scale = sel => Number(new RegExp(sel.replace(/\./g, '\\.') + ' \\{ transform: scaleX\\(([\\d.]+)\\)').exec(css)[1]);
-  // RAM of a 16 GB Mac: Personal 1.9, Studio 1.2, a terminal session 0.6, other apps 7.5 (11.2 in all, 70%).
+  // RAM of a 16 GB Mac: Personal 1.9, Studio 1.2, a terminal session 0.6, macOS and other apps 7.5 (11.2 in all, 70%).
   const ram = { 'acc-p': 1.9, 'acc-s': 1.2, term: 0.6, other: 7.5 };
   close(scale('.meter i'), 11.2 / 16);
   close(Object.values(ram).reduce((a, b) => a + b, 0), 11.2);

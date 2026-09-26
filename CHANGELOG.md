@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **The menu bar icon no longer turns itself off.** When macOS hides Brainmerge's icon (System Settings, Menu Bar, or the icon dragged out), the "Show in the menu bar" switch stays on, since only macOS can show the icon again. Settings says so and opens System Settings at Menu Bar. With the icon hidden, closing the window quits Brainmerge, as with the switch off.
 - **Your CLAUDE.md text is safe from a broken block.** When the end line of Brainmerge's block was deleted, the next two updates replaced everything from the orphan start line on, your own lines included. Only a whole block is ever replaced now.
 - **No note is lost when a memory folder is adopted.** A note written into an account's own memory folder while Brainmerge moved it into the memory was deleted with the folder. The folder now goes only once it is empty.
 - **A list that cannot be read is never rewritten.** The memory's lists of projects, accounts, hidden folders and lines that are not secrets were read as empty when they could not be read (permissions, iCloud not ready), then rewritten with one entry. They are left alone now.

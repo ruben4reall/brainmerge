@@ -1270,26 +1270,32 @@ import BrainmergeTestSupport
         #expect(m.usageUpdatedAt != nil)
     }
 
-    /// Dragging the icon out of the menu bar turns the switch off. With the window closed, Brainmerge would be left
-    /// running with no window and no icon: the window opens again. SwiftUI echoing a removal after the app hid the icon
-    /// itself (the guide, a capture) changes nothing.
-    @Test func draggingTheIconOutWithNoWindowReopensIt() async throws {
+    /// macOS hid the icon (System Settings, Menu Bar, or the icon dragged out): the setting stays on, since only macOS
+    /// can show it again, and Settings says where. With the window closed, Brainmerge would be left running with no window
+    /// and no icon: the window opens again, and closing it then quits. SwiftUI echoing a removal after the app hid the
+    /// icon itself (the guide, a capture) changes nothing.
+    @Test func macOSHidingTheIconKeepsTheSetting() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let m = await readyModel(e)
         defer { m.stopWatching() }
         m.windowAppeared()
         #expect(m.menuBarIconRemoved() == false)
-        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
-        await m.setMenuBarIcon(true).value
+        #expect(m.menuBarIcon && m.showsMenuBarIcon && m.menuBarIconHiddenByMacOS && !m.menuBarIconVisible)
+        #expect(try e.store.load().menuBarIcon == true)
+        // macOS shows it again: nothing more to say.
+        m.menuBarIconInserted()
+        #expect(!m.menuBarIconHiddenByMacOS && m.menuBarIconVisible)
         m.windowDisappeared()
         #expect(m.menuBarIconRemoved() == true)
-        #expect(!m.menuBarIcon && !m.showsMenuBarIcon)
-        await m.setMenuBarIcon(true).value
+        #expect(m.menuBarIcon && !m.menuBarIconVisible)
         #expect(try e.store.load().menuBarIcon == true)
+        // The switch turned on again asks macOS once more.
+        await m.setMenuBarIcon(true).value
+        #expect(!m.menuBarIconHiddenByMacOS && m.menuBarIconVisible)
         m.setupGuideShown = true
         #expect(m.menuBarIconRemoved() == false)
-        #expect(m.menuBarIcon)
+        #expect(m.menuBarIcon && !m.menuBarIconHiddenByMacOS)
     }
 
     /// A setting changed while core work runs is saved after it on the core queue: the work saving the state it read

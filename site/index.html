@@ -25,7 +25,11 @@
   <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="dock.css">
+  <link rel="stylesheet" href="companion.css">
   <script src="script.js" defer></script>
+  <script src="dock.js" defer></script>
+  <script src="companion.js" defer></script>
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -52,24 +56,9 @@
     <!-- Hero -->
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="wrap hero-copy">
-        <svg class="creature" viewBox="0 -3 16 15" role="img" aria-label="The Brainmerge creature, a small purple pixel figure." shape-rendering="crispEdges">
-          <rect class="cr-shadow" x="2" y="11" width="12" height="1" fill="#A06BE0" fill-opacity="0.18"/>
-          <g class="cr-hop">
-            <g class="cr-sprite">
-              <path class="cr-legs" d="M2 8h1v3H2zM5 8h1v3H5zM10 8h1v3h-1zM13 8h1v3h-1z" fill="#A06BE0"/>
-              <g class="cr-top">
-                <path d="M2 0h12v8H2z" fill="#A06BE0"/>
-                <g class="cr-arms"><path class="cr-arm-l" d="M0 3h2v3H0z" fill="#A06BE0"/><path class="cr-arm-r" d="M14 3h2v3h-2z" fill="#A06BE0"/></g>
-                <g class="cr-look">
-                  <g class="cr-eyes" fill="#1E1430">
-                    <g class="cr-open"><g class="cr-blink"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g></g>
-                    <g class="cr-shut" opacity="0"><rect x="4" y="2" width="1" height="0.35"/><rect x="11" y="2" width="1" height="0.35"/></g>
-                    <g class="cr-blink-shut" opacity="0"><rect x="4" y="2" width="1" height="0.35"/><rect x="11" y="2" width="1" height="0.35"/></g>
-                  </g>
-                </g>
-              </g>
-            </g>
-          </g>
+        <svg class="creature hero-creature" viewBox="0 -3 16 15" role="img" aria-label="The Brainmerge creature, a small purple pixel figure." shape-rendering="crispEdges">
+          <rect class="cm-shadow" x="2" y="11" width="12" height="1" fill="#A06BE0" fill-opacity="0.18"/>
+          <g class="cm-body"><path class="cm-cells" d="M2 0h12v1h-12zM2 1h12v1h-12zM2 2h12v1h-12zM0 3h16v1h-16zM0 4h16v1h-16zM0 5h16v1h-16zM2 6h12v1h-12zM2 7h12v1h-12zM2 8h1v1h-1zM5 8h1v1h-1zM10 8h1v1h-1zM13 8h1v1h-1zM2 9h1v1h-1zM5 9h1v1h-1zM10 9h1v1h-1zM13 9h1v1h-1zM2 10h1v1h-1zM5 10h1v1h-1zM10 10h1v1h-1zM13 10h1v1h-1z" fill="#A06BE0"/><g class="cm-eyes" fill="#1E1430"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g></g>
         </svg>
         <p class="hero-name">Brainmerge</p>
         <h1 id="hero-title">Every Claude account,<br class="br-wide"> side by&nbsp;side.</h1>
@@ -116,13 +105,18 @@
       <div class="wrap">
         <h2 class="h2 center reveal" id="apps-title">Each account is an app of its&nbsp;own.</h2>
         <div class="dock-stage reveal">
-          <div class="dock" role="img" aria-label="A Mac Dock with Brainmerge and four account apps, each in its own color: Personal in orange, Studio in pink, Work in blue and Client in purple. Studio is running.">
-            <span class="dock-item"><span class="tip">Brainmerge</span><img src="assets/icon-512.webp" alt="" width="512" height="512" loading="lazy"></span>
-            <span class="dock-sep"></span>
-            <span class="dock-item acc-p"><span class="tip">Personal</span><span class="tile">P</span></span>
-            <span class="dock-item acc-s"><span class="tip">Studio</span><span class="tile">S</span><span class="run"></span></span>
-            <span class="dock-item acc-w"><span class="tip">Work</span><span class="tile">W</span></span>
-            <span class="dock-item acc-c"><span class="tip">Client</span><span class="tile">C</span></span>
+          <div class="mac">
+            <div class="mdock" role="group" aria-label="A Mac Dock: Brainmerge, then the apps of four accounts, each in its own color: Personal in orange, Studio in pink, Work in blue and Client in purple. Choose an app to open it.">
+              <div class="mdock-glass" aria-hidden="true"><span class="mdock-half is-l"><span class="mdock-bar"></span></span><span class="mdock-half is-r"><span class="mdock-bar"></span></span></div>
+              <div class="mdock-row">
+                <button class="mdock-app" type="button" data-name="Brainmerge" data-running aria-label="Brainmerge, open"><span class="mdock-icon" aria-hidden="true"><img src="assets/icon-512.webp" alt="" width="512" height="512" loading="lazy" decoding="async"></span><span class="mdock-name" aria-hidden="true">Brainmerge</span><span class="mdock-dot" aria-hidden="true"></span></button>
+                <span class="mdock-sep" aria-hidden="true"></span>
+                <button class="mdock-app" type="button" data-name="Personal" data-opener aria-label="Personal"><span class="mdock-icon" aria-hidden="true"><img src="assets/dock/personal-256.webp" srcset="assets/dock/personal-256.webp 256w, assets/dock/personal-512.webp 512w" sizes="calc(1.6 * clamp(52px, 4vw + 20px, 80px))" alt="" width="256" height="256" loading="lazy" decoding="async"></span><span class="mdock-name" aria-hidden="true">Personal</span><span class="mdock-dot" aria-hidden="true"></span></button>
+                <button class="mdock-app" type="button" data-name="Studio" data-running aria-label="Studio, open"><span class="mdock-icon" aria-hidden="true"><img src="assets/dock/studio-256.webp" srcset="assets/dock/studio-256.webp 256w, assets/dock/studio-512.webp 512w" sizes="calc(1.6 * clamp(52px, 4vw + 20px, 80px))" alt="" width="256" height="256" loading="lazy" decoding="async"></span><span class="mdock-name" aria-hidden="true">Studio</span><span class="mdock-dot" aria-hidden="true"></span></button>
+                <button class="mdock-app" type="button" data-name="Work" aria-label="Work"><span class="mdock-icon" aria-hidden="true"><img src="assets/dock/work-256.webp" srcset="assets/dock/work-256.webp 256w, assets/dock/work-512.webp 512w" sizes="calc(1.6 * clamp(52px, 4vw + 20px, 80px))" alt="" width="256" height="256" loading="lazy" decoding="async"></span><span class="mdock-name" aria-hidden="true">Work</span><span class="mdock-dot" aria-hidden="true"></span></button>
+                <button class="mdock-app" type="button" data-name="Client" aria-label="Client"><span class="mdock-icon" aria-hidden="true"><img src="assets/dock/client-256.webp" srcset="assets/dock/client-256.webp 256w, assets/dock/client-512.webp 512w" sizes="calc(1.6 * clamp(52px, 4vw + 20px, 80px))" alt="" width="256" height="256" loading="lazy" decoding="async"></span><span class="mdock-name" aria-hidden="true">Client</span><span class="mdock-dot" aria-hidden="true"></span></button>
+              </div>
+            </div>
           </div>
           <p class="dock-path"><code>~/Applications/Brainmerge</code></p>
         </div>
@@ -524,7 +518,7 @@
         <p class="usage-figure reveal"><b>Eight gigabytes</b> of transcripts, read in <b>under twenty seconds</b> with about <b>seventy megabytes</b> of RAM. The next read takes <b>under a&nbsp;second</b>.</p>
         <div class="usage-more">
           <figure class="scene scene-ram reveal" data-scene="ram">
-            <div class="card ram-card" role="img" aria-label="RAM and disk, as the Usage screen shows them. This Mac: 11.2 GB of 16 GB of RAM in use, 70%. Personal uses 1.9 GB, 12% of this Mac, and takes 2.4 GB on disk; Studio 1.2 GB, 8%, and 1.1 GB on disk; Work and Client are closed and take 0.9 GB and 0.8 GB on disk; Claude Code in a terminal, 1 session for all accounts together, uses 0.6 GB, 4%; other apps use 7.5 GB, 47%. Claude uses 3.7 GB of RAM, 23%, and the accounts take 5.2 GB on disk.">
+            <div class="card ram-card" role="img" aria-label="RAM and disk, as the Usage screen shows them. This Mac: 11.2 GB of 16 GB of RAM in use, 70%. Personal uses 1.9 GB, 12% of this Mac, and takes 2.4 GB on disk; Studio 1.2 GB, 8%, and 1.1 GB on disk; Work and Client are closed and take 0.9 GB and 0.8 GB on disk; Claude Code in a terminal, 1 session for all accounts together, uses 0.6 GB, 4%; macOS and other apps use 7.5 GB, 47%. Claude uses 3.7 GB of RAM, 23%, and the accounts take 5.2 GB on disk.">
               <p class="card-label" aria-hidden="true">RAM and disk</p>
               <p class="ram-mac" aria-hidden="true"><span>This Mac</span><span><b>11.2 GB</b> of 16 GB used · 70%</span></p>
               <p class="meter" aria-hidden="true"><i></i></p>
@@ -534,7 +528,7 @@
                 <li class="acc-w"><i class="dot"></i><span class="nm">Work</span><span class="ram is-off">Closed</span><span class="rbar"><i></i></span><span class="disk">0.9 GB</span></li>
                 <li class="acc-c"><i class="dot"></i><span class="nm">Client</span><span class="ram is-off">Closed</span><span class="rbar"><i></i></span><span class="disk">0.8 GB</span></li>
                 <li class="term"><i class="dot"></i><span class="nm">Claude Code in a terminal<small>1 session, all accounts together</small></span><span class="ram">0.6 GB<small>4% of this Mac</small></span><span class="rbar"><i></i></span><span class="disk"></span></li>
-                <li class="other"><i class="dot"></i><span class="nm">Other apps</span><span class="ram">7.5 GB<small>47% of this Mac</small></span><span class="rbar"><i></i></span><span class="disk"></span></li>
+                <li class="other"><i class="dot"></i><span class="nm">macOS and other apps</span><span class="ram">7.5 GB<small>47% of this Mac</small></span><span class="rbar"><i></i></span><span class="disk"></span></li>
               </ul>
               <p class="card-foot" aria-hidden="true">Claude uses 3.7 GB of RAM, 23%. Your accounts take 5.2 GB on&nbsp;disk.</p>
             </div>
