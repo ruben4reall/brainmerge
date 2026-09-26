@@ -58,6 +58,14 @@ public struct BrowserChoice: Codable, Equatable, Hashable, Sendable {
     public init(browser: ChromiumBrowser, directory: String) { self.browser = browser; self.directory = directory }
 }
 
+extension KeyedDecodingContainer {
+    /// A pick this version cannot read (a browser a newer Brainmerge knows) reads as none: the account, and the whole
+    /// state with it, still load. Used by every optional BrowserChoice, such as Identity's.
+    public func decodeIfPresent(_ type: BrowserChoice.Type, forKey key: Key) throws -> BrowserChoice? {
+        try? decode(BrowserChoice.self, forKey: key)
+    }
+}
+
 /// An installed browser with its app and its profiles.
 public struct InstalledBrowser: Equatable, Sendable {
     public let browser: ChromiumBrowser
