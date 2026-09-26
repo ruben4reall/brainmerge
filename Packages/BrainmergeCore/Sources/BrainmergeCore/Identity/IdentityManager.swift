@@ -12,6 +12,9 @@ public final class IdentityManager: @unchecked Sendable {
     public let monitor: ProcessMonitor
     /// false in tests: disposable bundles aren't registered with Launch Services.
     public let registerLaunchers: Bool
+    /// How long attaching an account waits for the memory's lock (a save or a session start holding it) before it
+    /// says "Busy saving"; shorter in tests.
+    public var memoryLockTimeout: TimeInterval = 5
 
     public init(paths: Paths, store: StateStore, launcherBinary: URL, cliPath: String,
                 claudeAppURL: URL = ClaudeApp.defaultURL(), shell: Shell = Shell(), registerLaunchers: Bool = true,
@@ -258,6 +261,12 @@ public final class IdentityManager: @unchecked Sendable {
         state.identities.removeAll { $0.slug == slug }
         try store.save(state)
         CLIInstaller.unlinkAccount(paths: paths, slug: slug)
+        // Its lists of notes written and not saved go too, in every memory: they would keep those notes out of your own
+        // edits' save for good.
+        for folder in state.brains {
+            let ledger = TouchedLedger(brain: Brain(root: folder.url), slug: slug)
+            for list in [ledger.file, ledger.sending] { try? fm.removeItem(at: list) }
+        }
     }
 
     /// Rebuilds a secondary's app for the installed Claude (the account must be closed), or the primary's own app when it
@@ -376,22 +385,29 @@ public final class IdentityManager: @unchecked Sendable {
     // MARK: Brain
 
     /// Managed block, hooks (Stop, SessionStart, PostToolUse), memory links, identity registry, in the identity's memory,
-    /// whose .gitignore is brought up to date. Idempotent.
+    /// whose .gitignore is brought up to date. Idempotent. Under the memory's lock, like the SessionStart hook and the
+    /// saves that read the same lists: a lock still held after `memoryLockTimeout` fails with `.lockTimeout` ("Busy
+    /// saving") before anything is written.
     public func attachBrain(to identity: Identity, state: AppState) throws {
         let brain = try memory(for: identity, in: state)
-        try brain.ensureIgnores()
         let profile = CLIProfile(directory: identity.cliProfile(in: paths))
         guard profile.exists else { throw BrainmergeError.profileMissing(profile.directory.path) }
-        let claudeMD = profile.claudeMD.resolvingSymlinksInPath()
-        let existing = (try? String(contentsOf: claudeMD, encoding: .utf8)) ?? ""
-        let block = ManagedBlock.render(identityName: identity.name, slug: identity.slug, brainPath: brain.root.path)
-        try Data(ManagedBlock.upsert(in: existing, block: block).utf8).write(to: claudeMD, options: .atomic)
-        try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
-        _ = try MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
-            .wire(profile: profile, identitySlug: identity.slug)
-        var registry = try IdentityRegistry.load(brain.identitiesFile)
-        registry.record(identity)
-        try registry.save(to: brain.identitiesFile)
+        try BrainGit(brain: brain).withLock(timeout: memoryLockTimeout) {
+            try brain.ensureIgnores()
+            let claudeMD = profile.claudeMD.resolvingSymlinksInPath()
+            let existing = (try? String(contentsOf: claudeMD, encoding: .utf8)) ?? ""
+            let block = ManagedBlock.render(identityName: identity.name, slug: identity.slug, brainPath: brain.root.path)
+            try Data(ManagedBlock.upsert(in: existing, block: block).utf8).write(to: claudeMD, options: .atomic)
+            try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
+            _ = try MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
+                .wire(profile: profile, identitySlug: identity.slug)
+            var registry = try IdentityRegistry.load(brain.identitiesFile)
+            let before = registry
+            registry.record(identity)
+            try registry.save(to: brain.identitiesFile)
+            // The account's entry in the memory's list of accounts: its save carries it, like its list of projects.
+            if registry != before { try? TouchedLedger(brain: brain, slug: identity.slug).append(".brainmerge/identities.json") }
+        }
     }
 
     /// Each account's hooks as they stand, for the accounts whose Claude Code folder exists, in the accounts' order.

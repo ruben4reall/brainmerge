@@ -169,11 +169,11 @@ import BrainmergeTestSupport
         #expect(try run(e, ["sync", "--identity", "perso"]).status == 0)
         let last = try #require(try BrainGit(brain: e.brain).log(limit: 1).first)
         #expect(last.authorName == "Perso")
-        // With the list of its projects, linked when it was set up: that is the account's too.
-        #expect(Set(last.files) == ["memory/atelier/deploy.md", "memory/atelier/prices.md", ".brainmerge/projects.json"])
+        // With the lists of its projects, linked when it was set up, and of the memory's accounts: those are the account's too.
+        #expect(Set(last.files) == ["memory/atelier/deploy.md", "memory/atelier/prices.md", ".brainmerge/projects.json", ".brainmerge/identities.json"])
         #expect(last.message == MemorySentence.message(name: "Perso", files: last.files))
         #expect(last.message == "Perso remembered 2 things about atelier")
-        #expect(try String(contentsOf: logFile, encoding: .utf8).contains("perso: committed 3 files"))
+        #expect(try String(contentsOf: logFile, encoding: .utf8).contains("perso: committed 4 files"))
 
         #expect(try run(e, ["sync", "--identity", "work"]).status == 0)
         let theirs = try #require(try BrainGit(brain: e.brain).log(limit: 1).first)
@@ -194,11 +194,11 @@ import BrainmergeTestSupport
 
         let sync = try run(e, ["sync", "--identity", "perso"])
         #expect(sync.status == 0 && sync.stdout.isEmpty)
-        // The note, and the list of projects linked when the account was set up.
+        // The note, and the lists of projects and accounts written when the account was set up.
         #expect(try BrainGit(brain: e.brain).log(limit: 1).first?.files.contains("memory/atelier/deploy.md") == true)
         let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
-        #expect(log.contains("perso: committed 2 files"))
-        #expect(log.contains("perso: another git held the memory's index, it catches up with 2 files at the next save"), "\(log)")
+        #expect(log.contains("perso: committed 3 files"))
+        #expect(log.contains("perso: another git held the memory's index, it catches up with 3 files at the next save"), "\(log)")
     }
 
     /// A memory whose save waits (the person's own merge is stopped there, for days maybe) never stops the account's

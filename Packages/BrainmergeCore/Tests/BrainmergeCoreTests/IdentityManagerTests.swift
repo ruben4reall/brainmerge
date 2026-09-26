@@ -153,6 +153,67 @@ import BrainmergeTestSupport
         #expect(try String(contentsOf: e.primaryProfile.settingsFile, encoding: .utf8) == "{ not json")
     }
 
+    /// Attaching an account writes the memory's lists of projects and accounts under the memory's lock, like the
+    /// SessionStart hook and the saves that read them: a session starting at that moment never loses a line. A lock held
+    /// too long fails the attach with "Busy saving", before anything is written.
+    @Test func attachingAnAccountTakesTheMemorysLock() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        e.manager.memoryLockTimeout = 0.2
+        let acquired = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0), released = DispatchSemaphore(value: 0)
+        let git = BrainGit(brain: e.brain)
+        Thread.detachNewThread {
+            try? git.withLock(timeout: 5) { acquired.signal(); release.wait() }
+            released.signal()
+        }
+        acquired.wait()
+        let accounts = try? Data(contentsOf: e.brain.identitiesFile)
+        #expect(throws: BrainmergeError.lockTimeout) { try e.manager.adoptPrimary(name: "Perso") }
+        release.signal()
+        released.wait()
+        #expect((try? Data(contentsOf: e.brain.identitiesFile)) == accounts)
+        #expect(!ManagedBlock.contains((try? String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)) ?? ""))
+        #expect(try e.manager.adoptPrimary(name: "Perso").slug == "perso")
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["perso"] != nil)
+    }
+
+    /// The memory's list of accounts is the account's to save, like its list of projects: it never shows as "You edited
+    /// 1 file". A change to it (a new name) is the account's again.
+    @Test func theListOfAccountsIsSavedByTheAccount() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let perso = try e.manager.adoptPrimary(name: "Perso")
+        let save = AccountSave(brain: e.brain, git: BrainGit(brain: e.brain), held: HeldStore(paths: e.home.paths, memoryID: "shared"))
+        #expect(try save.run(for: perso).saved.contains(".brainmerge/identities.json"))
+        #expect(try save.run(for: perso).saved.isEmpty)
+        let renamed = try e.manager.update(slug: "perso", name: "Personal", tint: nil, logo: nil)
+        #expect(try save.run(for: renamed).saved == [".brainmerge/identities.json"])
+        #expect(try !OwnEdits(brain: e.brain, git: BrainGit(brain: e.brain), held: HeldStore(paths: e.home.paths, memoryID: "shared")).pending()
+            .contains(".brainmerge/identities.json"))
+    }
+
+    /// A removed account's lists of notes it wrote and never saved go with it, in every memory: those notes are no longer
+    /// kept out of your own edits' save.
+    @Test func removingAnAccountDropsItsLists() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let clients = Brain(root: try e.manager.addBrain(name: "Clients", path: nil, language: .en).url)
+        for brain in [e.brain, clients] {
+            let ledger = TouchedLedger(brain: brain, slug: "client")
+            try ledger.append("memory/acme/note.md")
+            _ = try ledger.take()
+            try ledger.append("memory/acme/other.md")
+        }
+        try TouchedLedger(brain: e.brain, slug: "perso").append("memory/acme/mine.md")
+        try e.manager.remove(slug: "client", deleteData: false)
+        for brain in [e.brain, clients] {
+            let ledger = TouchedLedger(brain: brain, slug: "client")
+            #expect(!FileManager.default.fileExists(atPath: ledger.file.path) && !FileManager.default.fileExists(atPath: ledger.sending.path))
+        }
+        let claimed = TouchedLedger.claimed(in: e.brain)
+        #expect(claimed.contains("memory/acme/mine.md"), "another account's list stays")
+        #expect(!claimed.contains("memory/acme/note.md") && !claimed.contains("memory/acme/other.md"))
+    }
+
     @Test func addWithoutBrainCreatesNothing() throws {
         let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
         #expect(throws: BrainmergeError.brainNotConfigured) { try e.manager.add(IdentityManager.AddRequest(name: "Client")) }
