@@ -179,7 +179,7 @@ import BrainmergeTestSupport
     /// SecondAccountSwap.hold). Back never moves on the 0.15 s dimming of "Add account", which slid it across "Skip for
     /// now" while that one still faded: drawn before the hold, it is where it was, and it is still on its way to its new
     /// place a quarter of a second after the add.
-    @Test func backMovesWithTheCardOnceTheFormsButtonsHaveGone() async throws {
+    @Test(.needsARealDisplay) func backMovesWithTheCardOnceTheFormsButtonsHaveGone() async throws {
         let (e, _, onboarding, _) = try secondAccountStep(); defer { e.home.remove() }
         let film = Film(SecondAccountPage(model: onboarding), size: CGSize(width: 600, height: 780))
         defer { film.close() }

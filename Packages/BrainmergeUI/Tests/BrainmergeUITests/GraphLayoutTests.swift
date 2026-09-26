@@ -85,9 +85,7 @@ import BrainmergeCore
         let edges = (0..<1500).map { ("n\($0)", "n\(($0 * 37 + 11) % 1500)") }
         var layout = GraphLayout()
         layout.sync(nodes: nodes, edges: edges)
-        let start = Date()
-        for _ in 0..<10 { layout.step() }
-        #expect(Date().timeIntervalSince(start) / 10 < 0.15, "one step of 1500 notes stays fast even in a debug build (Barnes-Hut, not n squared)")
+        #expect(Self.fastestStep(&layout) < 0.15, "one step of 1500 notes stays fast even in a debug build (Barnes-Hut, not n squared)")
     }
 
     @Test func hitTestingFindsTheNoteUnderThePoint() {
@@ -165,8 +163,16 @@ import BrainmergeCore
         let edges = (0..<1500).map { ("n\($0)", "n\(($0 * 37 + 11) % 1500)") }
         var layout = GraphLayout(forces: .obsidian(ObsidianGraphSettings()))
         layout.sync(nodes: nodes, edges: edges)
-        let start = Date()
-        for _ in 0..<10 { layout.step() }
-        #expect(Date().timeIntervalSince(start) / 10 < 0.15, "collisions are found through a grid, not by comparing every pair")
+        #expect(Self.fastestStep(&layout) < 0.15, "collisions are found through a grid, not by comparing every pair")
+    }
+
+    /// The mean step time of the fastest of three rounds of five steps. A pair-by-pair step would be ten times over the
+    /// budget in every round; a busy runner (the suite runs in parallel, CI shares its machine) slows only some rounds.
+    static func fastestStep(_ layout: inout GraphLayout) -> TimeInterval {
+        (0..<3).map { _ in
+            let start = Date()
+            for _ in 0..<5 { layout.step() }
+            return Date().timeIntervalSince(start) / 5
+        }.min() ?? .infinity
     }
 }
