@@ -58,6 +58,14 @@ public struct MemoryView: View {
                     Text(AppModel.historyNeedsGit).font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted)
                     Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass)
                 }
+                // Checks again every 5 seconds while it shows: once Apple's installer is done, the history comes back.
+                .task {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(5))
+                        if Task.isCancelled { return }
+                        await model.checkGit()
+                    }
+                }
             }
             switch mode {
             case .graph:

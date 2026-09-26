@@ -34,7 +34,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .stateTooNew(let v): return "state.json was written by a newer Brainmerge (schema \(v)). Update Brainmerge."
-        case .stateDamaged: return "state.json is damaged. A copy from before the last change is kept as state.previous.json."
+        case .stateDamaged: return "state.json can't be read. Open Brainmerge to put back the copy from before your last change, when there is one."
         case .gitUnavailable: return "History needs git. Install Apple's Command Line Tools: xcode-select --install"
         case .claudeNotSigned: return "This copy of Claude is not signed by Anthropic. Brainmerge only opens the official app."
         case .claudeAppNotFound(let p): return "Claude.app not found at \(p). Install Claude Desktop first."

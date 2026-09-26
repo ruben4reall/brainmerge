@@ -12,10 +12,11 @@ import BrainmergeTestSupport
                                       claudeAppURL: e.claude.url, registerLaunchers: false, monitor: monitor ?? ProcessMonitor(psOutput: { "" }))
         let model = AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
         model.readMacMemory = { _ in nil }
+        model.git = OnboardingModelTests.Tools(true).availability
         return model
     }
 
-    @Test func aDamagedStateShowsItsOwnScreenNeverTheSetup() throws {
+    @Test func aDamagedStateShowsItsOwnScreenNeverTheSetup() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
@@ -24,9 +25,9 @@ import BrainmergeTestSupport
         m.reload()
         #expect(m.stateProblem == .damaged)
         #expect(!m.needsOnboarding)
-        #expect(StateProblem.damaged.detail == "The file is damaged. A copy from before your last change is available.")
+        #expect(StateProblem.damaged.detail(canRestore: true) == "The file is damaged. A copy from before your last change is available.")
         #expect(m.canRestorePreviousState)
-        m.restorePreviousState()
+        await m.restorePreviousState()
         #expect(m.stateProblem == nil)
         #expect(m.accounts.map(\.identity.slug) == ["ruben"])
     }
@@ -39,8 +40,21 @@ import BrainmergeTestSupport
         m.reload()
         #expect(m.stateProblem == .tooNew(3))
         #expect(!m.needsOnboarding)
-        #expect(StateProblem.tooNew(3).detail == "It was written by a newer Brainmerge (version 3 of the file). Your accounts, memories and logins are untouched.")
+        #expect(StateProblem.tooNew(3).detail(canRestore: false) == "It was written by a newer Brainmerge (version 3 of the file). Your accounts, memories and logins are untouched.")
         #expect(StateProblem.title == "Brainmerge can't read its list of accounts")
+    }
+
+    @Test func aDamagedStateWithNoCopyToPutBackOffersNone() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        try Data("{ broken".utf8).write(to: e.home.paths.stateFile)
+        // The copy from before is damaged too: offering it would only bring this screen back.
+        try Data("{ also broken".utf8).write(to: e.store.previousFile)
+        let m = model(e)
+        m.reload()
+        #expect(m.stateProblem == .damaged)
+        #expect(!m.canRestorePreviousState)
+        #expect(StateProblem.damaged.detail(canRestore: false) == "The file is damaged. Your accounts, memories and logins are untouched.")
     }
 
     @Test func settingsAreSavedUnderTheStateLock() async throws {
@@ -73,12 +87,49 @@ import BrainmergeTestSupport
         #expect(try e.store.load().claudeAppPath == e.claude.url.path)
     }
 
-    @Test func withoutGitTheMemorySaysHistoryNeedsIt() throws {
+    @Test func choosingAnAppThatIsNotClaudeSaysSo() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
-        m.git = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
+        m.claudeLocator = ClaudeLocator(paths: e.home.paths, folders: [], launchServices: { [] }, isSigned: { _ in true })
+        let other = e.home.url.appending(path: "Notes.app", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: other, withIntermediateDirectories: true)
+        let refusal = await m.chooseClaude(other)
+        #expect(refusal?.detail == "This app is not Claude. Brainmerge only opens the official app.")
+        #expect(try e.store.load().claudeAppPath == nil)
+    }
+
+    @Test func withoutGitTheMemorySaysHistoryNeedsIt() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.git = OnboardingModelTests.Tools(false).availability
+        #expect(await m.checkGit() == false)
         #expect(!m.gitAvailable)
         #expect(AppModel.historyNeedsGit == "History needs git. Install Apple's tools")
+    }
+
+    @Test func theMemoryScreenNoticesAppleToolsOnceInstalled() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        let tools = OnboardingModelTests.Tools(false)
+        m.git = tools.availability
+        await m.checkGit()
+        #expect(!m.gitAvailable)
+        // Apple's installer finished meanwhile: the next check sees it, the cached answer does not hide it.
+        tools.present = true
+        #expect(await m.checkGit())
+        #expect(m.gitAvailable)
+    }
+
+    @Test func gitIsCheckedOffTheMainThread() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        let seen = OnboardingModelTests.Threads()
+        m.git = GitAvailability(shell: Shell { _, _, _, _ in
+            seen.record(Thread.isMainThread)
+            return ShellResult(status: 0, stdout: "/Tools\n", stderr: "")
+        }, isExecutable: { _ in true })
+        await m.checkGit()
+        #expect(seen.all == [false])
     }
 
     @Test func listsAccountsWithRunningFlags() throws {

@@ -67,10 +67,16 @@ public final class OnboardingModel {
     public private(set) var gitFound = false
     public private(set) var claudeCodeFound = false
 
-    public func detect() {
+    /// What the setup shows as found. Git and Claude Code are looked for off the main thread: `xcode-select` is a process,
+    /// and Claude Code's signature check reads the whole program.
+    public func detect() async {
         claude = try? ClaudeApp.detect(at: app.claudeAppURL)
-        gitFound = app.git.isAvailable
-        if case .found = app.limitsBinary(app.paths.home) { claudeCodeFound = true } else { claudeCodeFound = false }
+        gitFound = await app.checkGit()
+        let resolve = app.limitsBinary, home = app.paths.home
+        claudeCodeFound = await Task.detached(priority: .userInitiated) { () -> Bool in
+            if case .found = resolve(home) { return true }
+            return false
+        }.value
         let profile = CLIProfile(directory: app.paths.primaryCLIProfile)
         projectCount = (try? profile.projects().count) ?? 0
     }
@@ -84,8 +90,8 @@ public final class OnboardingModel {
     public func next() { error = nil; move(by: 1) }
     public func back() { error = nil; move(by: -1) }
 
-    /// The steps shown: the git step only while Apple's tools are missing.
-    public var steps: [Step] { Step.order.filter { $0 != .git || step == .git || !app.git.isAvailable } }
+    /// The steps shown: the git step only while Apple's tools are missing (as last checked, see `AppModel.checkGit`).
+    public var steps: [Step] { Step.order.filter { $0 != .git || step == .git || !app.gitAvailable } }
 
     private func move(by offset: Int) {
         let order = Step.order
@@ -93,14 +99,13 @@ public final class OnboardingModel {
         repeat {
             index += offset
             guard order.indices.contains(index) else { return }
-        } while order[index] == .git && app.git.isAvailable
+        } while order[index] == .git && app.gitAvailable
         step = order[index]
     }
 
     /// "Check again", and every few seconds while the step shows: once the tools are in, the setup moves on.
-    public func checkGit() {
-        app.git.invalidate()
-        if step == .git, app.git.isAvailable { next() }
+    public func checkGit() async {
+        if await app.checkGit(), step == .git { next() }
     }
 
     /// Apple's installer for the Command Line Tools: its own window, its own download from Apple.

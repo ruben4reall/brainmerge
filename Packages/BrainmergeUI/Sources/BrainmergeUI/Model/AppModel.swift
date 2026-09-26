@@ -190,7 +190,25 @@ public final class AppModel {
     public let claudeAppURL: URL
     /// Whether git can run without Apple's install dialog (see GitAvailability). Tests put a fake one here.
     @ObservationIgnored public var git: GitAvailability = .shared
-    public var gitAvailable: Bool { git.isAvailable }
+    /// The last answer, found off the main thread: at launch, then by `checkGit()` while a screen waits for Apple's tools.
+    public private(set) var gitAvailable = true
+
+    /// Asks again whether git is there, off the main thread (`xcode-select` is a process). The setup's git step and the
+    /// Memory screen call it every few seconds while git is missing: once Apple's installer is done, they move on.
+    @discardableResult
+    public func checkGit() async -> Bool {
+        let git = self.git
+        let found = await Task.detached(priority: .userInitiated) { () -> Bool in
+            git.invalidate()
+            return git.isAvailable
+        }.value
+        if found != gitAvailable {
+            gitAvailable = found
+            // The history can be read now.
+            if found { refreshMemory() }
+        }
+        return found
+    }
     public static let historyNeedsGit = "History needs git. Install Apple's tools"
 
     /// Apple's installer for the Command Line Tools: its own window, its own download from Apple.
@@ -210,6 +228,8 @@ public final class AppModel {
                 try locator.validate(choice: url)
                 try store.update { $0.claudeAppPath = url.path }
                 return nil
+            } catch BrainmergeError.claudeAppNotFound {
+                return "This app is not Claude. Brainmerge only opens the official app."
             } catch { return String(describing: error) }
         }.value
         return refusal.map { UserMessage(title: "Claude was not changed", detail: $0) }
@@ -309,7 +329,8 @@ public final class AppModel {
         let monitor = manager.monitor, store = self.store, paths = self.paths, manager = self.manager
         let demo = AppLifecycle.isCaptureOrDemo(environment: environment)
         let cli = demo ? nil : commandLine()
-        let (snapshot, log) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?) in
+        let git = self.git
+        let (snapshot, log, gitFound) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?, Bool) in
             let state = try? store.load()
             if !demo, state?.identities.isEmpty == false {
                 if let cli { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
@@ -318,8 +339,9 @@ public final class AppModel {
             }
             let snapshot = (try? monitor.snapshot(measuring: true)) ?? ProcessMonitor.Snapshot(mains: [], all: [])
             let brain = state?.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil }
-            return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) })
+            return (snapshot, brain.map { (root: $0.root, entries: (try? BrainGit(brain: $0).log(limit: 200)) ?? []) }, git.isAvailable)
         }.value
+        if gitFound != gitAvailable { gitAvailable = gitFound }
         prefetchedSnapshot = snapshot
         prefetchedLog = log
         reload()
@@ -338,11 +360,17 @@ public final class AppModel {
 
     /// Why state.json cannot be read, nil when it can (or does not exist yet).
     public private(set) var stateProblem: StateProblem?
-    public var canRestorePreviousState: Bool { store.hasPrevious }
+    /// A copy from before the last change that this version can read, looked at when the problem is found.
+    public private(set) var canRestorePreviousState = false
 
-    /// Puts back the copy saved before the last change. The unreadable file is kept beside it.
-    public func restorePreviousState() {
-        do { try store.restorePrevious() } catch { message = UserMessage(title: "Nothing was restored", detail: String(describing: error)) }
+    /// Puts back the copy saved before the last change. The unreadable file is kept beside it. Off the main thread: the
+    /// restore waits for the lock while the command line changes the state.
+    public func restorePreviousState() async {
+        let store = self.store
+        let failure: String? = await Task.detached(priority: .userInitiated) {
+            do { try store.restorePrevious(); return nil } catch { return String(describing: error) }
+        }.value
+        if let failure { message = UserMessage(title: "Nothing was restored", detail: failure) }
         reload()
     }
 
@@ -386,6 +414,7 @@ public final class AppModel {
             set(\.stateProblem, nil)
         } catch {
             set(\.stateProblem, StateProblem(error))
+            set(\.canRestorePreviousState, store.canRestorePrevious)
             set(\.accounts, []); set(\.brain, nil)
             return changed
         }

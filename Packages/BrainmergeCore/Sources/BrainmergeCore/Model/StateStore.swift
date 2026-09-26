@@ -10,13 +10,18 @@ public struct StateStore: Sendable {
     public var lockFile: URL { paths.appSupport.appending(path: "state.lock") }
 
     public var exists: Bool { FileManager.default.fileExists(atPath: paths.stateFile.path) }
-    public var hasPrevious: Bool { FileManager.default.fileExists(atPath: previousFile.path) }
 
     /// A missing file is a fresh install. A file that cannot be read is never one: it throws `.stateDamaged`
     /// (or `.stateTooNew` when a newer Brainmerge wrote it), so nobody is sent back to setup with accounts on disk.
     public func load() throws -> AppState {
-        let file = paths.stateFile
-        guard FileManager.default.fileExists(atPath: file.path) else { return AppState() }
+        guard exists else { return AppState() }
+        return try read(paths.stateFile)
+    }
+
+    /// A copy from before the last change that this version can read: the only one worth putting back.
+    public var canRestorePrevious: Bool { (try? read(previousFile)) != nil }
+
+    func read(_ file: URL) throws -> AppState {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let data: Data
@@ -76,15 +81,18 @@ public struct StateStore: Sendable {
         public func release() { flock(fd, LOCK_UN); close(fd) }
     }
 
-    /// Puts the previous copy back in place of an unreadable file. The unreadable one is kept beside it, never deleted.
+    /// Puts the previous copy back in place of an unreadable file, under the lock, only when this version can read it.
+    /// The unreadable one is kept beside it, never deleted, and the swap is atomic: no reader ever finds no file (a fresh
+    /// install) in between.
     public func restorePrevious() throws {
+        let held = try lock()
+        defer { held.release() }
+        guard canRestorePrevious else { throw BrainmergeError.stateDamaged }
         let fm = FileManager.default
-        guard hasPrevious else { throw BrainmergeError.stateDamaged }
-        if fm.fileExists(atPath: paths.stateFile.path) {
+        if exists {
             let aside = paths.appSupport.appending(path: "state.unreadable-\(Int(Date().timeIntervalSince1970)).json")
-            try? fm.removeItem(at: aside)
-            try fm.moveItem(at: paths.stateFile, to: aside)
+            if !fm.fileExists(atPath: aside.path) { try fm.copyItem(at: paths.stateFile, to: aside) }
         }
-        try fm.copyItem(at: previousFile, to: paths.stateFile)
+        try Data(contentsOf: previousFile).write(to: paths.stateFile, options: .atomic)
     }
 }

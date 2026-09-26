@@ -102,9 +102,61 @@ import BrainmergeTestSupport
         try store.save(AppState(machineID: "good"))
         try store.save(AppState(machineID: "later"))
         try Data("{ broken".utf8).write(to: home.paths.stateFile)
-        #expect(store.hasPrevious)
+        #expect(store.canRestorePrevious)
         try store.restorePrevious()
         #expect(try store.load().machineID == "good")
+    }
+
+    @Test func onlyACopyThisVersionCanReadIsOfferedBack() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        #expect(!store.canRestorePrevious)
+        try store.save(AppState(machineID: "good"))
+        try store.save(AppState(machineID: "later"))
+        #expect(store.canRestorePrevious)
+        try Data("{ broken".utf8).write(to: store.previousFile)
+        #expect(!store.canRestorePrevious)
+        // Written by a newer Brainmerge too: putting it back would only show the same screen again.
+        try Data(#"{"schemaVersion": 99, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#.utf8)
+            .write(to: store.previousFile)
+        #expect(!store.canRestorePrevious)
+    }
+
+    @Test func anUnreadablePreviousCopyIsNeverPutBack() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        try store.save(AppState(machineID: "good"))
+        try store.save(AppState(machineID: "later"))
+        try Data("{ broken".utf8).write(to: home.paths.stateFile)
+        try Data("{ also broken".utf8).write(to: store.previousFile)
+        #expect(throws: BrainmergeError.stateDamaged) { try store.restorePrevious() }
+        #expect(try Data(contentsOf: home.paths.stateFile) == Data("{ broken".utf8))
+    }
+
+    @Test func restoringWaitsForTheLock() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        try store.save(AppState(machineID: "good"))
+        try store.save(AppState(machineID: "later"))
+        try Data("{ broken".utf8).write(to: home.paths.stateFile)
+        // The command line holds the lock through its own change: the restore waits for it, never writes in between.
+        let held = try StateStore(paths: home.paths).lock()
+        let paths = home.paths
+        let done = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            try? StateStore(paths: paths).restorePrevious()
+            done.signal()
+        }
+        #expect(done.wait(timeout: .now() + 0.3) == .timedOut)
+        #expect(throws: BrainmergeError.stateDamaged) { try store.load() }
+        held.release()
+        #expect(done.wait(timeout: .now() + 5) == .success)
+        #expect(try store.load().machineID == "good")
+    }
+
+    @Test func aDamagedStateSaysWhereToTurn() {
+        #expect(BrainmergeError.stateDamaged.description
+                == "state.json can't be read. Open Brainmerge to put back the copy from before your last change, when there is one.")
     }
 
     @Test func concurrentUpdatesBothLand() async throws {

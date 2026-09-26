@@ -36,7 +36,7 @@ public struct OnboardingView: View {
                 VStack { Spacer(); errorBanner(error) }.padding(24).padding(.bottom, 28)
             }
         }
-        .onAppear { model.detect() }
+        .task { await model.detect() }
     }
 
     var welcome: some View {
@@ -86,7 +86,7 @@ public struct OnboardingView: View {
                 .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
             navigation {
                 Button("Back") { model.back() }.buttonStyle(.glass)
-                Button("Check again") { model.checkGit() }.buttonStyle(.glass)
+                Button("Check again") { Task { await model.checkGit() } }.buttonStyle(.glass)
                 Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
             }
             Text("Opens Apple's installer. The download comes from Apple, not from Brainmerge.")
@@ -96,7 +96,7 @@ public struct OnboardingView: View {
         .task {
             while !Task.isCancelled, model.step == .git {
                 try? await Task.sleep(for: .seconds(5))
-                model.checkGit()
+                await model.checkGit()
             }
         }
     }
