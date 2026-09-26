@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 import Testing
+import BrainmergeCore
+import BrainmergeTestSupport
 @testable import BrainmergeUI
 
 @MainActor @Suite struct OnboardingViewTests {
@@ -70,6 +72,36 @@ import Testing
         // The launch's own landing brings the words in: no second entrance.
         #expect(!WelcomeEntrance.plays(launch: LaunchClock(slow: 1, capture: false), reduceMotion: false, capture: false))
         #expect(WelcomeEntrance.plays(launch: LaunchClock(finished: true, slow: 1, capture: false), reduceMotion: false, capture: false))
+    }
+
+    /// Every step fits the window at its default size (960 by 640) whole, with nothing to scroll: its buttons are never
+    /// cut by the bottom edge, and All set's "Open Brainmerge" and its link are on screen. Measured with the longest lines
+    /// the steps take: five accounts and two memories, Claude Code, git and the command line all missing, and the second
+    /// account's card, added while Claude is open for another account, with its long sentence and its button.
+    @Test func everyStepFitsTheDefaultWindow() async throws {
+        let ps = CoreWorkTests.FakePS("")
+        let (e, app, onboarding) = try OnboardingModelTests().setup(monitor: ProcessMonitor(psOutput: { ps.output }))
+        defer { e.home.remove() }
+        let room = 640 - OnboardingView.dotsRoom
+        func height() -> CGFloat {
+            NSHostingView(rootView: OnboardingView(model: onboarding).laidOutPage.frame(width: 960)).fittingSize.height
+        }
+        onboarding.primaryName = "Personal"
+        await onboarding.finish()
+        for name in ["Studio", "Client", "Work"] { _ = try e.manager.add(IdentityManager.AddRequest(name: name)) }
+        _ = try e.manager.addBrain(name: "Clients", path: nil, language: .en)
+        ps.output = "  900 1 120000 \(e.claude.executable.path)\n"
+        app.reload()
+        #expect(app.brains.count == 2 && app.openAccounts.count == 1)
+        onboarding.step = .secondAccount
+        #expect(height() <= room, "the second account's form: \(height()) for \(room)")
+        onboarding.secondAccount.name = "Freelance"
+        #expect(await onboarding.addSecondAccount())
+        #expect(app.accounts.count == 5 && !onboarding.othersOpen.isEmpty)
+        for step in OnboardingModel.Step.allCases {
+            onboarding.step = step
+            #expect(height() <= room, "\(step): \(height()) for \(room)")
+        }
     }
 
     /// The added account's card says what to do next and never asks again for what was just done: once its button is

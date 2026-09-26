@@ -13,7 +13,8 @@ public struct OnboardingView: View {
     public var body: some View {
         ZStack {
             WarmBackground()
-            // Centered when the step is short, scrollable when it is taller than its room (the last step at 640 points).
+            // Centered when the step is short. Every step fits the smallest window (960 by 640) whole, its buttons included;
+            // the scroll view stays for words longer than planned (a long name, many accounts), which then scroll.
             // Each page fills the height on its own and shares one column with the page it replaces: the old one fades where
             // it is (the button just clicked never moves), then the new one slides 24 points in from the side the guide moves
             // to (see `PageSwap`).
@@ -21,9 +22,7 @@ public struct OnboardingView: View {
                 GeometryReader { proxy in
                     ScrollView(.vertical) {
                         ZStack(alignment: .top) {
-                            page
-                                .frame(maxWidth: 560)
-                                .padding(.horizontal, 40).padding(.top, 28).padding(.bottom, 16)
+                            laidOutPage
                                 .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                                 .id(model.step)
                                 .transition(reduceMotion ? AnyTransition.opacity : PageSwap.transition(model))
@@ -33,12 +32,27 @@ public struct OnboardingView: View {
                     .scrollBounceBehavior(.basedOnSize)
                 }
                 // The progress dots stay at the same place whatever the step's height, under the pages, never over them.
-                dots.padding(.top, 14).padding(.bottom, 26)
+                dots.padding(.top, Self.dotsTop).padding(.bottom, Self.dotsBottom)
             }
             errorLayer
         }
         .task { await model.detect() }
     }
+
+    /// The step in its column, with the room around it: what the window lays out above the dots.
+    var laidOutPage: some View {
+        page
+            .frame(maxWidth: Self.column(model.step))
+            .padding(.horizontal, 40).padding(.top, Self.pageTop).padding(.bottom, Self.pageBottom)
+    }
+    /// The steps' column: 560 points, All set's wider so its lines stay whole.
+    static func column(_ step: OnboardingModel.Step) -> CGFloat { step == .allSet ? 640 : 560 }
+    static let pageTop: CGFloat = 20, pageBottom: CGFloat = 12
+    /// All set's two lists, under its card.
+    static let allSetLists: CGFloat = 600
+    static let dotsTop: CGFloat = 14, dotsBottom: CGFloat = 26
+    /// The room the dots take under the pages.
+    static var dotsRoom: CGFloat { dotsTop + OnboardingModel.Dot.current.height + dotsBottom }
 
     @ViewBuilder var page: some View {
         switch model.step {
@@ -317,12 +331,15 @@ public struct OnboardingView: View {
 
     /// Once the page has landed, the checks come in one by one down the list, then the creature by the way in hops with
     /// its sparkles (`AllSetBeat`): the eye travels down the setup to it.
+    ///
+    /// It fits the window at its default size whole, "Open Brainmerge" and the link under it included: its column is wider
+    /// than the other steps' (its lines stay whole) and its blocks sit closer.
     var allSet: some View {
         let target = NotesApps.target(for: model.app.notesApp, installed: model.notesApps?.apps ?? [])
-        return VStack(spacing: 14) {
+        return VStack(spacing: 10) {
             Text("All set").font(Theme.Fonts.onboardingTitle)
             GlassCard {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     check(0, model.app.claude != nil, model.app.claude.map { "Claude app \($0.version)" } ?? "Claude app not found")
                     check(1, model.app.brain != nil, "Memory folder: \(model.app.brain.map { Self.tilde($0.root.path, home: model.app.paths.home.path) } ?? "not chosen") · \(Self.opensIn(target))\(model.app.brains.count > 1 ? " · \(model.app.brains.count) memories" : "")")
                     check(2, !model.app.accounts.isEmpty, "\(model.app.accounts.count) account\(model.app.accounts.count > 1 ? "s" : ""): \(model.app.accounts.map(\.identity.name).joined(separator: ", "))")
@@ -340,14 +357,15 @@ public struct OnboardingView: View {
                 step(2, "Work as usual: what Claude Code learns about a project goes into the memory, for every account on it.")
                 step(3, "The Memory screen shows who remembered what; the Usage screen what each account spent.")
             }
-            .frame(maxWidth: 520)
+            // Both lists start at one left edge, under each other.
+            .frame(maxWidth: Self.allSetLists, alignment: .leading)
             VStack(alignment: .leading, spacing: 6) {
                 Text("GO FURTHER").font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
                 tip("Keep the memory tidy: one fact per note, a short index. Claude reads it at every start.")
                 tip("For big code bases, a local code graph or index saves tokens: Claude asks it where things are.")
                 tip("Give a work or client account its own memory: what it learns stays there.")
             }
-            .frame(maxWidth: 520)
+            .frame(maxWidth: Self.allSetLists, alignment: .leading)
             // The creature waits beside the way in: it hops with sparkles once the checks are in (the setup is done), and
             // "Open Brainmerge" sends it leaping into the sidebar from here, low in the window, where no words or rows lie in
             // its way. The button stays centered: an empty spot as wide as the creature balances it. The row keeps its
