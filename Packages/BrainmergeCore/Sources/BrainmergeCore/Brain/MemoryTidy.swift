@@ -125,9 +125,12 @@ public struct MemoryTidy: Sendable {
     struct HiddenFile: Codable { var folders: [String] }
 
     /// The empty folders hidden from the Tidy tab, by name.
-    public static func hidden(in brain: Brain) -> Set<String> {
-        guard let data = try? Data(contentsOf: brain.hiddenFile), let file = try? JSONDecoder().decode(HiddenFile.self, from: data) else { return [] }
-        return Set(file.folders)
+    public static func hidden(in brain: Brain) -> Set<String> { (try? strictHidden(in: brain)) ?? [] }
+
+    /// The hidden folders, for a change to the list: only a missing file is an empty list.
+    static func strictHidden(in brain: Brain) throws -> Set<String> {
+        guard let data = try ExistingFile.read(brain.hiddenFile) else { return [] }
+        return Set(try JSONDecoder().decode(HiddenFile.self, from: data).folders)
     }
 
     /// Adds folders to the hidden list and commits it: "You hid 3 empty folders from Tidy". The folders stay where they
@@ -137,7 +140,7 @@ public struct MemoryTidy: Sendable {
         for folder in folders { try Self.checkName(folder) }
         return try git.withLock(timeout: lockTimeout) {
             guard !(try git.operationUnfinished()) else { throw BrainmergeError.gitOperationUnfinished }
-            var hidden = Self.hidden(in: brain)
+            var hidden = try Self.strictHidden(in: brain)
             let new = Set(folders).subtracting(hidden)
             guard !new.isEmpty else { return [] }
             hidden.formUnion(new)
