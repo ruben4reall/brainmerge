@@ -119,7 +119,7 @@ import BrainmergeCore
     @Test func everySettingToggleIsAnAccentSwitch() throws {
         let screens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appending(path: "Sources/BrainmergeUI/Screens")
-        for name in ["SettingsView.swift", "EditAccountSheet.swift", "OnboardingView.swift"] {
+        for name in ["SettingsView.swift", "EditAccountSheet.swift", "OnboardingView.swift", "AddAccountSheet.swift"] {
             let lines = try String(contentsOf: screens.appending(path: name), encoding: .utf8).split(separator: "\n", omittingEmptySubsequences: false)
             for (index, line) in lines.enumerated() where line.contains("Toggle(") {
                 // The toggle and the modifier lines that follow it.
