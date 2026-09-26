@@ -23,6 +23,10 @@ The Claude app knows one account at a time. If you have two, a personal one and 
 
 Brainmerge is a native macOS app that turns each of your Claude accounts into a real app on your Mac: its own window, its own name, color or photo, its own icon in the Dock if you want. Open it from the Dock or from Brainmerge, log in once, and it stays logged in. All your accounts share one memory of your projects, a folder of plain notes, unless you give an account a memory of its own (work things stay at work). Claude itself stays exactly as it is: the official app, the official Claude Code, your own logins. No terminal, ever: everything is a button.
 
+<p align="center">
+  <img src="docs/brand/how-it-works.gif" alt="How Brainmerge works: three accounts take turns saving a note into one memory folder on your Mac, and the other two can read it" width="520">
+</p>
+
 ![Your accounts, side by side](docs/design/captures/03-comptes.png)
 
 ## Safe for your accounts, by design
