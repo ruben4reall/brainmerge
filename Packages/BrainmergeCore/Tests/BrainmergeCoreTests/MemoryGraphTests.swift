@@ -171,10 +171,17 @@ import BrainmergeTestSupport
     }
 
     @Test func aLineFullOfUnclosedBracketsIsParsedQuickly() {
-        let text = String(repeating: "[[a ", count: 64_000)
-        let start = Date()
-        #expect(MemoryGraph.linkTargets(in: text).isEmpty)
-        #expect(Date().timeIntervalSince(start) < 0.5)
+        // Unclosed wiki links, Markdown links with no closing parenthesis, unclosed <destinations>, and the same with one
+        // closing parenthesis at the very end of the line: each is read once, never the rest of the line again.
+        for text in [String(repeating: "[[a ", count: 64_000), String(repeating: "](a ", count: 64_000),
+                     String(repeating: "](<a ", count: 50_000), String(repeating: "](<a ", count: 50_000) + ")",
+                     String(repeating: "](a \"t", count: 40_000) + ")"] {
+            let start = Date()
+            _ = MemoryGraph.linkTargets(in: text)
+            #expect(Date().timeIntervalSince(start) < 0.5, "\(text.prefix(6))")
+        }
+        // Still found after all that.
+        #expect(MemoryGraph.linkTargets(in: String(repeating: "](<a ", count: 100) + " [x](b.md)") == [.markdown("b.md")])
     }
 
     @Test func linksResolveLikeObsidian() throws {

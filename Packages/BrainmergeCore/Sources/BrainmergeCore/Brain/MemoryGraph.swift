@@ -93,6 +93,17 @@ public struct MemoryGraph: Equatable, Sendable {
         var fence: Unicode.Scalar?
         func string(_ range: Range<Int>) -> String { String(String.UnicodeScalarView(s[range])) }
         func endOfLine(_ from: Int) -> Int { var j = from; while j < n, s[j] != "\n" { j += 1 }; return j }
+        // The next `mark` on the line from a position, and whether it is there (else the line's end). What one search saw
+        // answers every later one that starts inside it: a line full of unclosed links is read once, not once per link.
+        var seen: [Unicode.Scalar: (from: Int, stop: Int, found: Bool)] = [:]
+        func next(_ mark: Unicode.Scalar, from j: Int) -> (at: Int, found: Bool) {
+            if let known = seen[mark], j >= known.from, j <= known.stop { return (known.stop, known.found) }
+            var k = j
+            while k < n, s[k] != mark, s[k] != "\n" { k += 1 }
+            let found = k < n && s[k] == mark
+            seen[mark] = (j, k, found)
+            return (k, found)
+        }
         while i < n {
             let c = s[i]
             if c == "\n" { lineStart = true; i += 1; continue }
@@ -139,17 +150,17 @@ public struct MemoryGraph: Equatable, Sendable {
                 var j = i + 2
                 var destination: String?
                 if j < n, s[j] == "<" {
-                    var k = j + 1
-                    while k < n, s[k] != ">", s[k] != "\n" { k += 1 }
-                    if k < n, s[k] == ">" { destination = string((j + 1)..<k); j = k + 1 }
+                    let close = next(">", from: j + 1)
+                    if close.found { destination = string((j + 1)..<close.at); j = close.at + 1 }
                 } else {
                     var k = j
                     while k < n, s[k] != ")", s[k] != "\n", s[k] != " ", s[k] != "\t" { k += 1 }
                     destination = string(j..<k); j = k
                 }
                 // An optional title, then the closing parenthesis on the same line.
-                while j < n, s[j] != ")", s[j] != "\n" { j += 1 }
-                if var target = destination, j < n, s[j] == ")" {
+                let paren = next(")", from: j)
+                j = paren.at
+                if var target = destination, paren.found {
                     if let hash = target.firstIndex(of: "#") { target = String(target[..<hash]) }
                     let lower = target.lowercased()
                     let ext = (lower as NSString).pathExtension
@@ -158,7 +169,8 @@ public struct MemoryGraph: Equatable, Sendable {
                     }
                     i = j + 1
                 } else {
-                    i += 2
+                    // No parenthesis left on the line: no later link there can close either.
+                    i = paren.found ? i + 2 : j
                 }
             default:
                 i += 1
