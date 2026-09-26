@@ -28,6 +28,8 @@ import BrainmergeTestSupport
         #expect(work.status == 0, "\(work.stderr)")
         #expect(work.stdout.contains("dir=\(e.home.paths.cliProfile(slug: "work", isPrimary: false).path)"))
         #expect(work.stdout.contains("args=--resume x y"))
+        // Output into a pipe, not a terminal: no tab title in it.
+        #expect(!work.stdout.contains("\u{1B}]2;"))
         let primary = try run(e, ["code", "ruben"], path: bin.path)
         #expect(primary.stdout.contains("dir=unset"))
     }
