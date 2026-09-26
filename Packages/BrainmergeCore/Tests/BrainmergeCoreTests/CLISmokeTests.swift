@@ -121,6 +121,28 @@ import BrainmergeTestSupport
         #expect(statuses.read(slug: "perso")?.reason == .notARepository)
     }
 
+    /// `brain wire` (and `brain init`) repair every account they can: one whose Claude Code folder is gone is named and
+    /// skipped, never a stop for the accounts after it. The command still fails, so the missing folder is not missed.
+    @Test func brainWireRepairsEveryAccountItCan() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(try run(e, ["identity", "add", "--name", "Work", "--no-desktop"]).status == 0)
+        #expect(try run(e, ["identity", "add", "--name", "Client", "--no-desktop"]).status == 0)
+        let work = e.home.paths.cliProfile(slug: "work", isPrimary: false)
+        let client = CLIProfile(directory: e.home.paths.cliProfile(slug: "client", isPrimary: false))
+        try FileManager.default.removeItem(at: work)
+        for command in [["brain", "wire"], ["brain", "init"]] {
+            try Data("{}".utf8).write(to: e.primaryProfile.settingsFile)
+            try Data("{}".utf8).write(to: client.settingsFile)
+            let result = try run(e, command)
+            #expect(result.status != 0, "\(command)")
+            #expect(result.stderr.contains(work.path), "\(command): \(result.stderr)")
+            #expect(HookInstaller.health(settingsFile: e.primaryProfile.settingsFile, cliPath: e.cliPath, slug: "perso") == .current, "\(command)")
+            #expect(HookInstaller.health(settingsFile: client.settingsFile, cliPath: e.cliPath, slug: "client") == .current, "\(command)")
+        }
+        #expect(!FileManager.default.fileExists(atPath: work.path), "a missing folder is never recreated")
+    }
+
     /// Like Claude Code runs a hook: the session's JSON on the standard input, which is then closed.
     func run(_ e: ManagerEnv, _ arguments: [String], input: String) throws -> ShellResult {
         let process = Process()

@@ -71,8 +71,9 @@ struct BrainCommand: ParsableCommand {
             state.brainLanguage = language
             try context.store.save(state)
             try context.ensureCLILink()
-            for identity in state.identities { try context.manager.attachBrain(to: identity, state: state) }
+            let wired = context.attachEachAccount(state: state)
             print("Brain ready at \(brain.root.path)")
+            if !wired { throw ExitCode.failure }
         }
     }
 
@@ -114,10 +115,7 @@ struct BrainCommand: ParsableCommand {
             let context = Context()
             let state = try context.store.load()
             try context.ensureCLILink()
-            for identity in state.identities {
-                try context.manager.attachBrain(to: identity, state: state)
-                print("Wired \(identity.name)")
-            }
+            if !context.attachEachAccount(state: state, wired: { print("Wired \($0.name)") }) { throw ExitCode.failure }
         }
     }
 

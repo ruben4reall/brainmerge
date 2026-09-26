@@ -128,8 +128,7 @@ public struct Doctor: Sendable {
             let brain = state.brain(for: identity).flatMap { ready[$0.id] }
             let profile = CLIProfile(directory: identity.cliProfile(in: paths))
             guard profile.exists else {
-                findings.append(Finding(level: .error, title: "\(identity.name): profile", detail: "Missing \(profile.directory.path)",
-                                        plain: "The Claude Code folder of \(identity.name) is missing from \(shown(profile.directory.path))."))
+                findings.append(missingProfileFinding(identity, profile: profile))
                 continue
             }
             findings.append(hooksFinding(identity, profile: profile))
@@ -182,6 +181,21 @@ public struct Doctor: Sendable {
             }
         }
         return findings
+    }
+
+    /// An account whose Claude Code folder is gone: nothing of it can be wired until the folder is back. Claude Code makes
+    /// the first account's again when it starts; another account's is put back, or the account removed.
+    func missingProfileFinding(_ identity: Identity, profile: CLIProfile) -> Finding {
+        let path = profile.directory.path
+        let missing = "The Claude Code folder of \(identity.name) is missing from \(shown(path))."
+        if identity.isPrimary {
+            return Finding(level: .error, title: "\(identity.name): profile",
+                           detail: "Missing \(path). Start Claude Code once to make it again, then run: brainmerge brain wire",
+                           plain: "\(missing) Start Claude Code once to make it again.")
+        }
+        return Finding(level: .error, title: "\(identity.name): profile",
+                       detail: "Missing \(path). Put the folder back and run: brainmerge brain wire, or remove the account: brainmerge identity remove \(identity.slug)",
+                       plain: "\(missing) Put it back, or remove the account.")
     }
 
     /// One project's memory link in an account's Claude Code folder.

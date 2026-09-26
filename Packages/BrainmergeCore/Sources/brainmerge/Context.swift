@@ -30,6 +30,22 @@ struct Context {
         return Brain(root: url)
     }
 
+    /// Attaches every account to its memory, each on its own: one that cannot be (its Claude Code folder is gone) is named
+    /// on the standard error and never stops the accounts after it. False when one failed.
+    func attachEachAccount(state: AppState, wired: (Identity) -> Void = { _ in }) -> Bool {
+        var allWired = true
+        for identity in state.identities {
+            do {
+                try manager.attachBrain(to: identity, state: state)
+                wired(identity)
+            } catch {
+                allWired = false
+                FileHandle.standardError.write(Data("Could not wire \(identity.name): \(error)\n".utf8))
+            }
+        }
+        return allWired
+    }
+
     /// The hooks call ~/.local/bin/brainmerge: this link must exist before installing them.
     func ensureCLILink(replaceValid: Bool = false) throws {
         let target = CLIInstaller.currentExecutable() ?? URL(fileURLWithPath: CommandLine.arguments[0])

@@ -63,6 +63,24 @@ import BrainmergeTestSupport
         #expect(!doctor(e).run().contains { $0.title.hasSuffix(": hook") })
     }
 
+    /// A Claude Code folder that is gone says what to do about it, on the command line and in a sentence for a person.
+    @Test func aMissingClaudeCodeFolderSaysWhatToDo() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let work = e.home.paths.cliProfile(slug: "work", isPrimary: false)
+        try FileManager.default.removeItem(at: work)
+        try FileManager.default.removeItem(at: e.primaryProfile.directory)
+        let findings = doctor(e).run()
+        let secondary = try #require(findings.first { $0.title == "Work: profile" })
+        #expect(secondary.level == .error)
+        #expect(secondary.detail == "Missing \(work.path). Put the folder back and run: brainmerge brain wire, or remove the account: brainmerge identity remove work")
+        #expect(secondary.plain == "The Claude Code folder of Work is missing from ~/.claude-work. Put it back, or remove the account.")
+        let primary = try #require(findings.first { $0.title == "Perso: profile" })
+        #expect(primary.detail == "Missing \(e.primaryProfile.directory.path). Start Claude Code once to make it again, then run: brainmerge brain wire")
+        #expect(primary.plain == "The Claude Code folder of Perso is missing from ~/.claude. Start Claude Code once to make it again.")
+    }
+
     @Test func reportsMissingClaudeAndBrain() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         try FileManager.default.removeItem(at: e.claude.url)
