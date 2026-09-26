@@ -34,7 +34,56 @@ public struct BrainGit: Sendable {
         return !(try shell.check("/usr/bin/git", ["status", "--porcelain"], cwd: brain.root)).isEmpty
     }
 
-    /// Adds everything and commits under the identity's name. Returns false if there was nothing to commit.
+    /// Who a commit is by: an account, or the person themselves (see OwnEdits).
+    public struct Author: Equatable, Sendable {
+        public let name: String
+        public let email: String
+        public init(name: String, email: String) { self.name = name; self.email = email }
+    }
+
+    /// The changed paths, relative to the memory, under `scope`: modified, added, deleted, and every file of a new folder.
+    /// What .gitignore leaves out never shows. Names are taken literally, never as patterns.
+    public func status(scope: [String]) throws -> [String] {
+        try requireGit()
+        guard !scope.isEmpty else { return [] }
+        let out = try shell.check("/usr/bin/git", ["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--"] + scope,
+                                  cwd: brain.root)
+        return Self.statusPaths(out)
+    }
+
+    /// `XY path`, NUL separated; a rename or a copy is followed by its old path, which changed too.
+    static func statusPaths(_ out: String) -> [String] {
+        let fields = out.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        var paths: [String] = []
+        var index = 0
+        while index < fields.count {
+            let entry = fields[index]
+            index += 1
+            guard entry.count > 3 else { continue }
+            paths.append(String(entry.dropFirst(3)))
+            let code = entry.prefix(2)
+            if code.contains("R") || code.contains("C"), index < fields.count { paths.append(fields[index]); index += 1 }
+        }
+        return paths
+    }
+
+    /// Commits exactly these paths, those of them that changed, under `author`, and nothing else: what the person staged by
+    /// hand stays staged, other files stay as they are. Returns the paths committed, sorted; none when nothing changed.
+    @discardableResult
+    public func commit(paths: [String], author: Author, message: ([String]) -> String) throws -> [String] {
+        try requireGit()
+        let wanted = Set(paths)
+        guard !wanted.isEmpty else { return [] }
+        let changed = Set(try status(scope: Array(wanted))).intersection(wanted).sorted()
+        guard !changed.isEmpty else { return [] }
+        try shell.check("/usr/bin/git", ["--literal-pathspecs", "add", "-A", "--"] + changed, cwd: brain.root)
+        try shell.check("/usr/bin/git", ["--literal-pathspecs", "-c", "user.name=\(author.name)", "-c", "user.email=\(author.email)",
+                                         "commit", "-q", "-m", message(changed), "--"] + changed, cwd: brain.root)
+        return changed
+    }
+
+    /// Adds everything and commits under the identity's name. Returns false if there was nothing to commit. Never used for
+    /// a save: it would sign every account's pending notes and the person's own files (see `commit(paths:author:message:)`).
     @discardableResult
     public func commitAll(authorName: String, authorEmail: String, message: String) throws -> Bool {
         try requireGit()

@@ -319,7 +319,7 @@ public struct OnboardingView: View {
     /// "Continue": the choice is remembered, nothing is written yet. Except when the brain has disappeared: it is recreated right away and accounts reattached.
     func create() {
         if model.missingBrainPath != nil { do { try model.createBrain() } catch { model.error = AppModel.sentence(for: error) } }
-        else { model.next() }
+        else { model.continueFromLocation() }
     }
     func finish() { do { try model.finish(); model.next() } catch { model.error = AppModel.sentence(for: error) } }
 }

@@ -102,6 +102,12 @@ public struct ProcessMonitor: Sendable {
 
         public func hasClaudeCode(under pid: Int32) -> Bool { claudeCodeSessions(under: pid) > 0 }
 
+        /// A Claude Code session of any account runs, in a terminal or in a window's Code tab: it may be writing notes
+        /// without an edit tool, so the person's own edits wait (see OwnEdits).
+        public var hasClaudeCodeSession: Bool {
+            all.contains { ProcessMonitor.isClaudeCode(arguments: $0.arguments) || $0.arguments.contains("/claude-code/") }
+        }
+
         /// Every process in a Claude window's tree or a terminal session's tree: the only ones measuring asks about.
         var claudePids: Set<Int32> {
             let roots = mains.map(\.pid) + terminalSessions.map(\.pid)

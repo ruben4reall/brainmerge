@@ -98,6 +98,21 @@ public final class OnboardingModel {
     }
 
     public func next() { error = nil; move(by: 1) }
+
+    /// "Continue" on the memory's step: a folder inside another git repository is refused here, with the reason, before
+    /// anything is written.
+    public func continueFromLocation() {
+        let root: URL
+        switch choice {
+        case .newFolder: root = app.paths.defaultBrain
+        case .existing(let url): root = url
+        }
+        if let problem = app.folderProblem(root) {
+            error = UserMessage(title: "Choose another folder", detail: problem)
+            return
+        }
+        next()
+    }
     public func back() { error = nil; move(by: -1) }
 
     /// The steps shown: the git step only while Apple's tools are missing (as last checked, see `AppModel.checkGit`).

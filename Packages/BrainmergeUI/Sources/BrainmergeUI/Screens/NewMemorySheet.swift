@@ -83,6 +83,10 @@ public struct NewMemorySheet: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
         panel.prompt = "Use this folder"
-        if panel.runModal() == .OK { folder = panel.url }
+        if panel.runModal() == .OK, let url = panel.url {
+            folder = url
+            // Said as soon as it is chosen: a folder inside another repository is refused.
+            problem = model.folderProblem(url)
+        }
     }
 }

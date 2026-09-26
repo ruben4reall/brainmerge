@@ -341,6 +341,26 @@ import BrainmergeTestSupport
         #expect(try e.store.load().brains.count == 1)
     }
 
+    /// `brain add` inside another repository is refused with the sentence, and nothing is added to the list.
+    @Test func aMemoryInsideAnotherRepositoryIsNotAdded() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let top = e.home.url.appending(path: "code", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: top.appending(path: ".git"), withIntermediateDirectories: true)
+        #expect(throws: BrainmergeError.memoryInsideRepository(top.resolvingSymlinksInPath().path)) {
+            try e.manager.addBrain(name: "Work", path: top.appending(path: "notes"), language: .en)
+        }
+        #expect(try e.store.load().brains.count == 1)
+    }
+
+    /// Attaching (setup, repair, `brain wire`) brings an older memory's .gitignore up to date: the accounts' lists of what
+    /// they wrote stay out of its history.
+    @Test func attachingIgnoresTheListsInAnOlderMemory() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        try Data(".DS_Store\n.brainmerge/lock\n".utf8).write(to: e.brain.gitignore)
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(try String(contentsOf: e.brain.gitignore, encoding: .utf8) == ".DS_Store\n.brainmerge/lock\n.brainmerge/touched/\n")
+    }
+
     // MARK: Swapping two names
 
     func launcherConfig(_ app: URL) throws -> LauncherConfig {

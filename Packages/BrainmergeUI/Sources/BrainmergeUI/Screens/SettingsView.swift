@@ -11,6 +11,9 @@ public struct SettingsView: View {
     @State private var showUninstall = false
     @State private var claudeNote: String?
 
+    static let ownEditsTitle = "Save my own edits to the memory's history"
+    static let ownEditsCaption = "Changes you make yourself in the notes, outside Claude, are saved as You."
+
     func label(_ path: String) -> String {
         let home = model.paths.home.path
         return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
@@ -82,6 +85,9 @@ public struct SettingsView: View {
                             }
                             Text("Every account writes to one memory. Give an account its own from its card's menu: what it learns then stays there.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+                            Toggle(Self.ownEditsTitle, isOn: Binding(get: { model.saveOwnEdits }, set: { model.setSaveOwnEdits($0) }))
+                                .toggleStyle(.switch).tint(Theme.Colors.accent).padding(.top, 6)
+                            Text(Self.ownEditsCaption).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
                         section("Notes app") {
                             NotesAppPicker(selection: Binding(get: { model.notesApp }, set: { model.setNotesApp($0) }))

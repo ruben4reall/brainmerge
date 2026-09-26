@@ -67,4 +67,33 @@ import BrainmergeTestSupport
         #expect(try JSONDecoder().decode(AppState.self, from: data).graphMemory == "work")
         #expect(!String(decoding: try JSONEncoder().encode(AppState(machineID: "m")), as: UTF8.self).contains("graphMemory"))
     }
+
+    /// "Save my own edits" is on unless the person turned it off: a file written before the setting existed keeps it on,
+    /// and off survives a save, so the command line never turns it back on.
+    @Test func savingYourOwnEditsDefaultsOnAndRoundTrips() throws {
+        #expect(AppState().saveOwnEdits)
+        let older = #"{"schemaVersion": 2, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#
+        #expect(try JSONDecoder().decode(AppState.self, from: Data(older.utf8)).saveOwnEdits)
+        var state = AppState(machineID: "m")
+        state.saveOwnEdits = false
+        let data = try JSONEncoder().encode(state)
+        #expect(try JSONDecoder().decode(AppState.self, from: data).saveOwnEdits == false)
+    }
+
+    /// Claude Code sessions of any account: in a terminal, or under a Claude window's Code tab.
+    @Test func aClaudeCodeSessionIsSeenWhereverItRuns() {
+        let idle = ProcessMonitor.snapshot(psOutput: """
+        100 1 900000 /Applications/Claude.app/Contents/MacOS/Claude
+        101 100 1000 /Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper
+        200 1 500 /bin/zsh -l
+        """)
+        #expect(!idle.hasClaudeCodeSession)
+        let terminal = ProcessMonitor.snapshot(psOutput: "300 200 5000 claude --resume\n")
+        #expect(terminal.hasClaudeCodeSession)
+        let codeTab = ProcessMonitor.snapshot(psOutput: """
+        100 1 900000 /Applications/Claude.app/Contents/MacOS/Claude
+        150 100 5000 /Users/r/Library/Application Support/Claude/claude-code/2.1.0/claude --output-format stream-json
+        """)
+        #expect(codeTab.hasClaudeCodeSession)
+    }
 }

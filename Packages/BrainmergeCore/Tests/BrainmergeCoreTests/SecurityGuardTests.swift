@@ -133,12 +133,53 @@ import Testing
         let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
         #expect(code.matches(of: literals).isEmpty, "no key may be named by a string")
 
-        #expect(try offenders(["standardInput"], except: ["WireCommand.swift", "Shell.swift"]).isEmpty, "only the wire command reads its input")
+        #expect(try offenders(["standardInput"], except: ["WireCommand.swift", "TouchedCommand.swift", "Shell.swift"]).isEmpty,
+                "only the hooks' commands read their input")
         let wire = try #require(try Self.sources().first { $0.0.lastPathComponent == "WireCommand.swift" }).1
         #expect(wire.contains("SessionStartInput"))
         for forbidden in ["JSONSerialization", "JSONDecoder", "Decodable", "[String: Any]"] {
             #expect(!wire.contains(forbidden), "WireCommand.swift decodes through SessionStartInput only: \(forbidden)")
         }
+    }
+
+    /// The PostToolUse hook reads one field of what Claude Code sends after an edit, the file's path (SECURITY.md): never
+    /// the text written, the tool's answer, the session or anything else. Only the touched command reads it, through this type.
+    @Test func touchedInputIsTheFilePathOnly() throws {
+        #expect(TouchedInput.readFields == ["tool_input.file_path"])
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "TouchedInput.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        let lowered = code.lowercased()
+        for forbidden in ["jsonserialization", "[string: any]", "[string:any]", "session_id", "transcript_path", "tool_response", "content",
+                          "old_string", "new_string", "edits", "prompt", "decode([string", "decodeifpresent([string", "anycodable",
+                          "environment", "processinfo"] {
+            #expect(!lowered.contains(forbidden), "TouchedInput.swift must decode the file's path only: \(forbidden)")
+        }
+        let enums = try Regex(#"enum\s+\w+\s*:[^{]*CodingKey[^{]*\{([^}]*)\}"#)
+        let caseLine = try Regex(#"case\s+([^\n;]+)"#)
+        let keys = Set(code.matches(of: enums).flatMap { match in
+            String(match.output[1].substring ?? "").matches(of: caseLine).flatMap { String($0.output[1].substring ?? "").split(separator: ",") }
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+        })
+        #expect(keys == [#"tool = "tool_input""#, #"path = "file_path""#], "decodable keys: \(keys)")
+        let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
+        let strings = Set(code.matches(of: literals).map { String($0.output[1].substring ?? "") })
+        #expect(strings.isSubset(of: ["tool_input", "file_path", "tool_input.file_path"]), "string literals: \(strings)")
+
+        let touched = try #require(try Self.sources().first { $0.0.lastPathComponent == "TouchedCommand.swift" }).1
+        #expect(touched.contains("TouchedInput"))
+        for forbidden in ["JSONSerialization", "JSONDecoder", "Decodable", "[String: Any]"] {
+            #expect(!touched.contains(forbidden), "TouchedCommand.swift decodes through TouchedInput only: \(forbidden)")
+        }
+    }
+
+    /// A save commits exactly what an account wrote (README): no shipped code adds and commits the whole memory, which
+    /// would sign every account's pending notes and the person's own files.
+    @Test func noSaveCommitsTheWholeMemory() throws {
+        let hits = try offenders(["commitAll(", "\"add\", \"-A\"]", "\"add\", \".\""], except: ["BrainGit.swift"])
+        #expect(hits.isEmpty, "\(hits)")
+        let git = try #require(try Self.sources().first { $0.0.lastPathComponent == "BrainGit.swift" }).1
+        #expect(git.contains(#""--literal-pathspecs", "add", "-A", "--"] + changed"#), "a save adds its own paths only")
     }
 
     /// Connections read names only (SECURITY.md): a browser profile's folder id and display name, never the Google address

@@ -70,6 +70,34 @@ import BrainmergeTestSupport
         #expect(stop["timeout"] == nil)
     }
 
+    /// After each file edit, the account notes what it wrote: only for the edit tools that name a file, bounded like
+    /// SessionStart, since the session waits for it.
+    @Test func anAccountGetsAPostToolUseHookForItsEdits() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let file = home.url.appending(path: "settings.json")
+        let cli = "/Users/r/.local/bin/brainmerge"
+        #expect(HookInstaller.touchedCommand(cliPath: cli, slug: "client")
+                == #"test -x "/Users/r/.local/bin/brainmerge" && "/Users/r/.local/bin/brainmerge" touched --identity client; exit 0"#)
+        try HookInstaller.installAll(settingsFile: file, cliPath: cli, slug: "client")
+        try HookInstaller.installAll(settingsFile: file, cliPath: cli, slug: "client")
+        let entries = try #require((try root(file)["hooks"] as? [String: Any])?["PostToolUse"] as? [[String: Any]])
+        #expect(entries.count == 1)
+        #expect(entries[0]["matcher"] as? String == "Write|Edit|MultiEdit")
+        let hook = try #require((entries[0]["hooks"] as? [[String: Any]])?.first)
+        #expect(hook["command"] as? String == HookInstaller.touchedCommand(cliPath: cli, slug: "client"))
+        #expect(hook["timeout"] as? Int == 5)
+        #expect(HookInstaller.health(settingsFile: file, cliPath: cli, slug: "client") == .current)
+        // Accounts set up before it only had Stop and SessionStart: out of date until the launch or a repair adds it.
+        var r = try root(file)
+        var hooks = try #require(r["hooks"] as? [String: Any])
+        hooks.removeValue(forKey: "PostToolUse")
+        r["hooks"] = hooks
+        try JSONSerialization.data(withJSONObject: r).write(to: file)
+        #expect(HookInstaller.health(settingsFile: file, cliPath: cli, slug: "client") == .outdated)
+        let gone = home.url.appending(path: "gone/brainmerge").path
+        #expect(try Shell().run("/bin/sh", ["-c", HookInstaller.touchedCommand(cliPath: gone, slug: "client")]).status == 0)
+    }
+
     /// What every account gets (attach, repair, launch): the Stop hook as is, and the SessionStart hook with no matcher,
     /// bounded to 5 seconds, since the session waits for it.
     @Test func anAccountGetsStopAndABoundedSessionStart() throws {

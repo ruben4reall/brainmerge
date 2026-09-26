@@ -370,9 +370,11 @@ public final class IdentityManager: @unchecked Sendable {
 
     // MARK: Brain
 
-    /// Managed block, hooks (Stop and SessionStart), memory links, identity registry, in the identity's memory. Idempotent.
+    /// Managed block, hooks (Stop, SessionStart, PostToolUse), memory links, identity registry, in the identity's memory,
+    /// whose .gitignore is brought up to date. Idempotent.
     public func attachBrain(to identity: Identity, state: AppState) throws {
         let brain = try memory(for: identity, in: state)
+        try brain.ensureIgnores()
         let profile = CLIProfile(directory: identity.cliProfile(in: paths))
         guard profile.exists else { throw BrainmergeError.profileMissing(profile.directory.path) }
         let claudeMD = profile.claudeMD.resolvingSymlinksInPath()

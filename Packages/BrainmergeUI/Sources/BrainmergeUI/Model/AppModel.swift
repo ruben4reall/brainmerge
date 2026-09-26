@@ -74,8 +74,10 @@ public final class AppModel {
     public private(set) var notesApp: String?
     /// The menu bar icon setting (see `showsMenuBarIcon` for whether it shows now).
     public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
+    /// "Save my own edits to the memory's history" (see `saveOwnEditsIfQuiet`).
+    public private(set) var saveOwnEdits = true
     /// The settings saved from the app, each written to state.json on the core queue (see `save`).
-    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, browser(String) }
+    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, saveOwnEdits, browser(String) }
     /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
     private var pendingSaves: [Setting: Int] = [:]
     /// Tests only: runs on the core queue as a setting's save begins, before it waits for the state lock.
@@ -368,6 +370,8 @@ public final class AppModel {
             let state = try? store.load()
             if !demo, state?.identities.isEmpty == false {
                 if let cli { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
+                // An older memory's .gitignore learns to leave out what each account notes it wrote (append only).
+                for folder in state?.brains ?? [] where Brain(root: folder.url).isInitialized { try? Brain(root: folder.url).ensureIgnores() }
                 // Written only when one is not current: a launch never rewrites the settings of accounts already up to date.
                 if let health = try? manager.hooksHealth(), health.contains(where: { $0.1 != .current }) { try? manager.repairHooks() }
             }
@@ -456,6 +460,7 @@ public final class AppModel {
         if !isSaving(.autoRebuild) { set(\.autoRebuild, state.autoRebuild) }
         if !isSaving(.notesApp) { set(\.notesApp, state.notesApp) }
         if !isSaving(.menuBarIcon) { set(\.menuBarIcon, state.menuBarIcon) }
+        if !isSaving(.saveOwnEdits) { set(\.saveOwnEdits, state.saveOwnEdits) }
         if !isSaving(.graphVault) { set(\.graphVault, state.graphVault) }
         set(\.brains, state.brains)
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
@@ -1141,6 +1146,7 @@ public final class AppModel {
     public func onProjectsTick() -> Task<Void, Never>? {
         wireNewProjects()
         refreshCodeAccounts()
+        saveOwnEditsIfQuiet()
         guard windowOpen else { return nil }
         return Task { await refreshUsage() }
     }
@@ -1228,6 +1234,38 @@ public final class AppModel {
             // Under the memory's lock, like the SessionStart hook writing the same list of projects: taken at once or this
             // turn is skipped (the main thread never waits), and the next minute links what is left.
             _ = try? BrainGit(brain: brain).withLock(timeout: 0) { try wiring.wire(profile: profile, identitySlug: identity.slug) }
+        }
+    }
+
+    /// A pass of `saveOwnEditsIfQuiet` is running: the next minute does not start a second one.
+    private var savingOwnEdits = false
+
+    /// The person's own edits to the notes, in every memory, saved as You: by the app, never by a hook, on the minute
+    /// clock (the window may be closed), once nothing moved for ten minutes and while no Claude Code session of any account
+    /// runs (see OwnEdits). Each memory is skipped when a save holds its lock. Nil when nothing starts: the setting is off,
+    /// git is missing, a capture or a demo runs, or a pass is still running.
+    @discardableResult
+    func saveOwnEditsIfQuiet(now: Date = Date()) -> Task<Void, Never>? {
+        guard saveOwnEdits, gitAvailable, !savingOwnEdits, !AppLifecycle.isCaptureOrDemo(environment: environment) else { return nil }
+        savingOwnEdits = true
+        let store = self.store, monitor = manager.monitor, git = self.git
+        return Task {
+            let saved = await Task.detached(priority: .utility) { () -> Bool in
+                guard let state = try? store.load(), state.saveOwnEdits else { return false }
+                // Not knowing what runs counts as a session running: the edits wait for the next minute.
+                let running = (try? monitor.snapshot())?.hasClaudeCodeSession ?? true
+                var any = false
+                for folder in state.brains {
+                    let brain = Brain(root: folder.url)
+                    guard brain.isInitialized else { continue }
+                    let repo = BrainGit(brain: brain, availability: git)
+                    let outcome = try? repo.withLock(timeout: 0) { try OwnEdits(brain: brain, git: repo).save(now: now, sessionRunning: running) }
+                    if case .saved = outcome { any = true }
+                }
+                return any
+            }.value
+            savingOwnEdits = false
+            if saved { refreshMemory() }
         }
     }
 
@@ -1406,6 +1444,20 @@ public final class AppModel {
         return true
     }
 
+    /// "Save my own edits to the memory's history": moves at once, saved like every setting.
+    @discardableResult
+    public func setSaveOwnEdits(_ on: Bool) -> Task<Void, Never> {
+        if saveOwnEdits != on { saveOwnEdits = on }
+        return save(.saveOwnEdits) { $0.saveOwnEdits = on }
+    }
+
+    /// Why a folder cannot become a memory, said where it is chosen (setup, New memory): nil when it can.
+    public func folderProblem(_ folder: URL) -> String? {
+        guard !FileManager.default.fileExists(atPath: folder.appending(path: ".git").path),
+              let top = Brain.enclosingRepository(of: folder) else { return nil }
+        return BrainmergeError.memoryInsideRepository(top.path).description
+    }
+
     @discardableResult
     public func setAutoRebuild(_ on: Bool) -> Task<Void, Never> {
         if autoRebuild != on { autoRebuild = on }
@@ -1465,6 +1517,9 @@ public final class AppModel {
             return UserMessage(title: "That memory is gone", detail: "It is no longer in the list. Pick another one.")
         case .brainNameTaken(let name):
             return UserMessage(title: "Name already used", detail: "There is already a memory called \(name). Pick another name.")
+        case .memoryInsideRepository:
+            // The sentence stands alone: the sheets show the detail only.
+            return UserMessage(title: "Choose another folder", detail: e.description)
         case .nameInvalid:
             return UserMessage(title: "Give it a name", detail: "One line, up to \(NameRules.maxLength) characters.")
         case .claudeAppTampered:

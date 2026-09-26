@@ -43,11 +43,13 @@ import BrainmergeTestSupport
 
         let dir = e.brain.memoryDir(forProject: "atelier")
         try Data("# souvenir\n".utf8).write(to: dir.appending(path: "MEMORY.md"))
+        #expect(try run(e, ["touched", "--identity", "client"], input: edit(dir.appending(path: "MEMORY.md").path)).status == 0)
         let sync = try run(e, ["sync", "--identity", "client"])
         #expect(sync.status == 0)
         let log = try BrainGit(brain: e.brain).log(limit: 1)
         #expect(log.first?.authorName == "Client")
         #expect(log.first?.authorEmail == "client@brainmerge.local")
+        #expect(log.first?.message == "Client updated its notes about atelier")
         #expect(try run(e, ["brain", "timeline"]).stdout.contains("Client"))
         #expect(try run(e, ["brain", "status"]).stdout.contains("atelier"))
 
@@ -140,6 +142,64 @@ import BrainmergeTestSupport
         #expect(!FileManager.default.fileExists(atPath: e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.home.url.path + "/other")).path))
     }
 
+    /// What Claude Code sends after an edit tool wrote a file.
+    func edit(_ path: String, tool: String = "Write") -> String {
+        #"{"session_id":"sentinel-session","transcript_path":"/tmp/sentinel.jsonl","cwd":"/tmp","hook_event_name":"PostToolUse","tool_name":"\#(tool)","tool_input":{"file_path":"\#(path)","content":"sentinel-content"},"tool_response":{"success":true}}"#
+    }
+
+    /// The PostToolUse hook notes what the account wrote, through its link, and prints nothing; the Stop hook then commits
+    /// exactly that, under the account's name, with the words the Memory screen uses. Another account's note waits.
+    @Test func eachAccountSavesExactlyWhatItWrote() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(try run(e, ["identity", "add", "--name", "Work", "--no-desktop"]).status == 0)
+        let logFile = e.home.paths.logsDir.appending(path: "sync.log")
+        // The note as Claude Code sees it: through the project's memory link in the account's own folder.
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == e.brain.memoryDir(forProject: "atelier").path)
+        try Data("# deploy\n".utf8).write(to: link.appending(path: "deploy.md"))
+        try Data("# prices\n".utf8).write(to: link.appending(path: "prices.md"))
+        try Data("# theirs\n".utf8).write(to: e.brain.memoryDir(forProject: "atelier").appending(path: "theirs.md"))
+        for (file, tool) in [("deploy.md", "Write"), ("prices.md", "Edit")] {
+            let noted = try run(e, ["touched", "--identity", "perso"], input: edit(link.appending(path: file).path, tool: tool))
+            #expect(noted.status == 0 && noted.stdout.isEmpty && noted.stderr.isEmpty, "\(noted.stderr)")
+        }
+        #expect(try run(e, ["touched", "--identity", "work"], input: edit(e.brain.memoryDir(forProject: "atelier").appending(path: "theirs.md").path)).status == 0)
+
+        #expect(try run(e, ["sync", "--identity", "perso"]).status == 0)
+        let last = try #require(try BrainGit(brain: e.brain).log(limit: 1).first)
+        #expect(last.authorName == "Perso")
+        #expect(Set(last.files) == ["memory/atelier/deploy.md", "memory/atelier/prices.md"])
+        #expect(last.message == MemorySentence.message(name: "Perso", files: last.files))
+        #expect(last.message == "Perso remembered 2 things about atelier")
+        #expect(try String(contentsOf: logFile, encoding: .utf8).contains("perso: committed 2 files"))
+
+        #expect(try run(e, ["sync", "--identity", "work"]).status == 0)
+        let theirs = try #require(try BrainGit(brain: e.brain).log(limit: 1).first)
+        #expect(theirs.authorName == "Work" && theirs.files == ["memory/atelier/theirs.md"])
+        #expect(!(try String(contentsOf: logFile, encoding: .utf8)).contains("sentinel"))
+    }
+
+    /// The PostToolUse hook runs after every edit: it prints nothing and never fails, whatever it is given.
+    @Test func touchedPrintsNothingAndAlwaysExitsZero() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let note = e.brain.memoryDir(forProject: "atelier").appending(path: "n.md").path
+        for (arguments, input) in [(["touched", "--identity", "nope"], edit(note)),
+                                   (["touched", "--identity", "../../x"], edit(note)),
+                                   (["touched", "--identity", "perso"], "{oops"),
+                                   (["touched", "--identity", "perso"], ""),
+                                   (["touched", "--identity", "perso"], #"{"tool_input":{"notebook_path":"/x.ipynb"}}"#),
+                                   (["touched", "--identity", "perso"], edit(e.home.url.appending(path: "elsewhere.md").path))] {
+            let result = try run(e, arguments, input: input)
+            #expect(result.status == 0 && result.stdout.isEmpty, "\(arguments) \(input): \(result.stdout) \(result.stderr)")
+        }
+        #expect(TouchedLedger.claimed(in: e.brain).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: e.home.url.appending(path: "x").path))
+        try FileManager.default.removeItem(at: e.brain.root)
+        #expect(try run(e, ["touched", "--identity", "perso"], input: edit(note)).status == 0)
+    }
+
     /// Without --hook, the current folder is linked and the command says so.
     @Test func wireLinksTheCurrentFolder() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
@@ -178,6 +238,7 @@ import BrainmergeTestSupport
         let dir = Brain(root: e.home.url.appending(path: "Brain-solo")).memoryDir(forProject: "atelier")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try Data("# note\n".utf8).write(to: dir.appending(path: "MEMORY.md"))
+        #expect(try run(e, ["touched", "--identity", "solo"], input: edit(dir.appending(path: "MEMORY.md").path)).status == 0)
         #expect(try run(e, ["sync", "--identity", "solo"]).status == 0)
         #expect(try BrainGit(brain: Brain(root: e.home.url.appending(path: "Brain-solo"))).log(limit: 1).first?.authorName == "Solo")
         #expect(try BrainGit(brain: e.brain).log(limit: 1).isEmpty)

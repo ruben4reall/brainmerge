@@ -33,6 +33,8 @@ public struct AppState: Codable, Equatable, Sendable {
     public var graphMemory: String?
     /// The Claude app the person chose in Settings, by its path; nil finds it (see ClaudeLocator).
     public var claudeAppPath: String?
+    /// The person's own edits to the notes, outside Claude, are saved in the memory's history as You (see OwnEdits).
+    public var saveOwnEdits: Bool = true
 
     public init(schemaVersion: Int = AppState.currentSchema, machineID: String = UUID().uuidString,
                 brainPath: String? = nil, identities: [Identity] = [], autoRebuild: Bool = true,
@@ -43,7 +45,7 @@ public struct AppState: Codable, Equatable, Sendable {
         if brains.isEmpty, let brainPath { self.brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: brainPath)] }
     }
 
-    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory, claudeAppPath }
+    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory, claudeAppPath, saveOwnEdits }
 
     /// Schema 1 (a single `brainPath`) becomes a list with one memory called Shared.
     public init(from decoder: Decoder) throws {
@@ -59,6 +61,8 @@ public struct AppState: Codable, Equatable, Sendable {
         graphVault = try c.decodeIfPresent(String.self, forKey: .graphVault)
         graphMemory = try c.decodeIfPresent(String.self, forKey: .graphMemory)
         claudeAppPath = try c.decodeIfPresent(String.self, forKey: .claudeAppPath)
+        // Added without a schema bump, like the menu bar icon: a file written before it saves the person's edits.
+        saveOwnEdits = try c.decodeIfPresent(Bool.self, forKey: .saveOwnEdits) ?? true
         let list = try c.decodeIfPresent([MemoryFolder].self, forKey: .brains) ?? []
         if list.isEmpty, let path = try c.decodeIfPresent(String.self, forKey: .brainPath) {
             brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: path)]
@@ -82,6 +86,7 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encodeIfPresent(graphVault, forKey: .graphVault)
         try c.encodeIfPresent(graphMemory, forKey: .graphMemory)
         try c.encodeIfPresent(claudeAppPath, forKey: .claudeAppPath)
+        try c.encode(saveOwnEdits, forKey: .saveOwnEdits)
     }
 
     /// The default memory's folder. Setting it moves the default memory to that folder, or creates it.
