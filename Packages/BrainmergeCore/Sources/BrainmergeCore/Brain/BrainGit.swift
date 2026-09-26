@@ -124,6 +124,11 @@ public struct BrainGit: Sendable {
     private func commit(_ changed: [String], author: Author, hold: (Staged) throws -> Set<String>,
                         message: ([String]) -> String) throws -> [String]? {
         let fm = FileManager.default
+        // The branch, read now: the save moves it by name, so a checkout of a bare commit meanwhile never takes the save
+        // off every branch (moving HEAD would). No branch at all: the save waits, as for a stopped merge.
+        guard let branchRef = try? shell.run("/usr/bin/git", ["symbolic-ref", "-q", "HEAD"], cwd: brain.root), branchRef.status == 0,
+              case let branch = branchRef.stdout.trimmingCharacters(in: .whitespacesAndNewlines), !branch.isEmpty
+        else { throw BrainmergeError.gitOperationUnfinished }
         let parent = head()
         let objects = try objectsFolder()
         let scratch = fm.temporaryDirectory.appending(path: "brainmerge-save-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -171,7 +176,7 @@ public struct BrainGit: Sendable {
         try adopt(needed, from: quarantine, into: objects)
         // The branch moves only from `parent` (none: it must not exist yet), the way `git commit` logs it.
         let subject = text.split(separator: "\n").first.map(String.init) ?? ""
-        let move = ["update-ref", "-m", (parent == nil ? "commit (initial): " : "commit: ") + subject, "HEAD", made, parent ?? ""]
+        let move = ["update-ref", "-m", (parent == nil ? "commit (initial): " : "commit: ") + subject, branch, made, parent ?? ""]
         // Recorded before the branch moves, cleared once the real index follows: a save killed in between (a closed
         // terminal tab, a shutdown) leaves the record, and the next save or the minute pass catches up.
         let behindBefore = indexBehind
