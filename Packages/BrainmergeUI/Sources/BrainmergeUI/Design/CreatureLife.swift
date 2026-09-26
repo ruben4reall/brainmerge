@@ -259,7 +259,8 @@ public enum CreatureLife {
             f.pose = .asleep
             let s = t - (asleepSince ?? 0)
             if s >= 0, s < sleepLoopEnd {
-                f.pose.breath = breath(s, period: sleepPeriod, amp: profile.sleepBreath)
+                // A hair early, like the blinks: the step `nextChange` finds is then already drawn at the time it returns.
+                f.pose.breath = breath(s + epsilon, period: sleepPeriod, amp: profile.sleepBreath)
                 f.sprites += sleepZ(s)
             }
         case .awake, .glowing:
@@ -268,18 +269,26 @@ public enum CreatureLife {
             f.pose.look = eyes.look
             f.pose.breath = breath(t, period: awakePeriod, amp: profile.awakeBreath)
             if state == .glowing, !stamps.contains(where: { $0.event == .memorySaved && t >= $0.at && t < $0.at + $0.event.duration }) {
-                // The twinkles take over where the hop's sparkles end.
-                let origin = stamps.last(where: { $0.event == .memorySaved && $0.at + $0.event.duration <= t }).map { $0.at + $0.event.duration } ?? 0
-                f.sprites += glowTwinkle(t - origin)
+                f.sprites += glowTwinkle(t - glowOrigin(t: t, stamps: stamps))
             }
         }
         return f
     }
 
+    /// The Z's age in its breath: born 2.0 s into it, alive for 2.6 s. Negative or past 2.6 when there is none.
+    static let zBorn = 2.0, zLife = 2.6
+    static func zAge(_ s: Double) -> Double { (s + epsilon).truncatingRemainder(dividingBy: sleepPeriod) - zBorn }
+    static func zFloats(_ s: Double) -> Bool { let age = zAge(s); return age >= 0 && age < zLife }
+
+    /// The twinkles take over where the hop's sparkles end: their clock starts when the last hop landed (0 without one).
+    static func glowOrigin(t: Double, stamps: [CreatureStamp]) -> Double {
+        stamps.last(where: { $0.event == .memorySaved && $0.at + $0.event.duration <= t }).map { $0.at + $0.event.duration } ?? 0
+    }
+
     /// One Z per breath, born 2.0 s into it (on the exhale), floating up and to the right, gone before the next.
     static func sleepZ(_ s: Double) -> [Creature.Sprite] {
-        let local = s.truncatingRemainder(dividingBy: sleepPeriod) - 2.0
-        guard local >= 0, local < 2.6 else { return [] }
+        let local = max(0, zAge(s))
+        guard zFloats(s) else { return [] }
         let p = Ease.Bezier(0.3, 0.1, 0.45, 1)(local / 2.6)
         let opacity = min(local / 0.3, 1) * min((2.6 - local) / 0.9, 1) * 0.72
         return [Creature.Sprite(pattern: zee, center: CGPoint(x: 15.8 + 1.8 * p, y: -1.3 - 2.4 * p), color: cream, opacity: opacity)]
@@ -288,12 +297,16 @@ public enum CreatureLife {
     static let glowSpots = [CGPoint(x: -1.2, y: 0.4), CGPoint(x: 8.5, y: -2.0), CGPoint(x: 17.2, y: 0.9)]
 
     /// Glowing: one sparkle at a time, a 0.5 s twinkle every 0.8 s, top, right, left.
+    static let twinkleEvery = 0.8, twinkleLength = 0.5
+    /// Where a twinkle changes shape, in seconds into it: dot, cross, star, cross, dot, gone (16, 20, 28, 20, 16%).
+    static let twinkleSteps = [0, 0.16, 0.36, 0.64, 0.84, 1].map { $0 * twinkleLength }
     static func glowTwinkle(_ s: Double) -> [Creature.Sprite] {
+        let s = s + epsilon   // stepped: a boundary counts as reached (see `epsilon`)
         guard s >= 0 else { return [] }
-        let beat = Int(s / 0.8), local = s - Double(beat) * 0.8
-        guard local < 0.5 else { return [] }
+        let beat = Int(s / twinkleEvery), local = s - Double(beat) * twinkleEvery
+        guard local < twinkleLength else { return [] }
         let i = [1, 2, 0][beat % 3]
-        return [Creature.Sprite(pattern: sparkle(life: local / 0.5), center: glowSpots[i], color: i == 1 ? cream : light, opacity: 0.85)]
+        return [Creature.Sprite(pattern: sparkle(life: local / twinkleLength), center: glowSpots[i], color: i == 1 ? cream : light, opacity: 0.85)]
     }
 
     // MARK: Reactions
@@ -452,23 +465,21 @@ public enum CreatureLife {
 
     // MARK: Scheduling
 
-    /// True while something moves smoothly: a reaction, the walk, the glow's twinkles, the first minute asleep.
+    /// True while something moves smoothly: a reaction, the walk, the Z floating up in the first minute asleep. Stepped
+    /// content (blinks, glances, breath, the glow's twinkles) never needs them: `nextChange` finds each of its steps.
     public static func needsFrames(state: CreatureState, t: Double, events: [CreatureStamp], profile: LifeProfile,
                                    walking: CreatureWalk?, asleepSince: Double?) -> Bool {
         let stamps = effective(events, walking: walking)
         if stamps.contains(where: { t >= $0.at && t < $0.at + $0.event.duration }) { return true }
         if let walking, walking.isActive(at: t) { return true }
-        switch state {
-        case .glowing: return true
-        case .asleep:
-            let s = t - (asleepSince ?? 0)
-            return s >= 0 && s < sleepLoopEnd
-        case .awake: return false
-        }
+        guard state == .asleep else { return false }
+        let s = t - (asleepSince ?? 0)
+        return s >= 0 && s < sleepLoopEnd && zFloats(s)
     }
 
     /// The next time after `t` the frame changes, when nothing needs frames: a blink or glance step, a breath step, a
-    /// reaction or walk to come. Infinity when nothing will ever change (asleep after the first minute).
+    /// twinkle's step, a Z's birth, a reaction or walk to come. Infinity when nothing will ever change (asleep after the
+    /// first minute).
     public static func nextChange(after t: Double, state: CreatureState, events: [CreatureStamp], profile: LifeProfile, seed: UInt64 = 7,
                                   walking: CreatureWalk?, asleepSince: Double?) -> Double {
         let stamps = effective(events, walking: walking)
@@ -485,12 +496,29 @@ public enum CreatureLife {
             }
             candidates += breathSteps(from: t, to: horizon, period: awakePeriod, amp: profile.awakeBreath)
         }
+        if state == .glowing {
+            let origin = glowOrigin(t: t, stamps: stamps)
+            var beat = max(0, ((t - origin) / twinkleEvery).rounded(.down))
+            while origin + beat * twinkleEvery <= horizon {
+                candidates += twinkleSteps.map { origin + beat * twinkleEvery + $0 }
+                beat += 1
+            }
+        }
+        if state == .asleep, let since = asleepSince {
+            // The first minute: the breath's steps and each Z's birth (it then floats, and needs frames). The loop ends on a
+            // whole breath, the Z long gone: its end changes nothing.
+            let end = since + sleepLoopEnd
+            candidates += breathSteps(from: max(0, t - since), to: min(horizon, end) - since, period: sleepPeriod, amp: profile.sleepBreath)
+                .map { $0 + since }
+            candidates += stride(from: since + zBorn, to: end, by: sleepPeriod).map { $0 }
+        }
         let here = frame(state: state, t: t, events: events, profile: profile, seed: seed, walking: walking, asleepSince: asleepSince)
-        for c in candidates.filter({ $0 > t }).sorted() {
+        let future = candidates.filter { $0 > t }.sorted()
+        for c in future {
             if needsFrames(state: state, t: c, events: events, profile: profile, walking: walking, asleepSince: asleepSince) { return c }
             if frame(state: state, t: c, events: events, profile: profile, seed: seed, walking: walking, asleepSince: asleepSince) != here { return c }
         }
-        return candidates.isEmpty ? .infinity : horizon
+        return future.isEmpty ? .infinity : horizon
     }
 
     /// The times in (a, b] the breath takes its next whole device pixel, found by bisection on each rising and falling half.
@@ -521,11 +549,13 @@ public enum CreatureLife {
     }
 }
 
-/// The creature's timeline: 60 dates a second only while something moves smoothly (a reaction, the walk, the glow, the first
-/// minute asleep), otherwise one date per stepped change of the idle (`nextChange`), and a far-future wait once nothing will
-/// change. Captures and `.lowFrequency` show one still; Reduce Motion wakes only for its fading cues.
+/// The creature's timeline: 60 dates a second only while something moves smoothly (a reaction, the walk, the Z floating up
+/// in the first minute asleep), otherwise one date per stepped change (`nextChange`: blinks, glances, breath, the glow's
+/// twinkles), and a far-future wait once nothing will change. Captures and `.lowFrequency` show one still; Reduce Motion
+/// wakes only for its fading cues.
 ///
-/// A window in the background plays reactions and the walk but holds the idle. The sidebar's moments happen while another
+/// A window in the background plays reactions and the walk but holds the idle (Ruben's call: a save's hop seen in the
+/// background is wanted, where the motion spec first asked for a full pause). The sidebar's moments happen while another
 /// app is in front (an opened account's window comes forward, Claude Code saves the memory): paused, the creature would never
 /// be seen walking, waving or hopping. Each is bounded (under 0.8 s, the walk until the opening ends) and ends on its resting
 /// frame; the endless parts (blinks, glances, the sleep loop) hold still.
@@ -576,6 +606,17 @@ public struct CreatureSchedule: TimelineSchedule {
             return CreatureLife.restingFrame(state)
         case .live, .background:
             return CreatureLife.frame(state: state, t: t, events: events, profile: profile, seed: seed, walking: walking, asleepSince: asleepSince)
+        }
+    }
+
+    /// What the view draws at a date, at the timeline's cadence. A timeline held at a low frequency draws one date and
+    /// waits, and that date may fall mid-reaction: held, it shows the resting pose (or, under Reduce Motion and in captures,
+    /// the state's still), never a hop frozen in the air.
+    public func frame(at date: Date, cadence: TimelineViewDefaultContext.Cadence) -> LifeFrame {
+        guard cadence != .live else { return frame(at: date) }
+        switch mode {
+        case .still, .reduced: return CreatureLife.reducedFrame(state: state, t: 0, events: [])
+        case .live, .background: return CreatureLife.restingFrame(state)
         }
     }
 

@@ -256,7 +256,7 @@ import Testing
             let breathing = (0..<(10 * 60)).map { CreatureLife.frame(state: .asleep, t: since + Double($0) / 60, events: [], profile: profile,
                                                                      asleepSince: since, reduceMotion: false) }
             #expect(breathing.contains { !$0.sprites.isEmpty } && breathing.contains { $0.pose.breath > 0 }, "\(name)")
-            #expect(CreatureLife.needsFrames(state: .asleep, t: since + 30, events: [], profile: profile, walking: nil, asleepSince: since))
+            #expect(CreatureLife.needsFrames(state: .asleep, t: since + 31, events: [], profile: profile, walking: nil, asleepSince: since))
             let later = CreatureLife.frame(state: .asleep, t: since + 60.01, events: [], profile: profile, asleepSince: since, reduceMotion: false)
             #expect(later.pose == .asleep && later.sprites.isEmpty, "\(name)")
             #expect(!CreatureLife.needsFrames(state: .asleep, t: since + 60.01, events: [], profile: profile, walking: nil, asleepSince: since))
@@ -315,8 +315,12 @@ import Testing
         #expect(!CreatureLife.needsFrames(state: .awake, t: 1, events: save, profile: .companion, walking: nil, asleepSince: nil))
         #expect(CreatureLife.needsFrames(state: .awake, t: 2.1, events: save, profile: .companion, walking: nil, asleepSince: nil))
         #expect(!CreatureLife.needsFrames(state: .awake, t: 2.74, events: save, profile: .companion, walking: nil, asleepSince: nil))
-        #expect(CreatureLife.needsFrames(state: .glowing, t: 9, events: [], profile: .companion, walking: nil, asleepSince: nil))
+        // Stepped content never asks for 60 frames a second: the glow's twinkles change shape in steps, and so does the
+        // asleep breath. Only the Z, which floats, moves smoothly (2.0 to 4.6 s into each 4.8 s breath).
+        #expect(!CreatureLife.needsFrames(state: .glowing, t: 9, events: [], profile: .companion, walking: nil, asleepSince: nil))
         #expect(CreatureLife.needsFrames(state: .asleep, t: 9, events: [], profile: .companion, walking: nil, asleepSince: 0))
+        #expect(!CreatureLife.needsFrames(state: .asleep, t: 1, events: [], profile: .companion, walking: nil, asleepSince: 0))
+        #expect(!CreatureLife.needsFrames(state: .asleep, t: 4.7, events: [], profile: .companion, walking: nil, asleepSince: 0))
         // A reaction still to come is a change: the schedule wakes for it.
         #expect(CreatureLife.nextChange(after: 1, state: .awake, events: save, profile: .companion, walking: nil, asleepSince: nil) <= 2)
     }
@@ -339,6 +343,51 @@ import Testing
             }
             #expect(t > 5, "\(name) only reached \(t)")
         }
+    }
+
+    /// Between the moments that need frames (a reaction, the walk, the floating Z), `nextChange` is exact for the glow and
+    /// the first minute asleep too: the frame holds until it, and differs at it.
+    @Test func nextChangeIsExactForTheGlowAndTheSleepLoop() {
+        let save = [CreatureStamp(.memorySaved, at: 0.5)]
+        let cases: [(String, CreatureState, [CreatureStamp], Double?)] = [
+            ("glowing", .glowing, [], nil), ("glowing after a hop", .glowing, save, nil), ("asleep", .asleep, [], 0.3),
+        ]
+        for (profileName, profile) in Self.profiles {
+            for (name, state, events, since) in cases {
+                let label = "\(profileName) \(name)"
+                func frame(_ t: Double) -> LifeFrame {
+                    CreatureLife.frame(state: state, t: t, events: events, profile: profile, asleepSince: since, reduceMotion: false)
+                }
+                var t = 0.0, steps = 0
+                while t < 14 {
+                    if CreatureLife.needsFrames(state: state, t: t, events: events, profile: profile, walking: nil, asleepSince: since) {
+                        t += 1.0 / 240; continue
+                    }
+                    let next = CreatureLife.nextChange(after: t, state: state, events: events, profile: profile, walking: nil, asleepSince: since)
+                    #expect(next > t && next < t + 5, "\(label) at \(t): \(next)")
+                    guard next > t, next < t + 5 else { break }
+                    let here = frame(t)
+                    var s = t
+                    while s < next - 1e-6 {
+                        #expect(frame(s) == here, "\(label) changes at \(s) before \(next)")
+                        s += 1.0 / 480
+                    }
+                    let moves = CreatureLife.needsFrames(state: state, t: next, events: events, profile: profile, walking: nil, asleepSince: since)
+                    #expect(moves || frame(next) != here, "\(label) same after \(next)")
+                    t = next
+                    steps += 1
+                }
+                #expect(steps > 4, "\(label): \(steps) steps")
+            }
+        }
+    }
+
+    @Test func theGlowTwinklesInSteps() {
+        // One sparkle at a time, a 0.5 s twinkle every 0.8 s: dot, cross, star, cross, dot (16, 20, 28, 20 and 16% of it).
+        let shapes = [0.0, 0.07, 0.09, 0.17, 0.19, 0.31, 0.33, 0.41, 0.43, 0.49, 0.51, 0.79].map { local -> Int in
+            CreatureLife.frame(state: .glowing, t: 0.8 + local, profile: .companion).sprites.first?.pattern.count ?? 0
+        }
+        #expect(shapes == [1, 1, 3, 3, 5, 5, 3, 3, 1, 1, 0, 0])
     }
 
     // MARK: The canvas

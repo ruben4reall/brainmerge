@@ -15,6 +15,16 @@ import Testing
         }
     }
 
+    /// The launch gives its landing creature the exact landing time. The view's clock reads it from the first frame after the
+    /// hand-off, never its own appearance time (a frame could show mid-blink, or a pixel of breath, at the swap).
+    @Test func aGivenClockStartWinsOverTheAppearance() {
+        let appeared = Date(timeIntervalSinceReferenceDate: 800_000_000), landed = appeared.addingTimeInterval(1.2)
+        let now = landed.addingTimeInterval(0.01)
+        #expect(CreatureView.clockOrigin(clockStart: landed, appeared: appeared, now: now) == landed)
+        #expect(CreatureView.clockOrigin(clockStart: nil, appeared: appeared, now: now) == appeared)
+        #expect(CreatureView.clockOrigin(clockStart: nil, appeared: nil, now: now) == now)
+    }
+
     @Test func thePlacesUseTheirSizes() throws {
         // Sidebar 32 (2 pt cells, companion), welcome 64 (4 pt, stage), All set 48 (3 pt, stage).
         let screens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

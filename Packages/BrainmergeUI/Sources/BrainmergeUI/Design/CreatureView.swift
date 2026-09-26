@@ -339,7 +339,8 @@ public struct CreatureView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
     @Environment(\.appearsActive) private var appearsActive
-    @State private var start: Date?
+    /// When the view appeared: its clock's start unless it was given one.
+    @State private var appeared: Date?
     @State private var asleepSince: Double?
     @State private var walk: CreatureWalk?
 
@@ -352,10 +353,10 @@ public struct CreatureView: View {
     public var body: some View {
         let unit = Creature.unit(size: size, displayScale: displayScale)
         let canvas = Creature.canvasCells, feet = Creature.canvasFeet
-        let schedule = schedule(since: start ?? clockStart ?? Date())
+        let schedule = schedule(since: origin)
         TimelineView(schedule) { context in
             Canvas { ctx, _ in
-                let frame = schedule.frame(at: context.date)
+                let frame = schedule.frame(at: context.date, cadence: context.cadence)
                 Creature.draw(&ctx, pose: frame.pose, feet: CGPoint(x: feet.x * unit, y: feet.y * unit), unit: unit,
                               displayScale: displayScale, sprites: frame.sprites)
             }
@@ -368,22 +369,24 @@ public struct CreatureView: View {
         .allowsHitTesting(false)
         .onAppear {
             let now = Date()
-            let origin = clockStart ?? now
-            start = origin
-            let t = scene(now, since: origin)
+            appeared = now
+            let t = scene(now, since: Self.clockOrigin(clockStart: clockStart, appeared: now, now: now))
             asleepSince = state == .asleep ? max(0, t) : nil
             walk = walking ? CreatureWalk(start: max(0, t)) : nil
         }
-        .onChange(of: clockStart) { _, new in if let new { start = new } }
         .onChange(of: state) { old, new in
             guard (old == .asleep) != (new == .asleep) else { return }
-            asleepSince = new == .asleep ? scene(Date(), since: start ?? Date()) : nil
+            asleepSince = new == .asleep ? scene(Date(), since: origin) : nil
         }
         .onChange(of: walking) { _, now in
-            let t = scene(Date(), since: start ?? Date())
+            let t = scene(Date(), since: origin)
             if now { walk = CreatureWalk(start: t) } else { walk?.end = t }
         }
     }
+
+    /// The clock's start: the one given (the launch's landing) from the first frame it is known, else the appearance.
+    static func clockOrigin(clockStart: Date?, appeared: Date?, now: Date) -> Date { clockStart ?? appeared ?? now }
+    private var origin: Date { Self.clockOrigin(clockStart: clockStart, appeared: appeared, now: Date()) }
 
     private func scene(_ date: Date, since origin: Date) -> Double { date.timeIntervalSince(origin) / Theme.Motion.slow }
 

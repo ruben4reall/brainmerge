@@ -66,6 +66,39 @@ import Testing
         #expect(Self.times(Self.schedule(), count: 10, mode: .lowFrequency).count == 1)
     }
 
+    /// A timeline slowed to low frequency draws one date and waits: that date may fall mid-hop, and the pose drawn there
+    /// would stay. A held timeline draws the resting pose instead, never a reaction frozen in the air.
+    @Test func aHeldTimelineNeverFreezesMidReaction() {
+        let hop = [CreatureStamp(.memorySaved, at: 1)]
+        let mid = Self.start.addingTimeInterval(1.3)
+        for mode in [CreatureSchedule.Mode.live, .background] {
+            for state in [CreatureState.awake, .glowing, .asleep] {
+                let s = Self.schedule(mode, state: state, events: hop, asleepSince: 0)
+                #expect(s.frame(at: mid, cadence: .live) == s.frame(at: mid))
+                #expect(s.frame(at: mid, cadence: .live).pose.offset.dy < -1)
+                for cadence in [TimelineViewDefaultContext.Cadence.seconds, .minutes] {
+                    #expect(s.frame(at: mid, cadence: cadence) == CreatureLife.restingFrame(state), "\(mode) \(state)")
+                }
+            }
+        }
+        // Reduce Motion and captures hold their own still: the state's cue, never a fade caught halfway.
+        for mode in [CreatureSchedule.Mode.reduced, .still] {
+            let s = Self.schedule(mode, state: .glowing, events: hop)
+            #expect(s.frame(at: mid, cadence: .seconds) == CreatureLife.reducedFrame(state: .glowing, t: 0, events: []))
+        }
+    }
+
+    /// The glow lasts 4 s: its twinkles change shape in steps, so the timeline wakes for each step, not 60 times a second.
+    @Test func theGlowWakesOnlyForItsTwinkleSteps() {
+        let t = Self.times(Self.schedule(state: .glowing), from: 0, count: 400).filter { $0 < 4 }
+        #expect(t.count < 40, "\(t.count) dates in 4 s")
+        // The sleep loop: 60 a second only while the Z floats (2.6 s of each 4.8 s breath).
+        let asleep = Self.times(Self.schedule(state: .asleep, asleepSince: 0), from: 0, count: 2000).filter { $0 < 4.8 }
+        #expect(asleep.count < 170 && asleep.count > 140, "\(asleep.count) dates in one breath")
+        let resting = asleep.filter { $0 > 0.1 && $0 < 1.9 }
+        #expect(zip(resting, resting.dropFirst()).allSatisfy { $1 - $0 > 0.05 }, "\(resting)")
+    }
+
     @Test func reduceMotionOnlyFadesItsCues() {
         // Idle: nothing after the first frame.
         #expect(Self.times(Self.schedule(.reduced), count: 10).count == 1)
