@@ -132,3 +132,120 @@ import BrainmergeTestSupport
                 == "Git is in the middle of a merge, rebase or cherry-pick in this memory. Saves wait until you finish it.")
     }
 }
+
+/// Another git (an editor's, Obsidian Git's status check) may hold the real index right when a save ends. The save is
+/// made either way, and the real index catches up with it: a plain `git commit` of yours never undoes an account's save.
+@Suite struct AnotherGitHoldsTheIndexTests {
+    let work = Identity(slug: "work", name: "Work", tint: .blue)
+
+    func write(_ text: String, _ path: String, in brain: Brain) throws {
+        let url = brain.root.appending(path: path)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url)
+    }
+
+    func memory(_ home: TempHome) throws -> Brain {
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        try write("# old\n", "memory/acme/old.md", in: brain)
+        try BrainGit(brain: brain).commitAll(authorName: "Setup", authorEmail: "setup@brainmerge.local", message: "Start")
+        return brain
+    }
+
+    func held(_ home: TempHome) -> HeldStore { HeldStore(paths: home.paths, memoryID: "shared") }
+    func lock(_ brain: Brain) -> URL { brain.gitDir.appending(path: "index.lock") }
+
+    /// What a plain `git commit` of yours would commit now: the real index against the last commit.
+    func yourNextCommit(_ brain: Brain) throws -> String {
+        try Shell().check("/usr/bin/git", ["diff", "--cached", "--name-only"], cwd: brain.root)
+    }
+
+    /// Right after the save's commit, another git takes the real index, and lets go after `release` seconds, or never.
+    func busyIndexGit(_ brain: Brain, release: TimeInterval?) -> BrainGit {
+        let lock = lock(brain)
+        return BrainGit(brain: brain, shell: Shell { executable, arguments, cwd, environment in
+            let result = try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+            if arguments.contains("commit"), result.status == 0 {
+                FileManager.default.createFile(atPath: lock.path, contents: nil)
+                // A thread of its own: a busy dispatch pool would let go late.
+                if let release { Thread.detachNewThread { Thread.sleep(forTimeInterval: release); try? FileManager.default.removeItem(at: lock) } }
+            }
+            return result
+        })
+    }
+
+    func accountWrote(_ path: String, in brain: Brain) throws {
+        try write("# \(path)\n", path, in: brain)
+        try TouchedLedger(brain: brain, slug: "work").append(path)
+    }
+
+    @Test func aBriefHoldIsWaitedFor() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        let git = busyIndexGit(brain, release: 0.15)
+        try accountWrote("memory/acme/old.md", in: brain)
+
+        #expect(try AccountSave(brain: brain, git: git, held: held(home)).run(for: work).saved == ["memory/acme/old.md"])
+        #expect(try yourNextCommit(brain).isEmpty)
+        #expect(git.indexBehind.isEmpty)
+    }
+
+    @Test func aHoldThatLastsNeverFailsTheSave() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        let git = busyIndexGit(brain, release: nil)
+        try accountWrote("memory/acme/old.md", in: brain)
+
+        #expect(try AccountSave(brain: brain, git: git, held: held(home)).run(for: work).saved == ["memory/acme/old.md"])
+        #expect(try git.log(limit: 1).first?.authorName == "Work")
+        #expect(TouchedLedger.claimed(in: brain).isEmpty, "the note is saved: it is not saved again")
+        #expect(git.indexBehind == ["memory/acme/old.md"])
+
+        // Once the other git let go, the real index catches up.
+        try FileManager.default.removeItem(at: lock(brain))
+        try BrainGit(brain: brain).catchUpIndex()
+        #expect(try yourNextCommit(brain).isEmpty)
+        #expect(git.indexBehind.isEmpty)
+    }
+
+    @Test func theNextSaveCatchesUp() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        try accountWrote("memory/acme/old.md", in: brain)
+        _ = try AccountSave(brain: brain, git: busyIndexGit(brain, release: nil), held: held(home)).run(for: work)
+        try FileManager.default.removeItem(at: lock(brain))
+
+        try accountWrote("memory/acme/new.md", in: brain)
+        let git = BrainGit(brain: brain)
+        #expect(try AccountSave(brain: brain, git: git, held: held(home)).run(for: work).saved == ["memory/acme/new.md"])
+        #expect(try yourNextCommit(brain).isEmpty)
+        #expect(git.indexBehind.isEmpty)
+    }
+
+    /// The app's minute pass catches up too, whether or not it saves anything.
+    @Test func theAppsPassCatchesUp() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        try accountWrote("memory/acme/old.md", in: brain)
+        _ = try AccountSave(brain: brain, git: busyIndexGit(brain, release: nil), held: held(home)).run(for: work)
+        try FileManager.default.removeItem(at: lock(brain))
+
+        let git = BrainGit(brain: brain)
+        #expect(try OwnEdits(brain: brain, git: git, held: held(home)).save(now: Date(), sessionRunning: true) == .sessionRunning)
+        #expect(try yourNextCommit(brain).isEmpty)
+        #expect(git.indexBehind.isEmpty)
+    }
+
+    /// A path you staged yourself, never saved by an account, is not touched.
+    @Test func catchingUpLeavesWhatYouStaged() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        try accountWrote("memory/acme/old.md", in: brain)
+        _ = try AccountSave(brain: brain, git: busyIndexGit(brain, release: nil), held: held(home)).run(for: work)
+        try FileManager.default.removeItem(at: lock(brain))
+        try write("# mine\n", "Journal.md", in: brain)
+        try Shell().check("/usr/bin/git", ["add", "Journal.md"], cwd: brain.root)
+
+        try BrainGit(brain: brain).catchUpIndex()
+        #expect(try yourNextCommit(brain) == "Journal.md\n")
+    }
+}

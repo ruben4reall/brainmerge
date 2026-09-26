@@ -92,6 +92,7 @@ public struct BrainGit: Sendable {
         guard !wanted.isEmpty else { return [] }
         // A plain commit would finish the person's own merge or pick under this author: the save waits for them instead.
         guard !(try operationUnfinished()) else { throw BrainmergeError.gitOperationUnfinished }
+        try? catchUpIndex()
         let changed = Set(try status(scope: Array(wanted))).intersection(wanted).sorted()
         guard !changed.isEmpty else { return [] }
         let fm = FileManager.default
@@ -116,8 +117,7 @@ public struct BrainGit: Sendable {
         if !held.isEmpty { try unstage(staged.filter(held.contains), index: index) }
         try shell.check("/usr/bin/git", ["-c", "user.name=\(author.name)", "-c", "user.email=\(author.email)", "commit", "-q", "-m", message(kept)],
                         cwd: brain.root, environment: env)
-        // The real index follows the commit for these paths: a note rewritten since shows as changed, for the next save.
-        try shell.check("/usr/bin/git", ["--literal-pathspecs", "reset", "-q", "--"] + kept, cwd: brain.root)
+        followCommit(kept)
         return kept
     }
 
@@ -135,6 +135,44 @@ public struct BrainGit: Sendable {
         }
         if stopped { return true }
         return !(try shell.check("/usr/bin/git", ["ls-files", "-u"], cwd: brain.root)).isEmpty
+    }
+
+    /// Where the paths a save could not bring the real index up to are kept: in the git folder, never committed.
+    var indexBehindFile: URL { brain.gitDir.appending(path: "brainmerge-index-behind") }
+
+    /// The paths saved while another git held the real index: it still has their content from before the save, which a
+    /// plain `git commit` of the person's would put back. Caught up by the next save or the app's minute pass.
+    public var indexBehind: [String] {
+        guard let data = try? Data(contentsOf: indexBehindFile) else { return [] }
+        return String(decoding: data, as: UTF8.self).split(separator: "\0").map(String.init).sorted()
+    }
+
+    /// The real index follows a save's commit for these paths, so a note rewritten since shows as changed. Another git
+    /// (an editor's, Obsidian Git's status check) may hold the index for a moment: tried again for half a second, then
+    /// left to `catchUpIndex`, never failing a save whose commit is made.
+    func followCommit(_ paths: [String]) {
+        for attempt in 0..<10 {
+            let result = try? shell.run("/usr/bin/git", ["--literal-pathspecs", "reset", "-q", "--"] + paths, cwd: brain.root)
+            if result?.status == 0 { return }
+            // Git names the lock it could not take (in any language): the lock may be gone already, so ask its words.
+            guard attempt < 9, result?.stderr.contains("index.lock") == true else { break }
+            usleep(50_000)
+        }
+        let behind = Set(indexBehind).union(paths).sorted()
+        try? Data(behind.joined(separator: "\0").utf8).write(to: indexBehindFile, options: .atomic)
+    }
+
+    /// Brings the real index up to the last commit for the paths a save left behind, those still behind only: another
+    /// path you staged yourself stays staged. Waits while your own merge or pick is stopped, where a reset would drop
+    /// its conflicts.
+    public func catchUpIndex() throws {
+        let behind = indexBehind
+        guard !behind.isEmpty, !(try operationUnfinished()) else { return }
+        let stale = try shell.check("/usr/bin/git", ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--no-renames", "--"] + behind,
+                                    cwd: brain.root)
+            .split(separator: "\0").map(String.init)
+        if !stale.isEmpty { try shell.check("/usr/bin/git", ["--literal-pathspecs", "reset", "-q", "--"] + stale, cwd: brain.root) }
+        try FileManager.default.removeItem(at: indexBehindFile)
     }
 
     /// What staging these paths adds, and only that: no context line, no line saved before, no rename detection, and none

@@ -26,6 +26,7 @@ struct Sync: ParsableCommand {
             }
             var saved = 0
             var held: Set<String> = []
+            var behind = 0
             for memory in [folder] + others {
                 let brain = Brain(root: memory.url)
                 try? brain.ensureIgnores()
@@ -34,9 +35,14 @@ struct Sync: ParsableCommand {
                 let outcome = try git.withLock(timeout: timeout) { try AccountSave(brain: brain, git: git, held: store).run(for: id) }
                 saved += outcome.saved.count
                 held.formUnion(outcome.held.map { "\(memory.id)/\($0.path)" })
+                behind += git.indexBehind.count
             }
             let ms = Int(Date().timeIntervalSince(start) * 1000)
             log.write("\(identity): \(saved == 0 ? "nothing to commit" : "committed \(saved) file\(saved == 1 ? "" : "s")") in \(ms) ms")
+            // The save is made; only git's own list of what is staged waits (see BrainGit.followCommit).
+            if behind > 0 {
+                log.write("\(identity): another git held the memory's index, it catches up with \(behind) file\(behind == 1 ? "" : "s") at the next save")
+            }
             // Never the line, never the value: how many files, and why.
             if !held.isEmpty {
                 log.write("\(identity): held back \(held.count) file\(held.count == 1 ? " (looks like a key)" : "s (they look like keys)")")

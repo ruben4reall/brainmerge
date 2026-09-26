@@ -92,6 +92,8 @@ public struct OwnEdits: Sendable {
 
     /// Run under the memory's lock. `sessionRunning`: a Claude Code session of any account is running now.
     public func save(now: Date, sessionRunning: Bool) throws -> Outcome {
+        // The real index catches up with an account's save first, session or not: a plain commit of yours never undoes it.
+        try? git.catchUpIndex()
         if sessionRunning { return .sessionRunning }
         let paths = try pending()
         guard !paths.isEmpty else { return .nothing }

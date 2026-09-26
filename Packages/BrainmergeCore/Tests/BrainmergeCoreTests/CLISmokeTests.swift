@@ -180,6 +180,25 @@ import BrainmergeTestSupport
         #expect(!(try String(contentsOf: logFile, encoding: .utf8)).contains("sentinel"))
     }
 
+    /// Another git held the memory's index as the save ended: the save is made anyway, and the log says the index catches
+    /// up at the next save, with a count and nothing else.
+    @Test func aSaveMadeWhileAnotherGitHeldTheIndexIsLogged() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let notes = e.brain.memoryDir(forProject: "atelier")
+        try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+        try Data("# deploy\n".utf8).write(to: notes.appending(path: "deploy.md"))
+        #expect(try run(e, ["touched", "--identity", "perso"], input: edit(notes.appending(path: "deploy.md").path)).status == 0)
+        FileManager.default.createFile(atPath: e.brain.gitDir.appending(path: "index.lock").path, contents: nil)
+
+        let sync = try run(e, ["sync", "--identity", "perso"])
+        #expect(sync.status == 0 && sync.stdout.isEmpty)
+        #expect(try BrainGit(brain: e.brain).log(limit: 1).first?.files == ["memory/atelier/deploy.md"])
+        let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
+        #expect(log.contains("perso: committed 1 file"))
+        #expect(log.contains("perso: another git held the memory's index, it catches up with 1 file at the next save"), "\(log)")
+    }
+
     /// A note that looks like it holds a key is not committed, and nothing that could carry the key is written anywhere:
     /// not the log, not the held list, not the doctor. Its neighbor is saved.
     @Test func aKeyShapedNoteIsHeldBackAndNeverWrittenOut() throws {
