@@ -1537,6 +1537,37 @@ code {
 .ram-rows .disk { color: var(--text-2); }
 .ram-rows .term .orb { font-family: var(--mono); font-size: 9px; background: #1A1918; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); }
 .lim-head { display: flex; align-items: center; gap: 9px; }
+.chip-btn {
+  display: inline-block;
+  padding: 5px 11px;
+  border-radius: 7px;
+  background: rgba(244, 239, 230, 0.1);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Edit: Connections */
+.scene-conn { margin-top: 28px; }
+.conn-pair {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.conn-acc { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.conn-line { flex: 1; height: 1.5px; min-width: 24px; background: rgba(244, 239, 230, 0.12); border-radius: 1px; overflow: hidden; }
+.conn-line i { display: block; height: 100%; background: var(--c, #6FA3D8); transform-origin: 0 50%; }
+.conn-prof {
+  padding: 4px 10px;
+  border-radius: 980px;
+  border: 1px solid rgba(111, 163, 216, 0.6);
+  background: rgba(111, 163, 216, 0.14);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.conn-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.conn-mcp { margin-left: auto; font-size: 12px; color: var(--text-3); }
 .lim-name { font-weight: 600; }
 .lim-btn {
   margin-left: auto;
@@ -1897,6 +1928,16 @@ code {
   .js .scene-allset.b-health:not(.b-healthy) .h-checking { opacity: 1; }
   .js .scene-allset:not(.b-healthy) .h-ok { opacity: 0; }
   .js .scene-allset.b-healthy .h-ok .as-ok { animation: pop-scale var(--t-pop) var(--ease-pop) both; }
+
+  /* Connections: a thread draws from the account to its browser profile, the profile answers, the buttons follow. */
+  .js .scene-conn .conn-line i { transition: transform 420ms var(--ease-move); }
+  .js .scene-conn:not(.b-line) .conn-line i { transform: scaleX(0); }
+  .js .scene-conn:not(.b-prof) .conn-prof { opacity: 0; transform: scale(0.9); }
+  .js .scene-conn.b-prof .conn-prof { animation: pop-scale var(--t-pop) var(--ease-pop) both, fade-in 120ms var(--ease-out) both; }
+  .js .scene-conn .conn-btns > * { transition: opacity var(--t-page) var(--ease-out), transform var(--t-page) var(--ease-out); }
+  .js .scene-conn .conn-btns > :nth-child(2) { transition-delay: 60ms; }
+  .js .scene-conn .conn-btns > :nth-child(3) { transition-delay: 120ms; }
+  .js .scene-conn:not(.b-btns) .conn-btns > * { opacity: 0; transform: translateY(4px); }
 
   /* Tidy: File under, the two notes fly into the project's folder on a glide, one after the other, and land; the
      row gives way to the commit that says so. */

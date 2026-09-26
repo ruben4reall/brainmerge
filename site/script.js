@@ -389,6 +389,8 @@
       limits: [[0, 'b-press'], [180, 'b-asking'], [980, 'b-bars'], [1580, 'b-checked']],
       // All set: six checks pop in 60 ms apart from 0.4 s (AllSetBeat), the creature hops once they are in, then Health.
       allset: [[0, 'b-in'], [2000, 'b-health'], [2900, 'b-healthy']],
+      // Connections: the account and its browser profile are paired by a thread, then its buttons show.
+      conn: [[0, 'b-line'], [420, 'b-prof'], [620, 'b-btns']],
       // Tidy: File under, the two notes fly into the project's folder, the commit says so.
       tidy: [[0, 'b-press'], [260, 'b-fly'], [1320, 'b-filed']]
     };
