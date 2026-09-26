@@ -4,7 +4,7 @@ import Foundation
 import BrainmergeCore
 
 /// Starts Claude Code on an account: the launcher's pattern, no shell, argv untouched, nothing credential-related read
-/// or set. The only environment key read is PATH.
+/// or set. The only environment key this file reads is PATH; the shared Context reads BRAINMERGE_HOME, like every command.
 struct CodeCommand: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "code", abstract: "Start Claude Code on an account, with its memory.")
 

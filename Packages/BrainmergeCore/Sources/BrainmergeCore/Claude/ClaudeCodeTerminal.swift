@@ -1,7 +1,8 @@
 import Foundation
 
 /// Claude Code in a terminal, per account: `brainmerge code <slug>` and the `claude-<slug>` links. Pure parts, so the
-/// command itself only reads PATH, sets or unsets CLAUDE_CONFIG_DIR and hands over with execv.
+/// command's own code only reads PATH (BRAINMERGE_HOME is read by the setup every command shares), sets or unsets
+/// CLAUDE_CONFIG_DIR and hands over with execv.
 public enum ClaudeCodeTerminal {
     public static let notFound = "Claude Code is not installed or not on your PATH."
     public static let linkPrefix = "claude-"

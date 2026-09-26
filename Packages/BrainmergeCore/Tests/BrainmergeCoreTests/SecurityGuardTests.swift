@@ -388,8 +388,8 @@ import Testing
         #expect(hits.isEmpty, "\(hits)")
     }
 
-    /// Only the launcher and `brainmerge code` hand over to another program, and `code` reads PATH alone from the
-    /// environment: never a key, a token or anything else a shell may hold.
+    /// Only the launcher and `brainmerge code` hand over to another program, and `code`'s own file reads only PATH from
+    /// the environment (the shared Context reads BRAINMERGE_HOME): never a key, a token or anything else a shell may hold.
     @Test func execvOnlyInTheLauncherAndCode() throws {
         let users = try Self.sources().filter { file in
             file.1.split(separator: "\n").contains { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") && $0.contains("execv") }
