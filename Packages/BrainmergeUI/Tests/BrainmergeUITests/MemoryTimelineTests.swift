@@ -125,4 +125,12 @@ import BrainmergeTestSupport
         }
         #expect(Self.lines(try #require(shots.last).shot, in: column).filter { $0.kind == .words }.count == rows + 1)
     }
+
+    /// The timeline's dates are English like the rest of the app, whatever the Mac's language.
+    @Test func relativeDatesAreEnglish() {
+        #expect(MemoryView.relative(Date()) == "just now")
+        let hour = MemoryView.relative(Date().addingTimeInterval(-3600))
+        #expect(hour.hasSuffix("ago") && hour.hasPrefix("1 "), "\(hour)")
+    }
+
 }

@@ -71,6 +71,18 @@ public enum NotesApps {
         }
     }
 
+    /// `installed()`, kept for a minute: a screen drawn many times a second asks Launch Services once, and an app
+    /// installed meanwhile shows up within a minute.
+    public static func recent(now: Date = Date()) -> [NotesApp] {
+        recentLock.lock(); defer { recentLock.unlock() }
+        if let cached = recentApps, now.timeIntervalSince(cached.at) < 60, now >= cached.at { return cached.apps }
+        let apps = installed()
+        recentApps = (now, apps)
+        return apps
+    }
+    private static let recentLock = NSLock()
+    nonisolated(unsafe) private static var recentApps: (at: Date, apps: [NotesApp])?
+
     /// The apps and their icons, in one pass: off the main thread (see `OnboardingModel.detect`, `NotesAppPicker`).
     public static func find(lookup: (String) -> URL? = { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }) -> Found {
         let apps = installed(lookup: lookup)
