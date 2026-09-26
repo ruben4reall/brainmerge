@@ -18,6 +18,50 @@ import BrainmergeTestSupport
         #expect(loaded.name(forPath: "/b/atelier", machineID: "m1") == "atelier-2")
     }
 
+    /// Only a missing file is an empty list. One that cannot be read (permissions, iCloud not ready) or decoded throws, so
+    /// nothing rewrites it with one entry: every other project and machine would be lost.
+    @Test func unreadableListsThrowAndAreNeverRewritten() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        var reg = ProjectRegistry()
+        _ = reg.register(preferredName: "proj", path: "/a/proj", machineID: "m1")
+        try reg.save(to: brain.projectsFile)
+        try IdentityRegistry(identities: ["perso": .init(name: "Perso", tint: "blue")]).save(to: brain.identitiesFile)
+        for file in [brain.projectsFile, brain.identitiesFile] {
+            try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: file.path)
+        }
+        defer {
+            for file in [brain.projectsFile, brain.identitiesFile] {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
+            }
+        }
+        #expect(throws: (any Error).self) { try ProjectRegistry.load(brain.projectsFile) }
+        #expect(throws: (any Error).self) { try IdentityRegistry.load(brain.identitiesFile) }
+        let wiring = MemoryWiring(brain: brain, paths: home.paths, machineID: "m1")
+        let profile = try CLIProfile.create(at: home.paths.primaryCLIProfile, inheritingFrom: nil)
+        #expect(throws: (any Error).self) { try wiring.wireOne(projectPath: home.url.path + "/other", profile: profile, identitySlug: "perso") }
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: brain.projectsFile.path)
+        #expect(try ProjectRegistry.load(brain.projectsFile) == reg)
+        try Data("{\"projects\": 3}".utf8).write(to: brain.projectsFile)
+        #expect(throws: (any Error).self) { try ProjectRegistry.load(brain.projectsFile) }
+        #expect(try ProjectRegistry.load(home.url.appending(path: "missing.json")).projects.isEmpty)
+    }
+
+    /// The hidden folders and the lines you said are not secrets: a list that cannot be read is never replaced by one
+    /// holding only the new entry.
+    @Test func unreadableTidyAndNotSecretListsAreNeverRewritten() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        try FileManager.default.createDirectory(at: brain.metaDir, withIntermediateDirectories: true)
+        try Data("{\"hashes\": [\"aa\"]}".utf8).write(to: brain.notSecretsFile)
+        try Data("not json".utf8).write(to: brain.hiddenFile)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: brain.notSecretsFile.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: brain.notSecretsFile.path) }
+        #expect(throws: (any Error).self) { try NotSecrets.add(LineHash(line: "x"), in: brain) }
+        #expect(throws: (any Error).self) { try MemoryTidy.strictHidden(in: brain) }
+        #expect(try String(contentsOf: brain.hiddenFile, encoding: .utf8) == "not json")
+    }
+
     @Test func emptyOrMissingFileLoadsAsEmptyRegistry() throws {
         let home = try TempHome(); defer { home.remove() }
         let file = home.url.appending(path: "projects.json")

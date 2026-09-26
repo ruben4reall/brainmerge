@@ -40,19 +40,22 @@ public struct Brain: Equatable, Sendable {
 
     /// Appends to .gitignore the lines it lacks, never changing what is there (an older memory, or one the person edits).
     public func ensureIgnores() throws {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: gitignore.path) else {
+        // Not following a link: a .gitignore that is one (a shared memory can bring one to ~/.ssh/config) is left alone,
+        // never written through nor replaced.
+        guard let type = (try? FileManager.default.attributesOfItem(atPath: gitignore.path))?[.type] as? FileAttributeType else {
             try Data(Self.ignoredLines.map { $0 + "\n" }.joined().utf8).write(to: gitignore, options: .atomic)
             return
         }
+        guard type == .typeRegular else { return }
         let text = try String(contentsOf: gitignore, encoding: .utf8)
         let present = Set(text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) })
         let missing = Self.ignoredLines.filter { line in !present.contains(line) && !(line.hasSuffix("/") && present.contains(String(line.dropLast()))) }
         guard !missing.isEmpty else { return }
         let lead = text.isEmpty || text.hasSuffix("\n") ? "" : "\n"
-        let handle = try FileHandle(forWritingTo: gitignore)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
+        // O_NOFOLLOW: a link put there since the check above is refused, not followed.
+        let fd = open(gitignore.path, O_WRONLY | O_APPEND | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: gitignore.path]) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         try handle.write(contentsOf: Data((lead + missing.map { $0 + "\n" }.joined()).utf8))
     }
 

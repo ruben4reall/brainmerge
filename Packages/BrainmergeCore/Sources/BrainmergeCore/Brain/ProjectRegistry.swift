@@ -11,7 +11,7 @@ public struct ProjectRegistry: Codable, Equatable, Sendable {
     public init(projects: [String: Entry] = [:]) { self.projects = projects }
 
     public static func load(_ file: URL) throws -> ProjectRegistry {
-        guard let data = try? Data(contentsOf: file), !data.isEmpty else { return ProjectRegistry() }
+        guard let data = try ExistingFile.read(file), !data.isEmpty else { return ProjectRegistry() }
         if let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any], raw["projects"] == nil {
             return ProjectRegistry()
         }

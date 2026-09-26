@@ -167,7 +167,9 @@ public enum NotSecrets {
     }
 
     public static func add(_ hash: LineHash, in brain: Brain) throws {
-        let all = hashes(in: brain).union([hash.hex]).sorted()
+        // Only a missing list is empty: one that cannot be read is never replaced by this line alone.
+        let existing = try ExistingFile.read(brain.notSecretsFile).map { try JSONDecoder().decode(File.self, from: $0).hashes } ?? []
+        let all = Set(existing).union([hash.hex]).sorted()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try FileManager.default.createDirectory(at: brain.metaDir, withIntermediateDirectories: true)

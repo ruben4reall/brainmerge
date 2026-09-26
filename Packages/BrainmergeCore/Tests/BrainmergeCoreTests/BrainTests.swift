@@ -44,6 +44,24 @@ import BrainmergeTestSupport
         #expect(try String(contentsOf: brain.gitignore, encoding: .utf8) == ".DS_Store\n.brainmerge/lock\n# mine\n.trash\n.brainmerge/touched/\n")
     }
 
+    /// A .gitignore that is a link (a shared memory can bring one pointing at ~/.ssh/config) is never written through,
+    /// nor replaced: the file it points to stays exactly as it was. A broken link is left alone too.
+    @Test func aLinkedGitignoreIsNeverWrittenThrough() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        let outside = home.url.appending(path: "config")
+        try Data("Host example\n".utf8).write(to: outside)
+        try FileManager.default.removeItem(at: brain.gitignore)
+        try FileManager.default.createSymbolicLink(at: brain.gitignore, withDestinationURL: outside)
+        try brain.ensureIgnores()
+        #expect(try String(contentsOf: outside, encoding: .utf8) == "Host example\n")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: brain.gitignore.path) == outside.path)
+        try FileManager.default.removeItem(at: outside)
+        try brain.ensureIgnores()
+        #expect(!FileManager.default.fileExists(atPath: outside.path))
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: brain.gitignore.path) == outside.path)
+    }
+
     /// A folder inside another repository would get a second repository of its own, and the outer one's backups would stop
     /// covering its notes: refused before anything is created, with the exact sentence. The repository's own top folder,
     /// or a memory that already has its history, is fine.

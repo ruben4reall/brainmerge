@@ -175,7 +175,8 @@ import BrainmergeTestSupport
         #expect(statuses.read(slug: "perso")?.outcome == .nothing)
 
         #expect(try run(e, ["sync", "--identity", "nope"]).status == 0)
-        #expect(statuses.read(slug: "nope") == SaveStatus(date: try #require(statuses.read(slug: "nope")?.date), outcome: .failed, reason: .unknown))
+        // A removed account's session still running: logged only, so an account added again under the name starts clean.
+        #expect(statuses.read(slug: "nope") == nil)
 
         let git = BrainGit(brain: e.brain)
         let acquired = DispatchSemaphore(value: 0)

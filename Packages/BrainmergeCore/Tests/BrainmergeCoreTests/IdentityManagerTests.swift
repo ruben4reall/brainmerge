@@ -234,6 +234,35 @@ import BrainmergeTestSupport
         #expect(!claimed.contains("memory/acme/note.md") && !claimed.contains("memory/acme/other.md"))
     }
 
+    /// Removing an account with its data leaves nothing of it behind that could come back: notes in a real memory folder
+    /// of its Claude Code folder move into the memory first (they become your own edits), its save status goes (an account
+    /// added again under that name starts clean), and its notes held by the secret guard become yours.
+    @Test func removingAnAccountLeavesNothingThatComesBack() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let profile = CLIProfile(directory: client.cliProfile(in: e.home.paths))
+        let project = e.home.url.path + "/shop"
+        try JSONSerialization.data(withJSONObject: ["projects": [project: [:]]]).write(to: profile.claudeJSON)
+        let real = profile.projectsDir.appending(path: ProjectSlug.slug(forPath: project)).appending(path: "memory")
+        try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+        try Data("# kept\n".utf8).write(to: real.appending(path: "decision.md"))
+        let statuses = SaveStatusStore(paths: e.home.paths)
+        statuses.write(SaveStatus(date: Date(), outcome: .failed, reason: .unknown), slug: "client")
+        let memoryID = try #require(e.store.load().brains.first?.id)
+        let held = HeldStore(paths: e.home.paths, memoryID: memoryID)
+        var notes = HeldNotes()
+        notes.held = [HeldNote(account: "client", path: "memory/shop/deploy.md", line: 2, shape: .gitHub, hash: LineHash(line: "k")),
+                      HeldNote(account: "perso", path: "memory/shop/mine.md", line: 1, shape: .gitHub, hash: LineHash(line: "m"))]
+        try held.save(notes)
+
+        try e.manager.remove(slug: "client", deleteData: true)
+        #expect(!FileManager.default.fileExists(atPath: profile.directory.path))
+        #expect(try String(contentsOf: e.brain.memoryDir(forProject: "shop").appending(path: "decision.md"), encoding: .utf8) == "# kept\n")
+        #expect(statuses.read(slug: "client") == nil)
+        #expect(held.load().held.map(\.account) == [nil, "perso"])
+    }
+
     @Test func addWithoutBrainCreatesNothing() throws {
         let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
         #expect(throws: BrainmergeError.brainNotConfigured) { try e.manager.add(IdentityManager.AddRequest(name: "Client")) }
@@ -577,6 +606,20 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.self) { try e.manager.swapNames("ruben", with: "agency") }
         #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
         #expect(appsInLaunchersDir(e) == ["Agency.app"])
+    }
+
+    /// The second account cannot take its new name (its Claude Code folder is gone): the first, already renamed in the
+    /// shared memory, is put back under the same hold of the memory's lock, so no save can slip in between and leave two
+    /// accounts claiming one name.
+    @Test func aSwapThatFailsHalfWayPutsTheFirstAccountBack() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let agency = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
+        try FileManager.default.removeItem(at: agency.cliProfile(in: e.home.paths))
+        #expect(throws: BrainmergeError.profileMissing(agency.cliProfile(in: e.home.paths).path)) { try e.manager.swapNames("ruben", with: "agency") }
+        #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["ruben"]?.name == "Ruben")
     }
 
     /// Files the swap or a rename must not touch when it fails, with a date in the past: a write would change it.

@@ -12,7 +12,7 @@ public struct IdentityRegistry: Codable, Equatable, Sendable {
     public init(identities: [String: Entry] = [:]) { self.identities = identities }
 
     public static func load(_ file: URL) throws -> IdentityRegistry {
-        guard let data = try? Data(contentsOf: file), !data.isEmpty else { return IdentityRegistry() }
+        guard let data = try ExistingFile.read(file), !data.isEmpty else { return IdentityRegistry() }
         if let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any], raw["identities"] == nil {
             return IdentityRegistry()
         }
