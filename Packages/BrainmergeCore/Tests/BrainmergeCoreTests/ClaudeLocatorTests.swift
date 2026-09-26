@@ -32,6 +32,29 @@ import BrainmergeTestSupport
         #expect(mac.locator().locate(choice: nil) == system.url)
     }
 
+    /// Claude.app at its usual place comes before any copy under another name, even one that sorts first ("Claude
+    /// copy.app", a Finder duplicate) or sits in /Applications while Claude is in ~/Applications. Copies come after,
+    /// newest first.
+    @Test func claudeAtItsUsualPlaceComesBeforeCopies() throws {
+        let mac = try Mac(); defer { mac.home.remove() }
+        func copy(_ name: String, in folder: URL, version: String) throws -> URL {
+            let scratch = mac.home.url.appending(path: "scratch-\(UUID().uuidString)", directoryHint: .isDirectory)
+            try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+            let made = try FakeClaudeApp.make(in: scratch, version: version)
+            let url = folder.appending(path: name, directoryHint: .isDirectory)
+            try FileManager.default.moveItem(at: made.url, to: url)
+            return url
+        }
+        let old = try copy("Claude copy.app", in: mac.system, version: "2.1.0")
+        let newer = try copy("Claude 2.app", in: mac.system, version: "2.9.0")
+        let claude = try FakeClaudeApp.make(in: mac.own, version: "2.8.0")
+        #expect(mac.locator().locate(choice: nil) == claude.url)
+        #expect(mac.locator().candidates().map(\.url.lastPathComponent) == ["Claude.app", "Claude 2.app", "Claude copy.app"])
+        try FileManager.default.removeItem(at: claude.url)
+        #expect(mac.locator().locate(choice: nil) == newer)
+        #expect(old.lastPathComponent == "Claude copy.app")
+    }
+
     @Test func anUnsignedCopyIsRefused() throws {
         let mac = try Mac(); defer { mac.home.remove() }
         let claude = try FakeClaudeApp.make(in: mac.own)

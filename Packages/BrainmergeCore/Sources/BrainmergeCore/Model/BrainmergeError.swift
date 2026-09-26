@@ -28,6 +28,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case brainNameEmpty
     case brainFolderInUse(String)
     case defaultMemoryInPlace(String)
+    case memoryInPlace(id: String, path: String)
     case nameInvalid
     case claudeAppTampered(String)
     case primaryIsClaude
@@ -70,6 +71,8 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .brainFolderInUse(let p): return "The folder \(p) is already one of your memories."
         case .defaultMemoryInPlace(let p):
             return "The default memory is at \(p), and brain init never moves it: its projects would keep writing there, unsaved. To move it, move its folder first, then run: brainmerge brain init NEW_FOLDER. For another memory, run: brainmerge brain add --name NAME FOLDER"
+        case .memoryInPlace(let id, let p):
+            return "This memory is at \(p), and Brainmerge never moves a memory that is in place: its projects would keep writing there, unsaved. To move it, move its folder first, then run: brainmerge brain relocate \(id) NEW_FOLDER"
         case .nameInvalid: return "Give it a name: one line, letters and numbers, up to \(NameRules.maxLength) characters."
         case .claudeAppTampered(let p): return "The signature of \(p) does not match its files. Reinstall Claude before making a copy of it."
         case .memoryInsideRepository(let top):

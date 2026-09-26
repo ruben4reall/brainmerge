@@ -4,8 +4,8 @@ import BrainmergeCore
 
 struct BrainCommand: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "brain", abstract: "The memories: one shared by default, more if some accounts get their own.",
-                                                    subcommands: [Init.self, List.self, Add.self, Forget.self, Rename.self, Status.self, Wire.self, Timeline.self,
-                                                                  Health.self])
+                                                    subcommands: [Init.self, List.self, Add.self, Forget.self, Rename.self, Relocate.self, Status.self, Wire.self,
+                                                                  Timeline.self, Health.self])
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Every memory, the default one first, with the accounts attached to it.")
@@ -49,6 +49,18 @@ struct BrainCommand: ParsableCommand {
         func run() throws {
             try Context().manager.renameBrain(id: id, name: name)
             print("Renamed \(id) to \(name).")
+        }
+    }
+
+    struct Relocate: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Point a memory whose folder is gone at where it is now, or start it again in an empty folder. Its accounts follow; no note is moved.")
+        @Argument var id: String
+        @Argument(help: "The folder the memory is in now, or an empty one.") var path: String
+        func run() throws {
+            let context = Context()
+            let folder = try context.manager.relocateBrain(id: id, to: URL(fileURLWithPath: path, isDirectory: true),
+                                                           language: try context.store.load().brainLanguage)
+            print("Memory \(folder.name) (\(folder.id)) is at \(folder.path).")
         }
     }
 

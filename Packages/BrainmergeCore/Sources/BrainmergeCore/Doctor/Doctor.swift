@@ -43,6 +43,14 @@ public struct Doctor: Sendable {
         }
     }
 
+    /// A word of a "Run:" line as a shell reads it: as is when it is plain, else in single quotes, so a name or a folder
+    /// with spaces pastes as one argument.
+    static func quoted(_ word: String) -> String {
+        let plain = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./@%+=:,")
+        if !word.isEmpty, word.allSatisfy(plain.contains) { return word }
+        return "'" + word.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     /// A path as the person reads it: the home folder as ~.
     func shown(_ path: String) -> String {
         let home = paths.home.path
@@ -90,10 +98,12 @@ public struct Doctor: Sendable {
                 findings.append(Finding(level: git ? .ok : .error, title: "Memory: \(folder.name)",
                                         detail: git ? "\(folder.path), git ready" : "\(folder.path): git repository unreadable",
                                         plain: git ? "The memory \(folder.name) is ready." : "The history of the memory \(folder.name) can't be read."))
+                if git { findings += savesWait(folder, brain: candidate) }
             } else {
-                // "brain init" only ever sets up the default memory: advised for it alone, with its own folder.
-                let advice = index == 0 ? "Run: brainmerge brain init \(folder.path)"
-                    : "Run: brainmerge brain forget \(folder.id), then brainmerge brain add --name \(folder.name) \(folder.path)"
+                // "brain init" only ever sets up the default memory: advised for it alone, with its own folder. Another
+                // memory is pointed at its folder again, its accounts with it (forgetting it is refused while one uses it).
+                let advice = index == 0 ? "Run: brainmerge brain init \(Self.quoted(folder.path))"
+                    : "Run: brainmerge brain relocate \(folder.id) \(Self.quoted(folder.path))"
                 findings.append(Finding(level: .error, title: "Memory: \(folder.name)", detail: "Missing or not initialized at \(folder.path). \(advice)",
                                         plain: "The memory \(folder.name) is missing from \(shown(folder.path)).", fix: .chooseMemory(brainID: folder.id)))
             }
@@ -132,6 +142,12 @@ public struct Doctor: Sendable {
                 continue
             }
             findings.append(hooksFinding(identity, profile: profile))
+            if let status = SaveStatusStore(paths: paths).read(slug: identity.slug), status.outcome == .failed {
+                let reason = status.reason?.rawValue ?? "unknown"
+                findings.append(Finding(level: .warning, title: "\(identity.name): saves",
+                                        detail: "Last save failed \(status.date.formatted(.iso8601)): \(reason). See ~/Library/Logs/Brainmerge/sync.log",
+                                        plain: "The last save of \(identity.name) failed: its card says why."))
+            }
             let claudeMD = (try? String(contentsOf: profile.claudeMD, encoding: .utf8)) ?? ""
             let blockOK = ManagedBlock.contains(claudeMD) && (brain.map { claudeMD.contains($0.root.path) } ?? true)
             findings.append(blockOK
@@ -150,6 +166,11 @@ public struct Doctor: Sendable {
                         findings.append(Finding(level: .warning, title: "\(identity.name): launcher",
                                                 detail: "Built for Claude \(built), installed \(claude.version). \(rebuild)",
                                                 plain: "The app of \(identity.name) was built for Claude \(built), and Claude \(claude.version) is installed.",
+                                                fix: .rebuild(slug: identity.slug)))
+                    } else if identity.iconMode == .launcher, let pinned = pinnedClaude(of: app, installed: claude) {
+                        findings.append(Finding(level: .warning, title: "\(identity.name): launcher",
+                                                detail: "Starts \(pinned), Claude is at \(claudeAppURL.path). \(rebuild)",
+                                                plain: "The app of \(identity.name) starts another Claude than the one installed.",
                                                 fix: .rebuild(slug: identity.slug)))
                     } else {
                         findings.append(Finding(level: .ok, title: "\(identity.name): launcher", detail: app.path, plain: "The app of \(identity.name) is in place."))
@@ -209,7 +230,7 @@ public struct Doctor: Sendable {
         if case .external(let target) = state, let root = Self.memoryRoot(containing: target),
            !known.contains(where: { $0.resolvingSymlinksInPath().path == root.resolvingSymlinksInPath().path }) {
             return Finding(level: .warning, title: title,
-                           detail: "points to \(target), in \(root.path): a memory Brainmerge no longer knows, so the notes written there are not saved. Run: brainmerge brain add --name NAME \(root.path), then brainmerge identity edit \(identity.slug) --brain ID",
+                           detail: "points to \(target), in \(root.path): a memory Brainmerge no longer knows, so the notes written there are not saved. Run: brainmerge brain add --name NAME \(Self.quoted(root.path)), then brainmerge identity edit \(identity.slug) --brain ID",
                            plain: "The notes of \(project) for \(identity.name) go to \(shown(root.path)), a memory Brainmerge no longer knows: they are not saved.")
         }
         return switch state {
@@ -261,6 +282,39 @@ public struct Doctor: Sendable {
         return Finding(level: .warning, title: "\(identity.name): \(app.name)",
                        detail: "A copy of Claude \(app.claudeVersion ?? "?") made by hand, \(app.url.path), also opens this account, and Claude \(installed) is installed: an older Claude on the same data can damage it. \(advice), and move the copy to the Trash yourself once \(identity.name) is closed.",
                        plain: "\(app.name), a copy of Claude \(app.claudeVersion ?? "?") made by hand, also opens \(identity.name), and Claude \(installed) is installed: an older Claude on the same data can damage it. \(advice), and move the copy to the Trash yourself once \(identity.name) is closed.")
+    }
+
+    /// What keeps every save out of a memory: a lock file a git that stopped left behind (older than ten minutes, so not
+    /// a git at work), or the person's own git stopped half way. Only names and dates are looked at.
+    func savesWait(_ folder: MemoryFolder, brain: Brain) -> [Finding] {
+        let fm = FileManager.default
+        var findings: [Finding] = []
+        let heads = brain.gitDir.appending(path: "refs/heads", directoryHint: .isDirectory)
+        let branches = ((try? fm.contentsOfDirectory(atPath: heads.path)) ?? []).filter { $0.hasSuffix(".lock") }.map { heads.appending(path: $0) }
+        for lock in [brain.gitDir.appending(path: "index.lock"), brain.gitDir.appending(path: "HEAD.lock")] + branches {
+            guard let date = (try? fm.attributesOfItem(atPath: lock.path))?[.modificationDate] as? Date,
+                  Date().timeIntervalSince(date) > 600 else { continue }
+            findings.append(Finding(level: .warning, title: "Memory: \(folder.name)",
+                                    detail: "\(lock.path) was left by a git that stopped: saves fail while it is there. If no git runs in \(folder.path), remove that file",
+                                    plain: "A git that stopped left \(shown(lock.path)) in the memory \(folder.name): saves fail until that file is removed."))
+        }
+        if (try? BrainGit(brain: brain, availability: git).operationUnfinished()) == true {
+            findings.append(Finding(level: .warning, title: "Memory: \(folder.name)",
+                                    detail: "Saves wait: git is stopped half way in \(folder.path) (a merge, a rebase, a cherry-pick or conflicts). Finish or abort it there",
+                                    plain: "Saves to the memory \(folder.name) wait: git is stopped half way there (a merge, a rebase or a cherry-pick). Finish or abort it."))
+        }
+        return findings
+    }
+
+    /// The Claude program a secondary account's launcher starts, when it is not the installed one's (Claude moved, or
+    /// another one was chosen): that launcher starts an older Claude on the account's data, or nothing once it is gone.
+    /// Nil when it starts the installed Claude, or, with no Claude installed, a program that is still there.
+    func pinnedClaude(of app: URL, installed claude: ClaudeApp?) -> String? {
+        let config = (try? Data(contentsOf: app.appending(path: "Contents/Resources/brainmerge.json")))
+            .flatMap { try? JSONDecoder().decode(LauncherConfig.self, from: $0) }
+        guard let pinned = config?.claudeExecutable else { return "nothing" }
+        if let claude { return pinned == claude.executable.path ? nil : pinned }
+        return FileManager.default.isExecutableFile(atPath: pinned) ? nil : pinned
     }
 
     /// The primary's own app: there, and opening the Claude installed (it was built for another path if Claude moved).

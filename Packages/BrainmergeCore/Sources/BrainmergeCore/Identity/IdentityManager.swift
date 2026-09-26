@@ -373,8 +373,9 @@ public final class IdentityManager: @unchecked Sendable {
 
     /// "Choose memory folder" for a memory whose folder is gone: the folder it lives in now (the person moved it), or an
     /// empty one where it starts again (only what is missing is created, like `Brain.initialize`). Its accounts are
-    /// attached to it there; no note is moved. With no memory at all, the folder becomes the default memory. A folder
-    /// another memory uses, or one inside another git repository, is refused before anything changes.
+    /// attached to it there; no note is moved. With no memory at all, the folder becomes the default memory. A memory
+    /// whose folder is still there, a folder another memory uses, or one inside another git repository, is refused
+    /// before anything changes.
     @discardableResult
     public func relocateBrain(id: String, to folder: URL, language: BrainLanguage) throws -> MemoryFolder {
         let held = try store.lock()
@@ -384,6 +385,12 @@ public final class IdentityManager: @unchecked Sendable {
         guard index != nil || (state.brains.isEmpty && id == AppState.defaultBrainID) else { throw BrainmergeError.brainUnknown(id) }
         let root = folder.standardizedFileURL
         if state.brains.contains(where: { $0.id != id && $0.url.standardizedFileURL.path == root.path }) { throw BrainmergeError.brainFolderInUse(root.path) }
+        // A memory whose folder is in place never moves: its projects' links would keep writing there, and nothing would
+        // save those notes any more.
+        if let current = index.map({ state.brains[$0].url }), FileManager.default.fileExists(atPath: current.path),
+           current.resolvingSymlinksInPath().path != root.resolvingSymlinksInPath().path {
+            throw BrainmergeError.memoryInPlace(id: id, path: current.path)
+        }
         let brain = try Brain.initialize(at: root, language: language)
         if let index { state.brains[index].path = brain.root.path } else { state.brainPath = brain.root.path }
         try store.save(state)
