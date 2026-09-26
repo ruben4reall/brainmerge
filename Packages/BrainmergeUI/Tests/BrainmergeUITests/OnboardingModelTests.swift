@@ -281,6 +281,21 @@ import BrainmergeTestSupport
         #expect(OnboardingModel(app: app).finished)
     }
 
+    /// Opening the added account from its card is remembered: the card never asks for it again, even before (or without)
+    /// the new window being seen running.
+    @Test func openingTheAddedAccountIsRemembered() async throws {
+        let (e, app, onboarding) = try setup(monitor: ProcessMonitor(psOutput: { "" })); defer { e.home.remove() }
+        onboarding.primaryName = "Ruben"
+        await onboarding.finish()
+        onboarding.secondAccount.name = "Work"
+        #expect(await onboarding.addSecondAccount())
+        let launched = CoreWorkTests.Log()
+        app.launchAccount = { _, slug in launched.add(slug) }
+        #expect(!onboarding.openedAdded)
+        await onboarding.openAddedAccount()?.value
+        #expect(onboarding.openedAdded && launched.entries == ["work"])
+    }
+
     @Test func theSecondAccountCanGetItsOwnMemory() async throws {
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }
         onboarding.primaryName = "Ruben"

@@ -182,6 +182,12 @@ public final class AppModel {
     @ObservationIgnored public var commandLine: @Sendable () -> URL? = { AppModel.embeddedCLI }
     /// Opens a browser; a fake in tests, which never open one.
     @ObservationIgnored public var browserRunner: @Sendable (BrowserProfiles.Command) throws -> Void = { try Shell().check($0.path, $0.arguments) }
+    /// Launches an account's Claude (an `open` of its app, some 100 to 200 ms), off the main thread; a fake in tests, which
+    /// never open one.
+    @ObservationIgnored public var launchAccount: @Sendable (IdentityManager, String) throws -> Void = { try $0.launch(slug: $1) }
+    /// Quits an account's Claude (a SIGTERM to its process), off the main thread; a fake in tests, which never signal a
+    /// process that could be anyone's.
+    @ObservationIgnored public var quitAccount: @Sendable (IdentityManager, Identity) throws -> Void = { try $0.quit($1) }
     /// The Mac's memory pressure, injectable in tests.
     public var memoryPressure: @Sendable () -> MemoryPressure.Level = { MemoryPressure.current() ?? .normal }
     /// The Mac's RAM figures, injectable in tests.
@@ -1059,21 +1065,53 @@ public final class AppModel {
     }
 
     /// Opens the account; if it's already running, brings its window to the front: never two instances on the same data folder.
-    public func open(_ slug: String) {
-        if let account = accounts.first(where: { $0.id == slug }), !account.identity.surfaces.desktop {
+    /// It answers at once: the account reads Opening from the click, and the launch (an `open` of its app, some 100 to
+    /// 200 ms), the look for its process and the list read again after it all run off the main thread. The task ends once
+    /// the launch is done (nil when there was nothing to launch).
+    @discardableResult
+    public func open(_ slug: String) -> Task<Void, Never>? {
+        let account = accounts.first { $0.id == slug }
+        if let account, !account.identity.surfaces.desktop {
             message = UserMessage(title: "\(account.identity.name) is Claude Code only",
                                   detail: "This account has no Claude window. Use it with Claude Code in the terminal.")
-            return
+            return nil
         }
-        if let pid = runningProcess(for: slug) { show(pid); return }
-        // Its app is being rebuilt, renamed or removed: opening it now would open a half-built app.
+        let running = account?.isRunning == true
+        if !running {
+            guard startOpening(slug) else { return nil }
+        }
+        return Task {
+            if running {
+                if let pid = await findRunningProcess(for: slug) { show(pid); return }
+                // Gone since the list was read: it opens.
+                guard startOpening(slug) else { return }
+            }
+            let manager = self.manager, launch = launchAccount
+            let failure = await Task.detached(priority: .userInitiated) { () -> (any Error)? in
+                do { try launch(manager, slug); return nil } catch { return error }
+            }.value
+            if let failure { stopOpening(slug); present(failure) }
+            await reloadOffMain()
+        }
+    }
+
+    /// Marks the account Opening, unless its app is being rebuilt, renamed or removed: opening it now would open a
+    /// half-built app, which is said instead.
+    private func startOpening(_ slug: String) -> Bool {
         if accountsBusy.contains(slug) {
             let name = name(of: slug)
             message = UserMessage(title: "\(name) is being updated", detail: "Brainmerge is working on \(name)'s app. Try again in a moment.")
-            return
+            return false
         }
-        do { try manager.launch(slug: slug); markOpening(slug) } catch { present(error) }
-        reload()
+        markOpening(slug, fallback: openingFallback)
+        return true
+    }
+    /// How long an account reads Opening when its window never shows up.
+    @ObservationIgnored var openingFallback: Duration = .seconds(4)
+
+    private func stopOpening(_ slug: String) {
+        openingMarks[slug] = nil
+        if opening.contains(slug) { opening.remove(slug) }
     }
 
     /// This account's Claude process, if it's running.
@@ -1081,6 +1119,15 @@ public final class AppModel {
         guard let account = accounts.first(where: { $0.id == slug }), account.isRunning, let claude else { return nil }
         let processes = (try? manager.monitor.claudeProcesses()) ?? []
         return processes.first { ProcessMonitor.matches($0, identity: account.identity, paths: paths, claude: claude) }?.pid
+    }
+
+    /// The same, with its `ps` off the main thread.
+    func findRunningProcess(for slug: String) async -> Int32? {
+        guard let account = accounts.first(where: { $0.id == slug }), account.isRunning, let claude else { return nil }
+        let monitor = manager.monitor, identity = account.identity, paths = self.paths
+        return await Task.detached(priority: .userInitiated) {
+            ((try? monitor.claudeProcesses()) ?? []).first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: claude) }?.pid
+        }.value
     }
 
     /// Brings an account's Claude forward with its window. Claude keeps running once its window is closed, and bringing
@@ -1113,10 +1160,37 @@ public final class AppModel {
         reload()
     }
 
-    /// Closes the other open accounts, then opens this one: logging in a new account needs to be alone.
-    public func quitOthers(then slug: String) {
-        for account in openAccounts where account.id != slug { try? manager.quit(account.identity) }
-        Task { try? await Task.sleep(for: .seconds(2)); self.reload(); self.open(slug) }
+    /// Closes the other open accounts, then opens this one: logging in a new account needs to be alone. The waiting line
+    /// says so from the click; the quitting runs off the main thread, then waits until they are gone (up to `quitLimit`),
+    /// and the account opens (`open`). The task ends once it is launched.
+    @discardableResult
+    public func quitOthers(then slug: String) -> Task<Void, Never> {
+        let others = openAccounts.filter { $0.id != slug }.map(\.identity)
+        let manager = self.manager, quit = quitAccount, paths = self.paths, claudeURL = claudeAppURL, limit = quitLimit
+        let saying = others.isEmpty ? nil : beginWork("Quitting Claude for \(others.map(\.name).joined(separator: ", "))…")
+        return Task {
+            if let saying {
+                let result = await outcome(saying: saying) {
+                    for identity in others { try quit(manager, identity) }
+                    Self.waitUntilGone(others, monitor: manager.monitor, paths: paths, claudeURL: claudeURL, limit: limit)
+                }
+                if case .failure(let error) = result { present(error); return }
+            }
+            await open(slug)?.value
+        }
+    }
+    /// How long "Quit Claude and open" waits for the others to be gone before it opens the account anyway.
+    @ObservationIgnored var quitLimit: Duration = .seconds(5)
+
+    /// Back once none of `identities` runs any more (a `ps` every tenth of a second), or after `limit`.
+    nonisolated static func waitUntilGone(_ identities: [Identity], monitor: ProcessMonitor, paths: Paths, claudeURL: URL, limit: Duration) {
+        guard let claude = try? ClaudeApp.detect(at: claudeURL) else { return }
+        let clock = ContinuousClock(), deadline = clock.now.advanced(by: limit)
+        while clock.now < deadline {
+            let running = (try? monitor.claudeProcesses()) ?? []
+            if !running.contains(where: { process in identities.contains { ProcessMonitor.matches(process, identity: $0, paths: paths, claude: claude) } }) { return }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
     }
 
     /// A brand-new account opens Claude to log in. The browser's login link opens in the Claude instance
@@ -1146,9 +1220,18 @@ public final class AppModel {
     /// Runs core work on the core queue, after any work already there, with its waiting sentence, then reloads.
     /// The outcome is returned as it is: the caller decides what to say.
     func outcome<T: Sendable>(_ label: String, _ work: @escaping @Sendable () throws -> T) async -> Result<T, Error> {
+        await outcome(saying: beginWork(label), work)
+    }
+
+    /// Its waiting sentence shows from now on, before any work is queued: the click is answered at once.
+    private func beginWork(_ label: String) -> Int {
         lastWorkID += 1
-        let id = lastWorkID
-        workLabels.append(WorkLabel(id: id, label: label))
+        workLabels.append(WorkLabel(id: lastWorkID, label: label))
+        return lastWorkID
+    }
+
+    /// `outcome` for work whose sentence already shows (`beginWork`): it goes once the work is done.
+    private func outcome<T: Sendable>(saying id: Int, _ work: @escaping @Sendable () throws -> T) async -> Result<T, Error> {
         defer { workLabels.removeAll { $0.id == id } }
         let queue = coreQueue
         let result: Result<T, Error> = await withCheckedContinuation { continuation in
@@ -1336,7 +1419,7 @@ public final class AppModel {
         switch action {
         case .rebuild: await rebuild(slug)
         case .opening, .updating: break
-        case .open, .show, .none: open(slug)
+        case .open, .show, .none: await open(slug)?.value
         }
     }
 

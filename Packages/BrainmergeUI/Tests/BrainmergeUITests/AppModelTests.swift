@@ -385,7 +385,7 @@ import BrainmergeTestSupport
         #expect(AppModel.sentence(for: NSError(domain: "x", code: 1)).title == "Something went wrong")
     }
 
-    @Test func openOnARunningAccountShowsItInsteadOfLaunchingAgain() throws {
+    @Test func openOnARunningAccountShowsItInsteadOfLaunchingAgain() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
@@ -393,9 +393,13 @@ import BrainmergeTestSupport
         let exe = e.claude.executable.path
         let m = model(e, monitor: ProcessMonitor(psOutput: { "  900 1 120000 \(exe) --user-data-dir=\(data)\n" }))
         m.reload()
-        m.open("client")
+        let launched = CoreWorkTests.Log()
+        m.launchAccount = { _, slug in launched.add(slug) }
+        let showing = m.open("client")
         // No second launch on the same data folder: no opening aura, no message.
         #expect(m.opening.isEmpty)
+        await showing?.value
+        #expect(m.opening.isEmpty && launched.entries.isEmpty)
         #expect(m.message == nil)
         #expect(m.lastShownProcess == 900)
     }

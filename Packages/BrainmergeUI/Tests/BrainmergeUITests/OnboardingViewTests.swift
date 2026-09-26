@@ -72,6 +72,28 @@ import Testing
         #expect(WelcomeEntrance.plays(launch: LaunchClock(finished: true, slow: 1, capture: false), reduceMotion: false, capture: false))
     }
 
+    /// The added account's card says what to do next and never asks again for what was just done: once its button is
+    /// clicked, the button goes and the card says to log in as its window comes up, whether or not it is seen running yet.
+    @Test func theAddedCardNeverAsksForWhatWasJustDone() {
+        typealias Card = OnboardingView.AddedCard
+        let ready = Card.of(name: "Work", needsLogin: true, isRunning: false, opened: false, othersOpen: [])
+        #expect(ready.sentence == "Ready. Open it to log in." && ready.button == "Open Work")
+        let blocked = Card.of(name: "Work", needsLogin: true, isRunning: false, opened: false, othersOpen: ["Personal", "Studio"])
+        #expect(blocked.sentence == "Ready. Claude is open for Personal, Studio: it must be closed first, or the login would land in that window.")
+        #expect(blocked.button == "Quit Claude and open Work")
+        for others in [[], ["Personal"]] {
+            let opening = Card.of(name: "Work", needsLogin: true, isRunning: false, opened: true, othersOpen: others)
+            #expect(opening.button == nil && !opening.sentence.contains("Open it") && opening.sentence.contains("Log in"), "\(opening)")
+        }
+        let open = Card.of(name: "Work", needsLogin: true, isRunning: true, opened: true, othersOpen: [])
+        #expect(open.button == nil && open.sentence.hasPrefix("Open. Log in in its Claude window"))
+        let connected = Card.of(name: "Work", needsLogin: false, isRunning: true, opened: true, othersOpen: [])
+        #expect(connected.sentence == "Connected. Continue whenever you like." && connected.button == nil)
+        #expect(Card.of(name: "Work", needsLogin: false, isRunning: false, opened: true, othersOpen: []).sentence == "Connected. Open it whenever you like.")
+        let opening = Card.of(name: "Work", needsLogin: true, isRunning: false, opened: true, othersOpen: [])
+        #expect([ready, opening, open, connected].map(\.phase) == [.ready, .opening, .open, .connected])
+    }
+
     /// How it works is drawn 1:1 inside the step's column: never scaled nor clipped, so its 3 point cells stay whole.
     /// The page, laid out as the guide lays it out (560 points wide), holds the scene drawn alone, pixel for pixel.
     @Test func howItWorksFitsTheColumnAtItsOwnSize() throws {

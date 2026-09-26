@@ -254,7 +254,9 @@ public struct OnboardingView: View {
     /// what to do next, whole, and the button that opens it on a row of its own: the check never draws over the button it
     /// replaces, and a sentence that goes gives way before the next one comes (`SwappingText`).
     func addedDetails(_ added: Account) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let card = AddedCard.of(name: added.identity.name, needsLogin: added.needsLogin, isRunning: added.isRunning,
+                                opened: model.openedAdded, othersOpen: model.othersOpen.map(\.identity.name))
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(added.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
                 Spacer(minLength: 8)
@@ -272,27 +274,45 @@ public struct OnboardingView: View {
                 .animation(Theme.Motion.layout(Theme.Motion.pop, reduceMotion), value: added.needsLogin)
                 .animation(Theme.Motion.layout(Theme.Motion.pop, reduceMotion), value: added.isRunning)
             }
-            SwappingText(text: Self.addedSentence(added, othersOpen: model.othersOpen.map(\.identity.name)))
+            SwappingText(text: card.sentence)
                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            if added.needsLogin && !added.isRunning {
-                Button(model.othersOpen.isEmpty ? "Open \(added.identity.name)" : "Quit Claude and open \(added.identity.name)") { model.openAddedAccount() }
+            // Gone from the click: the waiting line under the card says what runs (quitting the others, opening).
+            if let label = card.button {
+                Button(label) { model.openAddedAccount() }
                     .buttonStyle(.glassProminent).tint(Theme.Colors.button)
                     .padding(.top, 4)
                     .transition(SwapText.transition(reduceMotion))
             }
         }
-        // The card's height follows its sentence and its button as the account opens, then connects.
-        .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: added.isRunning)
-        .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: added.needsLogin)
+        // The card's height follows its sentence and its button as the account opens, then connects: the old words go
+        // first, the height settles, the new ones come in.
+        .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: card)
     }
 
-    /// What the added account's card says: what to do next.
-    static func addedSentence(_ added: Account, othersOpen: [String]) -> String {
-        if !added.needsLogin { return added.isRunning ? "Connected. Continue whenever you like." : "Connected. Open it whenever you like." }
-        if added.isRunning { return "Open. Log in in its Claude window (Google or email, like always): this card turns to Connected on its own." }
-        if othersOpen.isEmpty { return "Ready. Open it to log in." }
-        return "Ready. Claude is open for \(othersOpen.joined(separator: ", ")): it must be closed first, or the login would land in that window."
+    /// The added account's card: where it stands, what it says to do next, and its button while there is one to click.
+    /// Once "Open" (or "Quit Claude and open") is clicked, it never asks for it again: the account opens, then Claude's
+    /// window asks for the login.
+    struct AddedCard: Equatable {
+        enum Phase: Equatable { case ready, opening, open, connected }
+        let phase: Phase
+        let sentence: String
+        let button: String?
+
+        static func of(name: String, needsLogin: Bool, isRunning: Bool, opened: Bool, othersOpen: [String]) -> AddedCard {
+            if !needsLogin {
+                return AddedCard(phase: .connected, sentence: isRunning ? "Connected. Continue whenever you like." : "Connected. Open it whenever you like.", button: nil)
+            }
+            if isRunning {
+                return AddedCard(phase: .open, sentence: "Open. Log in in its Claude window (Google or email, like always): this card turns to Connected on its own.", button: nil)
+            }
+            if opened {
+                return AddedCard(phase: .opening, sentence: "Opening. Log in in its Claude window as it comes up (Google or email, like always): this card turns to Connected on its own.", button: nil)
+            }
+            if othersOpen.isEmpty { return AddedCard(phase: .ready, sentence: "Ready. Open it to log in.", button: "Open \(name)") }
+            return AddedCard(phase: .ready, sentence: "Ready. Claude is open for \(othersOpen.joined(separator: ", ")): it must be closed first, or the login would land in that window.",
+                             button: "Quit Claude and open \(name)")
+        }
     }
 
     /// Once the page has landed, the checks come in one by one down the list, then the creature by the way in hops with

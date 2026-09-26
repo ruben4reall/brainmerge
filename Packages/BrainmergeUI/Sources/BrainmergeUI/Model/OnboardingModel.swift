@@ -57,6 +57,7 @@ public final class OnboardingModel {
     public func addSecondAccount() async -> Bool {
         guard await app.add(secondAccount, open: false) else { return false }
         addedSlug = secondAccount.request.name.isEmpty ? nil : app.accounts.last?.id
+        openedAdded = false
         return addedSlug != nil
     }
 
@@ -70,10 +71,21 @@ public final class OnboardingModel {
     /// True the first time only: the Connected check of `slug` spreads its ring now.
     public func ringsForConnection(of slug: String) -> Bool { ringed.insert(slug).inserted }
 
-    public func openAddedAccount() {
-        guard let slug = addedSlug else { return }
-        if othersOpen.isEmpty { app.open(slug) } else { app.quitOthers(then: slug) }
+    /// Opens the account the step added, quitting the other Claude windows first when there are any. Remembered from the
+    /// click: its card never asks for it again (see `OnboardingView.AddedCard`), unless it could not be opened.
+    @discardableResult
+    public func openAddedAccount() -> Task<Void, Never>? {
+        guard let slug = addedSlug else { return nil }
+        openedAdded = true
+        let opening = othersOpen.isEmpty ? app.open(slug) : app.quitOthers(then: slug)
+        return Task {
+            await opening?.value
+            // It could not be opened (said in a message): its button comes back.
+            if !app.opening.contains(slug), addedAccount?.isRunning != true { openedAdded = false }
+        }
     }
+    /// The added account was opened from its card.
+    public private(set) var openedAdded = false
 
     public private(set) var gitFound = false
     public private(set) var claudeCodeFound = false
