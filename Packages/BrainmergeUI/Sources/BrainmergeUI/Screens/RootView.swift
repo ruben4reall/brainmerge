@@ -103,8 +103,8 @@ public struct RootView: View {
     }
 
     /// The guided setup, or the main window once everything is in place. Both while the guide ends: it fades out over the
-    /// main window (built under All set already) as the All set creature leaps into the sidebar, then goes. An unreadable list of accounts has its own
-    /// screen instead of either, fading in under the launch's leap like the main window.
+    /// main window (built under All set already) as the All set creature leaps into the sidebar, then goes. An unreadable
+    /// list of accounts has its own screen instead of either, fading in under the launch's leap like the main window.
     var screens: some View {
         ZStack {
             if let problem = model.stateProblem {
@@ -125,6 +125,17 @@ public struct RootView: View {
                     .allowsHitTesting(!preparing)
                     .accessibilityHidden(preparing)
                     .launchReveal(launch, role: .main)
+                    // A window opened with no splash (a demo, one reopened later): its content comes in over 0.18 s, never
+                    // a cut from nothing. A cover of the window's own background fades off it.
+                    .overlay {
+                        if let opened = parts.openedWithoutSplash {
+                            BeatView(start: opened, duration: WindowParts.appear) { elapsed in
+                                WarmBackground().opacity(1 - Ease.out(Ease.progress(elapsed ?? WindowParts.appear, from: 0, over: WindowParts.appear)))
+                                    .allowsHitTesting(false)
+                            }
+                            .accessibilityHidden(true)
+                        }
+                    }
                 }
                 if showsGuide || launch.leavingGuide {
                     OnboardingView(model: onboarding).launchReveal(launch, role: .guide)
@@ -248,6 +259,9 @@ public struct RootView: View {
 @MainActor final class WindowParts {
     private var onboarding: OnboardingModel?
     private var launch: LaunchClock?
+    /// When the window opened with no splash (not in a capture): its content fades in from there.
+    private(set) var openedWithoutSplash: Date?
+    static let appear = 0.18
 
     init(launch: LaunchClock? = nil) { self.launch = launch }
 
@@ -262,6 +276,7 @@ public struct RootView: View {
     func launch(for app: AppModel) -> LaunchClock {
         if let launch { return launch }
         let made = LaunchClock(finished: app.launchPhase == .ready)
+        if made.finished, !Theme.Motion.isCapture { openedWithoutSplash = Date() }
         launch = made
         return made
     }

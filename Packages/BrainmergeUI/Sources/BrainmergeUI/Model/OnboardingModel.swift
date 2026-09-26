@@ -172,6 +172,10 @@ public final class OnboardingModel {
     /// leaves nothing behind) and the first account are made on the core queue while the next step slides in. Its "Add
     /// account" waits for them (it is off while work runs). When they cannot be made, the guide comes back here and says why.
     public func finish() async {
+        // A second click while the first one's work runs changes nothing.
+        guard !finishing else { return }
+        finishing = true
+        defer { finishing = false }
         let brain = brainWork(), primary = primaryWork()
         next()
         if case .failure(let failure) = await app.outcome("Setting up your memory…", { try brain(); try primary() }) {
@@ -179,6 +183,7 @@ public final class OnboardingModel {
             error = AppModel.sentence(for: failure)
         }
     }
+    @ObservationIgnored private var finishing = false
 
     /// The already-installed Claude becomes the first account. If Claude Code has never run, its folder is created.
     public func adoptPrimary() throws {

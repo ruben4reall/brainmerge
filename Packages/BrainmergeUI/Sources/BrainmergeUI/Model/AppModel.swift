@@ -497,7 +497,10 @@ public final class AppModel {
         codeAccountsRead.formIntersection(state.identities.map(\.slug))
         readCodeAccounts(of: state.identities.filter { !codeAccountsRead.contains($0.slug) })
         // Accounts changed outside the app (`brainmerge add` in a terminal) count like a change made here: walked again.
-        if accounts.map(\.identity) != state.identities { diskChanged(); forgetLimits(outliving: state.identities) }
+        if accounts.map(\.identity) != state.identities {
+            diskChanged(); forgetLimits(outliving: state.identities)
+            if !otherAppsFound.isEmpty { otherAppsFound = [:] }
+        }
         set(\.accounts, state.identities.map { identity in
             let main = claudeApp.flatMap { app in snapshot.mains.first { ProcessMonitor.matches($0, identity: identity, paths: paths, claude: app) } }
             if let main { memory[identity.slug] = snapshot.memoryBytes(of: main.pid) }
@@ -588,8 +591,17 @@ public final class AppModel {
         accounts.first { $0.id == slug }?.identity.appURL(in: paths).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
     }
 
-    /// Apps the person made that also open this account (read off the main thread, never run). Nothing is stored:
-    /// the edit sheet asks each time it opens.
+    /// The apps made by hand that open each account, found ahead (the pointer over its card): "Edit…" then opens its sheet
+    /// at once. Looked for again after 30 s, and forgotten when the accounts change.
+    @ObservationIgnored private var otherAppsFound: [String: (apps: [ExistingApp], at: Date)] = [:]
+    public func knownOtherApps(_ slug: String) -> [ExistingApp]? { otherAppsFound[slug]?.apps }
+    public func prefetchOtherApps(_ slug: String) async {
+        if let known = otherAppsFound[slug], Date().timeIntervalSince(known.at) < 30 { return }
+        let apps = await otherApps(opening: slug)
+        otherAppsFound[slug] = (apps, Date())
+    }
+
+    /// Apps the person made that also open this account (read off the main thread, never run).
     public func otherApps(opening slug: String) async -> [ExistingApp] {
         guard let identity = accounts.first(where: { $0.id == slug })?.identity else { return [] }
         let scanner = ExistingApps(paths: paths, claudeAppURL: claudeAppURL, folders: appFolders)

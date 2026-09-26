@@ -106,11 +106,10 @@ struct ResourcesSection: View {
             .frame(width: Self.ramColumn, alignment: .trailing)
             .help(row.ramHelp ?? "")
             if bars { bar(row.fraction, color: color, height: 6).frame(width: Self.barColumn) }
-            // "Measuring…" gives way to the size in a crossfade. The RAM figures, redrawn every few seconds, never animate.
-            Text(row.disk ?? "").font(Theme.Fonts.body).monospacedDigit().lineLimit(1)
+            // "Measuring…" goes, then the size comes: never the two printed over each other. The RAM figures, redrawn every
+            // few seconds, never animate.
+            SwappingText(text: row.disk ?? "", alignment: .trailing).font(Theme.Fonts.body).monospacedDigit().lineLimit(1)
                 .foregroundStyle(row.diskIsFigure ? Theme.Colors.text : Theme.Colors.textFaint)
-                .contentTransition(.opacity)
-                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: row.disk)
                 .frame(width: Self.diskColumn, alignment: .trailing)
                 .help(row.diskHelp ?? "")
         }
@@ -119,17 +118,22 @@ struct ResourcesSection: View {
     }
 
     func footer(_ text: String) -> some View {
-        let when = model.diskMeasuring ? " Measuring the disk…"
-            : model.diskMeasuredAt.map { " Disk measured at \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
+        let when = model.diskMeasuring ? "Measuring the disk…"
+            : model.diskMeasuredAt.map { "Disk measured at \($0.formatted(date: .omitted, time: .shortened))." }
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
-            // While the disk is walked, a small spinner before the sentence.
-            HStack(alignment: .center, spacing: 6) {
-                if model.diskMeasuring { ProgressView().controlSize(.mini).transition(.fade(reduceMotion)) }
-                Text(text + when).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+            VStack(alignment: .leading, spacing: 2) {
+                SwappingText(text: text).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
+                // The disk's line has its room from the start: the card never grows as the sizes come. While the disk is
+                // walked, a small spinner before it.
+                HStack(alignment: .center, spacing: 6) {
+                    if model.diskMeasuring { ProgressView().controlSize(.mini).transition(.fade(reduceMotion)) }
+                    SwappingText(text: when ?? " ").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                }
+                .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.diskMeasuring)
             }
-            .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.diskMeasuring)
+            // A sentence that takes another line eases the card to its new height.
+            .animation(Theme.Motion.layout(Theme.Motion.out(0.22), reduceMotion), value: text)
             Spacer(minLength: 12)
             Button("Measure again") {
                 forcedWalk?.cancel()

@@ -8,9 +8,20 @@ struct ConnectionsSection: View {
     let account: Account
     /// The sheet's pick, not saved yet: the buttons act on the profile shown.
     @Binding var choice: BrowserChoice?
+    /// Brings a line that opened below the fold into view (the sheet's scroll view, by id).
+    var reveal: (String) -> Void = { _ in }
     /// Long lists of servers stay folded until asked for.
     @State private var showsServers = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// What opens under a line (the profile's buttons, the list of servers): it waits for its room, then fades in, so it
+    /// never prints over the lines it pushes down; it goes at once.
+    static func opens(_ reduceMotion: Bool) -> AnyTransition {
+        if reduceMotion { return .fade(true) }
+        return .asymmetric(insertion: AnyTransition.opacity.animation(Theme.Motion.out(0.16).delay(0.1 * Theme.Motion.slow)),
+                           removal: AnyTransition.opacity.animation(Theme.Motion.out(0.1)))
+    }
+    static let profileID = "connections.profile", serversEndID = "connections.servers.end"
 
     /// Past this many servers the list folds.
     nonisolated static func folds(serverCount: Int) -> Bool { serverCount > 6 }
@@ -37,7 +48,8 @@ struct ConnectionsSection: View {
                     }
                     faint(AppModel.browserGuide(account: account.identity.name))
                 }
-                .transition(.line(reduceMotion))
+                .id(Self.profileID)
+                .transition(Self.opens(reduceMotion))
             }
             HStack(spacing: 10) {
                 Button("Manage connectors") { model.manageConnectors(choice) }.buttonStyle(.glass).controlSize(.small)
@@ -52,6 +64,15 @@ struct ConnectionsSection: View {
         .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: choice)
         .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: serversRead)
         .task { await model.loadConnections() }
+        // What opens below the fold is brought into view once it has its room.
+        .onChange(of: choice) { _, choice in
+            guard model.openBrowserLabel(choice) != nil else { return }
+            Task { try? await Task.sleep(for: .seconds(0.22 * Theme.Motion.slow)); reveal(Self.profileID) }
+        }
+        .onChange(of: showsServers) { _, shows in
+            guard shows else { return }
+            Task { try? await Task.sleep(for: .seconds(0.22 * Theme.Motion.slow)); reveal(Self.serversEndID) }
+        }
     }
 
     @ViewBuilder var servers: some View {
@@ -73,10 +94,13 @@ struct ConnectionsSection: View {
                         }
                     }
                 }
+                Color.clear.frame(height: 1).id(Self.serversEndID)
             }
+            // Its groups and names start at the left edge, under the title, never centered in the sheet.
+            .frame(maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .leading, spacing: 8) {
                 if Self.folds(serverCount: count) {
-                    DisclosureGroup(isExpanded: $showsServers) { list.padding(.top, 4) } label: { title }
+                    DisclosureGroup(isExpanded: $showsServers) { list.padding(.top, 4).transition(Self.opens(reduceMotion)) } label: { title }
                         .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: showsServers)
                 } else {
                     title

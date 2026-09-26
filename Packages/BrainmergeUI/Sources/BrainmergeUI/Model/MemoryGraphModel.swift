@@ -27,12 +27,14 @@ public struct GraphCamera: Equatable, Sendable {
         CGPoint(x: (p.x - size.width / 2) / factor + center.x, y: (p.y - size.height / 2) / factor + center.y)
     }
     func clamped(_ value: CGFloat) -> CGFloat { min(max(value, zoomRange.lowerBound), zoomRange.upperBound) }
-    /// Frames a rectangle of the world in the view, with a margin.
-    public mutating func fit(_ rect: CGRect, in size: CGSize) {
+    /// Frames a rectangle of the world in the view, with a margin, between the strips `top` and `bottom` points high that
+    /// the view's chrome covers (the legend, the status and the controls float there).
+    public mutating func fit(_ rect: CGRect, in size: CGSize, top: CGFloat = 0, bottom: CGFloat = 0) {
         guard size.width > 0, size.height > 0 else { return }
-        center = CGPoint(x: rect.midX, y: rect.midY)
+        let height = max(1, size.height - top - bottom)
         let w = max(rect.width, 80), h = max(rect.height, 80)
-        scale = clamped(min(size.width / w, size.height / h) * 0.82 / unit)
+        scale = clamped(min(size.width / w, height / h) * 0.82 / unit)
+        center = CGPoint(x: rect.midX, y: rect.midY - (top - bottom) / 2 / factor)
     }
     /// Zooms while keeping the world point under the pointer where it is.
     public mutating func zoom(by factor: CGFloat, around pointer: CGPoint, in size: CGSize) {
@@ -126,6 +128,11 @@ public final class MemoryGraphModel {
     /// is drawn until then. With Reduce Motion, and in captures, it appears in place once settled instead.
     private(set) var bloom: GraphBloom?
     public private(set) var awaitingFirstLayout = false
+    /// The folder has been read once: until then the screen says nothing about it (not "No notes yet", not "0 notes").
+    public private(set) var hasRead = false
+    /// What the view's chrome covers, in points: the legend on top (a memory's), the status and the controls at the bottom.
+    public nonisolated static let chromeTop: CGFloat = 36, chromeBottom: CGFloat = 40
+    var chrome: (top: CGFloat, bottom: CGFloat) { (style == .vault ? 0 : Self.chromeTop, Self.chromeBottom) }
     /// When the first layout appeared in place (Reduce Motion): the graph fades in over 0.15 s from here.
     public private(set) var revealedAt: Date?
     /// The settling before the bloom, off the main thread.
@@ -272,6 +279,7 @@ public final class MemoryGraphModel {
         if first, style == .memory, !graph.nodes.isEmpty {
             if quiet { awaitingFirstLayout = true; settleQuietly() } else if blooms { prepareBloom() }
         }
+        if !hasRead { hasRead = true }
         if reduceMotion { settleQuietly() }
         animate()
     }
@@ -298,7 +306,7 @@ public final class MemoryGraphModel {
             // The graph changed meanwhile: it shows live instead.
             guard mine == self.layoutGeneration else { self.animate(); return }
             self.layout = settled
-            if self.viewSize != .zero { self.camera.fit(settled.bounds, in: self.viewSize) }
+            if self.viewSize != .zero { self.camera.fit(settled.bounds, in: self.viewSize, top: self.chrome.top, bottom: self.chrome.bottom) }
             self.fitted = true
             self.bloom = GraphBloom(ids: settled.ids, links: settled.linkIndices, positions: (0..<settled.count).map(settled.position(at:)),
                                     start: self.clock())
@@ -306,8 +314,9 @@ public final class MemoryGraphModel {
             self.animate()
         }
     }
-    /// How still the layout is when the bloom starts: what remains settles live.
-    nonisolated static let bloomAlpha = 0.05
+    /// How still the layout is when the bloom starts: what remains settles live, in about a second (at 0.05 it crept on
+    /// for three).
+    nonisolated static let bloomAlpha = 0.02
 
     /// Where a note is drawn now: on its way out of its hub while the bloom plays, else where the layout has it.
     public func drawnPosition(at i: Int, now: Date) -> CGPoint {
@@ -333,7 +342,7 @@ public final class MemoryGraphModel {
         graph = MemoryGraph(); authors = [:]; pulses = [:]; layout = GraphLayout(); adjacency = [:]; head = nil
         settings = ObsidianGraphSettings(); settingsStamp = nil; groupColors = [:]; weights = [:]; lineIndices = []; arrowIndices = []
         fades = [:]; lineFade = 1; fading = false
-        bloomTask?.cancel(); bloomTask = nil; bloom = nil; awaitingFirstLayout = false; revealedAt = nil
+        bloomTask?.cancel(); bloomTask = nil; bloom = nil; awaitingFirstLayout = false; revealedAt = nil; hasRead = false
         cameraTween = nil; tweenCamera = nil; hoverGraceTask?.cancel(); hoverGraceTask = nil
         var camera = GraphCamera()
         if newStyle == .vault { camera.unit = 1 / max(backingScale, 1); camera.zoomRange = GraphCamera.obsidianZoom }
@@ -528,7 +537,9 @@ public final class MemoryGraphModel {
             self.settleTask = nil
             guard mine == self.layoutGeneration else { self.settleQuietly(); return }
             self.layout = settled
-            if !self.fitted, self.viewSize != .zero { self.camera.fit(settled.bounds, in: self.viewSize); self.fitted = true }
+            if !self.fitted, self.viewSize != .zero {
+                self.camera.fit(settled.bounds, in: self.viewSize, top: self.chrome.top, bottom: self.chrome.bottom); self.fitted = true
+            }
             if self.awaitingFirstLayout { self.awaitingFirstLayout = false; self.revealedAt = self.clock() }
             self.frame &+= 1
         }
@@ -538,7 +549,7 @@ public final class MemoryGraphModel {
     public func fitNow() {
         guard layout.count > 0, viewSize != .zero else { return }
         var target = camera
-        target.fit(layout.bounds, in: viewSize)
+        target.fit(layout.bounds, in: viewSize, top: chrome.top, bottom: chrome.bottom)
         glide(to: target, kind: .fit)
     }
 
@@ -564,7 +575,7 @@ public final class MemoryGraphModel {
         if dragged != nil || (!quiet && !awaitingFirstLayout && bloom == nil && !layout.isSettled) { layout.step() }
         // A graph that was empty at first unfolds live: until the person moves around, the camera follows it.
         if !fitted, !quiet, !awaitingFirstLayout, layout.count > 0, viewSize != .zero {
-            camera.fit(layout.bounds, in: viewSize)
+            camera.fit(layout.bounds, in: viewSize, top: chrome.top, bottom: chrome.bottom)
             if layout.isSettled { fitted = true }
         }
         // A glide goes on only while nothing else moved the camera.

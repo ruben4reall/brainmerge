@@ -30,6 +30,8 @@ public struct UsageView: View {
                         .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.usageRefreshing)
                     }
                     .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+                    // Goes as the first cards come, never cut.
+                    .transition(AnyTransition.opacity.animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion)))
                 }
                 // The first read comes in card by card, 50 ms apart; a later visit finds them in place.
                 ForEach(Array(model.usage.enumerated()), id: \.element.id) { index, entry in
@@ -84,11 +86,11 @@ public struct UsageView: View {
                     HStack(alignment: .top, spacing: 28) {
                         figures(entry.summary)
                         Spacer(minLength: 16)
-                        sparkline(entry.summary.byDay, card: index, arrivedAt: arrivedAt).frame(width: 220, height: 44)
+                        Sparkline(days: entry.summary.byDay, card: index, arrivedAt: arrivedAt).frame(width: 220, height: 44)
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .top, spacing: 28) { figures(entry.summary) }
-                        sparkline(entry.summary.byDay, card: index, arrivedAt: arrivedAt).frame(maxWidth: 360).frame(height: 36)
+                        Sparkline(days: entry.summary.byDay, card: index, arrivedAt: arrivedAt).frame(maxWidth: 360).frame(height: 36)
                     }
                 }
                 HStack(alignment: .top, spacing: 24) {
@@ -213,18 +215,32 @@ public struct UsageView: View {
         .frame(maxWidth: 300, alignment: .leading)
     }
 
-    /// Fourteen bars, one per day, the most recent on the right. With the first read they grow from a 2 point baseline,
-    /// left to right, today's last; a later read moves them to their new height in 0.3 s.
-    func sparkline(_ days: [UsageSummary.Bucket], card: Int, arrivedAt: Date?) -> some View {
+}
+
+/// Fourteen bars, one per day, the most recent on the right. With the first read they grow from a 2 point baseline, left
+/// to right, today's last, when the chart is first seen: below the fold at the arrival, they wait at their baseline until
+/// it scrolls into view. A later read moves them to their new height in 0.3 s; a later visit finds them in place.
+struct Sparkline: View {
+    let days: [UsageSummary.Bucket]
+    let card: Int
+    let arrivedAt: Date?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var built = Date()
+    @State private var seen: Date?
+
+    var body: some View {
         let maxValue = max(1, days.map(\.output).max() ?? 1)
         let delay = UsageMotion.cardDelay(card)
+        let origin = Beat.visibleOrigin(arrived: arrivedAt, built: built, seen: seen)
+        let start: Date? = if case .from(let date) = origin { date } else { nil }
+        let waiting = origin == .waiting && !Theme.Motion.isCapture
         return GeometryReader { geometry in
             let slot = geometry.size.width / CGFloat(max(1, days.count))
-            BeatView(start: arrivedAt, duration: delay + UsageMotion.barsDuration) { elapsed in
+            BeatView(start: start, duration: delay + UsageMotion.barsDuration) { elapsed in
                 ZStack(alignment: .bottomLeading) {
                     ForEach(Array(days.enumerated()), id: \.offset) { index, day in
                         let height = UsageMotion.barHeight(fraction: Double(day.output) / Double(maxValue), height: geometry.size.height,
-                                                           index: index, elapsed: elapsed.map { $0 - delay }, reduceMotion: reduceMotion)
+                                                           index: index, elapsed: waiting ? 0 : elapsed.map { $0 - delay }, reduceMotion: reduceMotion)
                         RoundedRectangle(cornerRadius: 2, style: .continuous)
                             .fill(index == days.count - 1 ? Theme.Colors.accent : Theme.Colors.accentSoft)
                             .frame(width: max(0, slot - 4), height: height)
@@ -234,6 +250,15 @@ public struct UsageView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .bottomLeading)
                 .animation(Theme.Motion.layout(Theme.Motion.out(UsageMotion.update), reduceMotion), value: days.map(\.output))
             }
+        }
+        // Half of it in the scroll view's bounds counts as seen (no scroll view: seen at once).
+        .onGeometryChange(for: Bool.self) { proxy in
+            guard let visible = proxy.bounds(of: .scrollView) else { return true }
+            let mine = CGRect(origin: .zero, size: proxy.size)
+            let shown = mine.intersection(visible)
+            return !shown.isNull && shown.height >= mine.height / 2
+        } action: { visible in
+            if visible, seen == nil { seen = Date() }
         }
         .accessibilityElement()
         .accessibilityLabel("Output tokens per day, last 14 days")

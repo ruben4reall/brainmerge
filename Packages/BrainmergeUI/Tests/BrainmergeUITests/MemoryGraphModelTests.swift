@@ -55,6 +55,54 @@ import BrainmergeTestSupport
         #expect(model.lastChange != nil)
     }
 
+    /// Before the first read the graph says nothing: never "No notes yet" and "0 notes" for a memory that has some.
+    @Test func theGraphSaysNothingBeforeItsFirstRead() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try brain(home)
+        let model = MemoryGraphModel(animates: false)
+        #expect(!model.hasRead)
+        #expect(!MemoryGraphView.showsEmptyState(hasRead: false, noteCount: 0, awaitingFirstLayout: false))
+        #expect(MemoryGraphView.statusCounts(hasRead: false, notes: 0, projects: 0, links: 0, vault: false, truncated: false) == nil)
+        await model.refresh(root: brain.root)
+        #expect(model.hasRead)
+        #expect(MemoryGraphView.showsEmptyState(hasRead: true, noteCount: 0, awaitingFirstLayout: false))
+        #expect(!MemoryGraphView.showsEmptyState(hasRead: true, noteCount: 0, awaitingFirstLayout: true))
+        #expect(!MemoryGraphView.showsEmptyState(hasRead: true, noteCount: 3, awaitingFirstLayout: false))
+        #expect(MemoryGraphView.statusCounts(hasRead: true, notes: 16, projects: 4, links: 28, vault: false, truncated: false)
+                == "16 notes · 4 projects · 28 links")
+        // Another memory starts over: nothing said until it is read.
+        await model.refresh(root: nil)
+        #expect(!model.hasRead)
+    }
+
+    /// The bloom's layout settles further out of sight: what is left settles on screen in about a second, not three.
+    @Test func theBloomLeavesLittleToSettle() {
+        #expect(MemoryGraphModel.bloomAlpha <= 0.02)
+    }
+
+    /// Hovering one note dims the rest: a hub's name steps back with its bubble (never below 45%), a note's goes with it.
+    @Test func dimmedHubsStepBack() {
+        #expect(GraphCanvas.labelAlpha(hub: true, fade: 1, bloom: 1) == 1)
+        #expect(abs(GraphCanvas.labelAlpha(hub: true, fade: MemoryGraphModel.memoryDimmed, bloom: 1) - 0.45) < 1e-9)
+        #expect(GraphCanvas.labelAlpha(hub: true, fade: 1, bloom: 0.5) == 0.5)
+        #expect(GraphCanvas.labelAlpha(hub: false, fade: MemoryGraphModel.memoryDimmed, bloom: 1) == 0)
+        #expect(GraphCanvas.labelAlpha(hub: false, fade: 1, bloom: 1) == 1)
+    }
+
+    /// The legend on top and the status and controls at the bottom float over the graph: Fit frames it between them, and
+    /// no label is placed under them.
+    @Test func theChromeStaysClearOfTheGraph() {
+        var camera = GraphCamera()
+        let size = CGSize(width: 800, height: 500), rect = CGRect(x: -300, y: -200, width: 600, height: 400)
+        camera.fit(rect, in: size, top: MemoryGraphModel.chromeTop, bottom: MemoryGraphModel.chromeBottom)
+        let top = camera.toScreen(CGPoint(x: rect.midX, y: rect.minY), in: size).y
+        let bottom = camera.toScreen(CGPoint(x: rect.midX, y: rect.maxY), in: size).y
+        #expect(top >= MemoryGraphModel.chromeTop && bottom <= size.height - MemoryGraphModel.chromeBottom, "\(top) \(bottom)")
+        #expect(GraphCanvas.underChrome(CGRect(x: 100, y: 10, width: 60, height: 14), size: size, top: 36, bottom: 40))
+        #expect(GraphCanvas.underChrome(CGRect(x: 100, y: 470, width: 60, height: 14), size: size, top: 36, bottom: 40))
+        #expect(!GraphCanvas.underChrome(CGRect(x: 100, y: 200, width: 60, height: 14), size: size, top: 36, bottom: 40))
+    }
+
     @Test func anotherMemoryStartsAFreshGraph() async throws {
         let home = try TempHome(); defer { home.remove() }
         let brain = try brain(home)

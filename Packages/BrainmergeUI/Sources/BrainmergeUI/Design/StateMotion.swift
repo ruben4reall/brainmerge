@@ -10,6 +10,26 @@ enum Beat {
     static func elapsed(since start: Date?, at date: Date) -> Double? {
         start.map { max(0, date.timeIntervalSince($0)) / Theme.Motion.slow }
     }
+
+    /// Where a beat counts from in a view whose first frame came at `firstFrame`: that frame, when it came late for a beat
+    /// that had just started (a hitch as the screen was built would otherwise eat its entrance); the beat's own start when
+    /// the view came long after (a later visit finds it over).
+    static let lateFrameGrace = 0.5
+    static func origin(start: Date?, firstFrame: Date?) -> Date? {
+        guard let start else { return nil }
+        guard let firstFrame, firstFrame > start, firstFrame.timeIntervalSince(start) < lateFrameGrace * Theme.Motion.slow else { return start }
+        return firstFrame
+    }
+
+    /// Where the beat of something built with an arrival but maybe out of sight (a chart below the fold) counts from.
+    enum Visible: Equatable { case inPlace, waiting, from(Date) }
+    static func visibleOrigin(arrived: Date?, built: Date, seen: Date?) -> Visible {
+        guard let arrived else { return .inPlace }
+        // Built on a later visit: the beat is long over.
+        guard built.timeIntervalSince(arrived) < 1 else { return .from(arrived) }
+        guard let seen else { return .waiting }
+        return .from(max(arrived, seen))
+    }
 }
 
 /// The frames a beat asks for: sixty a second from its start until it ends, then none, so its last frame holds and a
@@ -31,14 +51,20 @@ struct BeatSchedule: TimelineSchedule {
     }
 }
 
-/// Draws a beat from its elapsed time (nil: none seen, or a capture): the view only draws frames.
+/// Draws a beat from its elapsed time (nil: none seen, or a capture): the view only draws frames. A first frame that came
+/// late counts as the beat's start (`Beat.origin`): the whole beat still plays.
 struct BeatView<Content: View>: View {
     let start: Date?
     let duration: Double
     @ViewBuilder let content: (Double?) -> Content
+    /// When this view was first drawn: kept outside observation, set once.
+    @State private var drawn = FirstDraw()
+
+    final class FirstDraw { var date: Date? }
 
     var body: some View {
-        let start = Theme.Motion.isCapture ? nil : self.start
+        let first = drawn.date ?? { let now = Date(); drawn.date = now; return now }()
+        let start = Theme.Motion.isCapture ? nil : Beat.origin(start: self.start, firstFrame: first)
         TimelineView(BeatSchedule(start: start, duration: duration)) { context in
             content(Beat.elapsed(since: start, at: context.date))
         }

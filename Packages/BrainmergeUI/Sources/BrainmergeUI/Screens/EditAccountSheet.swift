@@ -49,13 +49,19 @@ public struct EditAccountSheet: View {
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
-            // Past its limit the sections scroll, so Save and Cancel always stay on screen.
-            ScrollView {
-                sections.frame(maxWidth: .infinity, alignment: .leading)
+            // Past its limit the sections scroll, so Save and Cancel always stay on screen. What opens below the fold (a
+            // profile's buttons, the list of servers) is brought into view.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    sections { id in
+                        withAnimation(Theme.Motion.layout(Theme.Motion.out(0.3), reduceMotion)) { proxy.scrollTo(id, anchor: .bottom) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: Self.maxSectionsHeight)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(maxHeight: Self.maxSectionsHeight)
-            .fixedSize(horizontal: false, vertical: true)
             ProblemLine(problem: problem)
             HStack(spacing: 10) {
                 WorkingLine(text: model.working)
@@ -77,7 +83,7 @@ public struct EditAccountSheet: View {
         }
     }
 
-    @ViewBuilder var sections: some View {
+    @ViewBuilder func sections(reveal: @escaping (String) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             labeled("Name") {
                 TextField("Name", text: $edit.name).textFieldStyle(.plain).font(Theme.Fonts.body)
@@ -130,7 +136,7 @@ public struct EditAccountSheet: View {
                     }
                 }
             }
-            labeled("Connections") { ConnectionsSection(model: model, account: current, choice: $edit.browser) }
+            labeled("Connections") { ConnectionsSection(model: model, account: current, choice: $edit.browser, reveal: reveal) }
             if let note = otherAppNote {
                 labeled("Apps you made") { otherAppLines(note) }
             }

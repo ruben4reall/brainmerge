@@ -1085,6 +1085,22 @@ import BrainmergeTestSupport
         #expect(late.showsMenuBarIcon && !late.launchSettling)
     }
 
+    /// The apps made by hand that open an account are looked for before "Edit…" is chosen (the pointer over its card): the
+    /// sheet then opens at once. A change to the accounts looks again.
+    @Test func theAppsOfAnAccountAreFoundBeforeItsSheetOpens() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let m = model(e)
+        m.reload()
+        #expect(m.knownOtherApps("work") == nil)
+        await m.prefetchOtherApps("work")
+        #expect(m.knownOtherApps("work") != nil)
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Studio"))
+        m.reload()
+        #expect(m.knownOtherApps("work") == nil)
+    }
+
     /// The switch is saved after any work already on the core queue (a rebuild saves the state too), and a reload in
     /// between does not flip it back.
     @Test func theSwitchHoldsWhileItsSaveWaitsForTheCoreQueue() async throws {

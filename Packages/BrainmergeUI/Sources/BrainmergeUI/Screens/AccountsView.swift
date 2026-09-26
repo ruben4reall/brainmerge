@@ -185,11 +185,19 @@ public struct AccountsView: View {
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
         }
         .contextMenu { actions(account) }
+        // The apps made by hand for the account are looked for as the pointer comes: "Edit…" opens its sheet at once.
+        .onHover { inside in if inside { Task { await model.prefetchOtherApps(account.id) } } }
     }
 
-    /// The sheet opens once the apps made by hand for the account are known (a few milliseconds): it opens at its full
-    /// size, and nothing moves under the pointer afterwards.
+    /// The sheet opens with the apps made by hand for the account already known (looked for as the pointer came over the
+    /// card): at once and at its full size, nothing moving under the pointer afterwards. Not known yet (the keyboard, the
+    /// edit screen at launch): found first, a few milliseconds.
     func startEditing(_ account: Account) {
+        if let known = model.knownOtherApps(account.id) {
+            editingApps = known
+            editing = account
+            return
+        }
         Task {
             editingApps = await model.otherApps(opening: account.id)
             editing = account

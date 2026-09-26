@@ -176,6 +176,18 @@ import BrainmergeTestSupport
         #expect(app.accounts.first?.identity.name == "Ruben")
     }
 
+    /// A second click on "Continue" while the first one's work runs changes nothing: one step on, one account.
+    @Test func aSecondClickWhileTheMemoryIsMadeChangesNothing() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        onboarding.step = .adopt
+        onboarding.primaryName = "Ruben"
+        async let first: Void = onboarding.finish()
+        async let second: Void = onboarding.finish()
+        _ = await (first, second)
+        #expect(onboarding.step == .secondAccount && onboarding.error == nil)
+        #expect(app.accounts.count == 1)
+    }
+
     /// When the memory cannot be made, the guide comes back to the first account and says why.
     @Test func aFailedSetupComesBackToTheFirstAccount() async throws {
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }

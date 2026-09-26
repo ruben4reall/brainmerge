@@ -15,10 +15,16 @@ struct SidebarRowStyle: ButtonStyle {
     /// A disabled row (an account opening or being updated) looks inactive instead of silently ignoring clicks.
     static let disabledOpacity = 0.75
 
-    /// The fill's change: a press shows at once (it answers the click), its release, the hover and the selection take
-    /// 0.12 s. Nothing with Reduce Motion: a color that follows the pointer needs no fade.
+    /// The pointer's fill: a press shows at once (it answers the click), its release and the hover take 0.12 s. Nothing
+    /// with Reduce Motion: a color that follows the pointer needs no fade.
     nonisolated static func fillAnimation(pressed: Bool, reduceMotion: Bool) -> Animation? {
         pressed || reduceMotion ? nil : Theme.Motion.out(Theme.Motion.hover)
+    }
+    /// The selection moves with the screen, at once: the pill never lags behind the screen it names.
+    nonisolated static let selectionAnimation: Animation? = nil
+    /// The fill under the pointer: pressed, hovered, or none.
+    nonisolated static func pointerFill(pressed: Bool, hovering: Bool) -> Color {
+        pressed ? Theme.Colors.rowPressed : hovering ? Theme.Colors.rowHover : .clear
     }
 
     func makeBody(configuration: Configuration) -> some View { Row(configuration: configuration, selected: selected) }
@@ -30,12 +36,8 @@ struct SidebarRowStyle: ButtonStyle {
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-        var fill: Color {
-            if selected { return Theme.Colors.selection }
-            if configuration.isPressed { return Theme.Colors.rowPressed }
-            if hovering { return Theme.Colors.rowHover }
-            return .clear
-        }
+        /// Under the selection, nothing: the purple keeps its one shade.
+        var pointer: Color { selected ? .clear : SidebarRowStyle.pointerFill(pressed: configuration.isPressed, hovering: hovering) }
 
         var body: some View {
             let shape = RoundedRectangle(cornerRadius: Theme.Layout.rowRadius, style: .continuous)
@@ -43,7 +45,12 @@ struct SidebarRowStyle: ButtonStyle {
                 .environment(\.sidebarRowHovered, hovering)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(shape)
-                .background { shape.fill(fill).animation(SidebarRowStyle.fillAnimation(pressed: configuration.isPressed, reduceMotion: reduceMotion), value: fill) }
+                .background {
+                    ZStack {
+                        shape.fill(pointer).animation(SidebarRowStyle.fillAnimation(pressed: configuration.isPressed, reduceMotion: reduceMotion), value: pointer)
+                        shape.fill(Theme.Colors.selection).opacity(selected ? 1 : 0).animation(SidebarRowStyle.selectionAnimation, value: selected)
+                    }
+                }
                 .opacity(isEnabled ? 1 : SidebarRowStyle.disabledOpacity)
                 .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: isEnabled)
                 // Screenshots never show a stray highlight where the pointer happens to rest.

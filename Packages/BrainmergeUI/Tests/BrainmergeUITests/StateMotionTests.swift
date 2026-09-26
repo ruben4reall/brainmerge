@@ -35,6 +35,27 @@ import Testing
         #expect(low.count == 3 && low[1] >= start.addingTimeInterval(0.5) && low[2] == .distantFuture)
     }
 
+    /// A screen whose first frame comes late (a hitch as it is built) still plays its beat whole: the beat counts from that
+    /// frame. A screen seen long after (a later visit) finds it over.
+    @Test func aLateFirstFrameStillPlaysTheWholeBeat() {
+        #expect(Beat.origin(start: start, firstFrame: start.addingTimeInterval(0.11)) == start.addingTimeInterval(0.11))
+        #expect(Beat.origin(start: start, firstFrame: start.addingTimeInterval(5)) == start)
+        #expect(Beat.origin(start: start, firstFrame: nil) == start)
+        #expect(Beat.origin(start: nil, firstFrame: start) == nil)
+    }
+
+    /// A chart that arrives below the fold grows when it is first seen, not offscreen; built on a later visit, it is in place.
+    @Test func aChartGrowsWhenItIsFirstSeen() {
+        let arrived = start
+        // Built with the arrival, not seen yet: waiting at its baseline.
+        #expect(Beat.visibleOrigin(arrived: arrived, built: arrived.addingTimeInterval(0.05), seen: nil) == .waiting)
+        #expect(Beat.visibleOrigin(arrived: arrived, built: arrived.addingTimeInterval(0.05), seen: arrived.addingTimeInterval(4)) == .from(arrived.addingTimeInterval(4)))
+        #expect(Beat.visibleOrigin(arrived: arrived, built: arrived.addingTimeInterval(0.05), seen: arrived.addingTimeInterval(0.05)) == .from(arrived.addingTimeInterval(0.05)))
+        // A later visit, or nothing arrived: in place.
+        #expect(Beat.visibleOrigin(arrived: arrived, built: arrived.addingTimeInterval(30), seen: arrived.addingTimeInterval(31)) == .from(arrived))
+        #expect(Beat.visibleOrigin(arrived: nil, built: arrived, seen: nil) == .inPlace)
+    }
+
     // MARK: M1, an account opening
 
     /// The stroke turns once every 1.6 s from its own start; captures and Reduce Motion hold it at 35 degrees.
@@ -215,10 +236,15 @@ import Testing
 
     // MARK: E4 to E6, the sidebar
 
-    /// Press in at once; release, hover and selection in 0.12 s; nothing with Reduce Motion.
+    /// Press in at once; release and hover in 0.12 s; nothing with Reduce Motion. The selection moves with the screen, at
+    /// once: the pill never lags behind the screen it names.
     @Test func aPressIsInstantAndTheRestTakesTwelveHundredths() {
         #expect(SidebarRowStyle.fillAnimation(pressed: true, reduceMotion: false) == nil)
         #expect(SidebarRowStyle.fillAnimation(pressed: false, reduceMotion: false) == Theme.Motion.out(Theme.Motion.hover))
         #expect(SidebarRowStyle.fillAnimation(pressed: false, reduceMotion: true) == nil)
+        #expect(SidebarRowStyle.selectionAnimation == nil)
+        #expect(SidebarRowStyle.pointerFill(pressed: false, hovering: true) == Theme.Colors.rowHover)
+        #expect(SidebarRowStyle.pointerFill(pressed: true, hovering: true) == Theme.Colors.rowPressed)
+        #expect(SidebarRowStyle.pointerFill(pressed: false, hovering: false) == .clear)
     }
 }
