@@ -19,6 +19,11 @@
 - **A save cut short is caught up.** A save stopped right after its commit (a terminal tab closed, a shutdown) no longer leaves git's index behind for good, where a plain commit of yours could have put the old text back.
 - **Notes no turn will save are saved under their account's name.** A turn stopped with Esc skips Claude Code's Stop hook, and an account used only in the chat never runs it: their notes waited for good. Once quiet for ten minutes with no session running, the minute pass saves them under that account's name.
 - **One Claude Code folder, one account.** Adding an account on a folder another account already uses (the first account's `~/.claude`, or another account's folder) is refused: its hooks would have signed the other's notes.
+- **A note full of broken links no longer freezes the graph.** A long line with many unclosed `](` links took minutes to read. Each line is now read once.
+- **Lighter reads.** The usage reader steps over the text it skips instead of decoding it, project links are looked up once instead of once per project, the list of projects is written only when it changed (it was rewritten every minute), the Tidy tab groups notes by folder in one pass, the graph is not rebuilt when nothing changed and never walks into another disk, and Brainmerge looks for copies of Claude elsewhere only when Claude is not at its usual place.
+- **Usage counts a replayed message once.** A message Claude Code wrote again later in its transcript was counted twice. `brainmerge usage` also counts a shared history once, as the Usage screen does.
+- **A note change works with the account open.** The note is shown only in Brainmerge, so changing it no longer rebuilds the account's app nor asks you to quit it.
+- **No two accounts share an app.** A name like "Work (Claude)" is refused while an account named Work exists, since it would be the path of Work's tinted copy.
 
 ## 0.6.0 (2026-09-26)
 
