@@ -25,4 +25,18 @@ import Testing
         #expect(!f.hasUsage)
         #expect(UsageReader.sample(from: f, project: "p") == nil)
     }
+
+    /// Kept strings are unescaped like JSON does, surrogate pairs included; skipped ones are only stepped over, however
+    /// long and however escaped (a Write's whole text in a tool input).
+    @Test func stringsAreUnescapedOrSkippedCheaply() {
+        let f = fields(#"{"cwd": "/Users/r/caf\u00e9 \"q\"\\x\/y\n\ud83e\udd8a", "type": "assistant"}"#)
+        #expect(f.cwd == "/Users/r/café \"q\"\\x/y\n🦊" && f.type == "assistant")
+        let body = String(repeating: #"line \"quoted\" \\ \n"#, count: 200_000)
+        let line = #"{"type": "assistant", "message": {"id": "msg_9", "content": [{"type": "tool_use", "input": {"content": ""# + body + #""}}], "usage": {"output_tokens": 7}}}"#
+        let start = Date()
+        let big = fields(line)
+        #expect(Date().timeIntervalSince(start) < 2)
+        #expect(big.messageID == "msg_9" && big.output == 7)
+    }
+
 }
