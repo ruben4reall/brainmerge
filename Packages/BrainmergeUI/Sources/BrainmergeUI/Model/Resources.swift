@@ -1,20 +1,27 @@
 import Foundation
 import BrainmergeCore
 
-/// Sizes for people, with a point for decimals whatever the Mac's language (String(format:) is not localized, unlike
-/// ByteCountFormatter, which printed "1,3 GB" in the English interface of a French Mac).
+/// Sizes for people, with a point for decimals whatever the Mac's language: every number is written through
+/// en_US_POSIX, never through the Mac's locale or C's (ByteCountFormatter printed "1,3 GB" in the English interface of
+/// a French Mac).
 public enum ByteFormat {
     static let mib = 1024.0 * 1024
     static let gib = mib * 1024
+    /// The one locale sizes are written in: the interface is English on every Mac.
+    static let locale = Locale(identifier: "en_US_POSIX")
 
     /// RAM in binary units, like Activity Monitor and About This Mac: whole MB under 1 GB, then one decimal.
-    public static func ram(_ bytes: Int64) -> String {
-        size(bytes, mega: mib, giga: gib, tera: nil)
-    }
+    public static func ram(_ bytes: Int64) -> String { ram(bytes, locale: locale) }
 
     /// Disk space in decimal units, like Finder: whole MB under 1 GB, one decimal in GB, then TB.
-    public static func disk(_ bytes: Int64) -> String {
-        size(bytes, mega: 1e6, giga: 1e9, tera: 1e12)
+    public static func disk(_ bytes: Int64) -> String { disk(bytes, locale: locale) }
+
+    /// The same, written through `locale` (tests show the pin is what keeps the point).
+    static func ram(_ bytes: Int64, locale: Locale) -> String {
+        size(bytes, mega: mib, giga: gib, tera: nil, locale: locale)
+    }
+    static func disk(_ bytes: Int64, locale: Locale) -> String {
+        size(bytes, mega: 1e6, giga: 1e9, tera: 1e12, locale: locale)
     }
 
     /// The Mac's RAM as Apple says it: "18 GB".
@@ -29,7 +36,7 @@ public enum ByteFormat {
         return value == 0 ? "< 1%" : "\(Int(value))%"
     }
 
-    private static func size(_ bytes: Int64, mega: Double, giga: Double, tera: Double?) -> String {
+    private static func size(_ bytes: Int64, mega: Double, giga: Double, tera: Double?, locale: Locale) -> String {
         guard bytes > 0 else { return "0 GB" }
         let value = Double(bytes)
         if value < mega { return "< 1 MB" }
@@ -37,8 +44,8 @@ public enum ByteFormat {
         let megas = (value / mega).rounded()
         if megas < giga / mega { return "\(Int(megas)) MB" }
         let gigas = (value / giga * 10).rounded() / 10
-        if let tera, gigas >= tera / giga { return String(format: "%.1f TB", value / tera) }
-        return String(format: "%.1f GB", gigas)
+        if let tera, gigas >= tera / giga { return String(format: "%.1f TB", locale: locale, value / tera) }
+        return String(format: "%.1f GB", locale: locale, gigas)
     }
 }
 
