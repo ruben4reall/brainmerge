@@ -256,14 +256,19 @@ public struct MemoryView: View {
         HStack(alignment: .center, spacing: 14) {
             OrbView(name: event.name, tint: event.tint, size: 30)
             VStack(alignment: .leading, spacing: 3) {
+                // In the theme's cream, like the rest of the row: in the primary color, inside the glass, the words were
+                // drawn apart (vibrant) and slid on their own, faster than their detail line, over it.
                 Text("\(Text(event.name).fontWeight(.semibold)) \(event.sentence)")
-                    .font(Theme.Fonts.body)
+                    .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.text)
                 Text(event.detail).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
             }
             Spacer()
             Text(Self.relative(event.date)).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+        // One piece as it slides down under a new save: its words, their detail line, its orb and its date move together.
+        // Each on its own, the words ran ahead of their detail line and were drawn over it.
+        .geometryGroup()
         // Inset like the sidebar's selection, so the first row's color stays inside the card's rounded corners.
         .background {
             BeatView(start: arrived, duration: Highlight.duration) { elapsed in

@@ -5,19 +5,24 @@ import SwiftUI
 /// A view filmed the way a window draws it, frame by frame, in a window placed off every screen (see
 /// `TimelineDrawingTests.window`): what really moves, and when, as the main run loop runs. In the light appearance, on a
 /// mid-gray ground, the glass is not drawn but every word is: black words darker than the ground, cream ones lighter.
+/// In the app's own dark appearance, on its background, the words inside glass in the primary color are drawn apart
+/// (vibrant) and a shot does not hold them; words in one of the theme's colors are drawn with the rest.
 @MainActor final class Film {
-    /// The ground: #777777.
+    /// The light ground, #777777, and the app's dark background, #1A1918.
     nonisolated static let ground: CGFloat = 0.467
+    nonisolated static let darkGround: CGFloat = 0.098
     let window: NSWindow
+    let ground: CGFloat
 
     /// `view` pinned to the top left of a `size` window.
-    init<V: View>(_ view: V, size: CGSize) {
+    init<V: View>(_ view: V, size: CGSize, dark: Bool = false) {
+        ground = dark ? Self.darkGround : Self.ground
         let root = view
             .frame(width: size.width, height: size.height, alignment: .topLeading)
-            .background(Color(white: Self.ground))
-            .environment(\.colorScheme, .light)
+            .background(dark ? Theme.Colors.background : Color(white: Self.ground))
+            .environment(\.colorScheme, dark ? .dark : .light)
         window = TimelineDrawingTests.window(for: root)
-        window.appearance = NSAppearance(named: .aqua)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.setContentSize(size)
     }
 
@@ -56,12 +61,13 @@ import SwiftUI
         let view = window.contentView!
         let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
         view.cacheDisplay(in: view.bounds, to: rep)
-        return Shot(rep: rep)
+        return Shot(rep: rep, ground: ground)
     }
 
     /// One frame: its pixels read as luminance, 0 black to 1 white, (0, 0) at the top left.
     struct Shot {
         let rep: NSBitmapImageRep
+        var ground: CGFloat = Film.ground
         var width: Int { rep.pixelsWide }
         var height: Int { rep.pixelsHigh }
         /// Pixels per point.
@@ -73,14 +79,14 @@ import SwiftUI
                 let pixel = data + y * rep.bytesPerRow + x * (rep.bitsPerPixel / 8) + first
                 return (0.299 * CGFloat(pixel[0]) + 0.587 * CGFloat(pixel[1]) + 0.114 * CGFloat(pixel[2])) / 255
             }
-            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return Film.ground }
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return ground }
             return 0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
         }
 
         /// How much darker than the ground: a black word at full strength is about 0.45.
-        func dark(_ x: Int, _ y: Int) -> CGFloat { max(0, Film.ground - luma(x, y)) }
+        func dark(_ x: Int, _ y: Int) -> CGFloat { max(0, ground - luma(x, y)) }
         /// How much lighter than the ground: a cream word at full strength is about 0.45, a muted one about 0.3.
-        func light(_ x: Int, _ y: Int) -> CGFloat { max(0, luma(x, y) - Film.ground) }
+        func light(_ x: Int, _ y: Int) -> CGFloat { max(0, luma(x, y) - ground) }
         func ink(_ tone: Tone, _ x: Int, _ y: Int) -> CGFloat { tone == .dark ? dark(x, y) : light(x, y) }
 
         /// The pixels of `rect` in `tone` by more than `threshold`.
