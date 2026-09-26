@@ -11,6 +11,16 @@ import BrainmergeCore
         #expect(form.validate(existing: [Identity(slug: "client", name: "client")]) == "There is already an account called Client. Pick another name.")
         #expect(form.validate(existing: []) == nil)
     }
+
+    /// A shared history with another memory would make the two memories fight over the same project links.
+    @Test func sharedHistoryNeedsTheSharedMemory() {
+        var form = AddAccountForm(); form.name = "Client"; form.sharedHistory = true
+        #expect(form.validate(existing: []) == nil)
+        form.memory = .own
+        #expect(form.validate(existing: []) == "A shared conversation history needs the memory shared with your other accounts. Turn one of them off.")
+        form.memory = .existing("work")
+        #expect(form.validate(existing: []) != nil)
+    }
     @Test func requestCarriesEveryField() {
         var form = AddAccountForm()
         form.name = " Client Studio "; form.tint = .purple; form.note = "Client"; form.sharedHistory = true; form.distinctIcon = true

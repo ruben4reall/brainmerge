@@ -590,7 +590,7 @@ import BrainmergeTestSupport
         var request = IdentityManager.AddRequest(name: "Agency")
         request.logo = try FakeIcon.orangePNG(in: e.home.url)
         let agency = try e.manager.add(request)
-        try FileManager.default.removeItem(at: try #require(request.logo))
+        try Data("not an image".utf8).write(to: try #require(request.logo)) // A photo that no longer reads: the build fails.
         let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
         let untouched = [e.home.paths.stateFile, e.primaryProfile.claudeMD, agencyMD, e.brain.identitiesFile]
         try pinDates(untouched)
@@ -615,7 +615,7 @@ import BrainmergeTestSupport
         var request = IdentityManager.AddRequest(name: "Agency")
         request.logo = try FakeIcon.orangePNG(in: e.home.url)
         let agency = try e.manager.add(request)
-        try FileManager.default.removeItem(at: try #require(request.logo))
+        try Data("not an image".utf8).write(to: try #require(request.logo)) // A photo that no longer reads: the build fails.
         let agencyMD = CLIProfile(directory: agency.cliProfile(in: e.home.paths)).claudeMD
 
         #expect(throws: (any Error).self) { try e.manager.update(slug: "agency", name: "Agency", tint: nil, logo: nil) }
@@ -644,7 +644,7 @@ import BrainmergeTestSupport
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let photo = try FakeIcon.orangePNG(in: e.home.url)
         _ = try e.manager.update(slug: "ruben", name: nil, tint: nil, logo: photo, ownApp: true)
-        try FileManager.default.removeItem(at: photo)
+        try Data("not an image".utf8).write(to: photo) // A photo that no longer reads: the build fails.
         #expect(throws: (any Error).self) { try e.manager.update(slug: "ruben", name: "Ruben C", tint: nil, logo: nil) }
         #expect(try e.store.load().primary?.name == "Ruben")
         #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))

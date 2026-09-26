@@ -52,11 +52,20 @@ public final class IdentityManager: @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: paths.primaryCLIProfile.path) else {
             throw BrainmergeError.profileMissing(paths.primaryCLIProfile.path)
         }
+        let name = NameRules.clean(name)
+        guard !name.isEmpty else { throw BrainmergeError.nameInvalid }
+        try ensureNameAvailable(name, excluding: nil, in: state)
         let identity = Identity(slug: IdentitySlug.make(from: name, taken: state.takenSlugs), name: name,
                                 tint: .orange, isPrimary: true)
-        try attachBrain(to: identity, state: state)
-        state.identities.append(identity)
-        try store.save(state)
+        let registryBefore = registrySnapshot(for: identity, in: state)
+        do {
+            try attachBrain(to: identity, state: state)
+            state.identities.append(identity)
+            try store.save(state)
+        } catch {
+            undoAttach(identity, state: state, registryBefore: registryBefore, created: [])
+            throw error
+        }
         return identity
     }
 
@@ -71,31 +80,48 @@ public final class IdentityManager: @unchecked Sendable {
         try ensureNameAvailable(name, excluding: nil, in: state)
         if let id = request.brain, state.brain(id: id) == nil { throw BrainmergeError.brainUnknown(id) }
         let claude = try ClaudeApp.detect(at: claudeAppURL)
-        var identity = Identity(slug: IdentitySlug.make(from: name, taken: state.takenSlugs),
+        var identity = Identity(slug: IdentitySlug.make(from: name, taken: slugsInUse(state)),
                                 name: name, tint: request.tint, logoPath: request.logo?.path, note: request.note.map(NameRules.clean),
                                 surfaces: request.surfaces, iconMode: request.iconMode,
                                 sharedHistory: request.sharedHistory,
                                 cliProfilePath: request.adoptCLIProfile?.path,
                                 desktopDataPath: request.adoptDesktopData?.path,
                                 brain: request.brain)
+        if identity.sharedHistory {
+            guard !request.ownBrain else { throw BrainmergeError.sharedHistoryNeedsSameMemory }
+            var candidate = state
+            candidate.identities.append(identity)
+            try ensureSharedHistoryMemory(candidate)
+        }
         if request.ownBrain {
             identity.brain = try addBrain(name: name, path: nil, language: state.brainLanguage, in: &state).id
         }
 
-        // The CLI profile also serves the Desktop app's Code tab: it always exists.
-        let primaryProfile = CLIProfile(directory: state.primary?.cliProfile(in: paths) ?? paths.primaryCLIProfile)
-        let profile = try CLIProfile.create(at: identity.cliProfile(in: paths),
-                                            inheritingFrom: primaryProfile.exists ? primaryProfile : nil)
-        if identity.sharedHistory { try shareHistory(of: profile, with: primaryProfile) }
-        try attachBrain(to: identity, state: state)
+        // Everything written from here on is undone when a later step fails: an account that is not saved keeps no hook,
+        // no block, no list of notes and no folder Brainmerge made for it.
+        let fm = FileManager.default
+        let created = [identity.cliProfile(in: paths), identity.desktopData(in: paths)].filter { !fm.fileExists(atPath: $0.path) }
+        let registryBefore = registrySnapshot(for: identity, in: state)
+        do {
+            // The CLI profile also serves the Desktop app's Code tab: it always exists.
+            let primaryProfile = CLIProfile(directory: state.primary?.cliProfile(in: paths) ?? paths.primaryCLIProfile)
+            let profile = try CLIProfile.create(at: identity.cliProfile(in: paths),
+                                                inheritingFrom: primaryProfile.exists ? primaryProfile : nil)
+            if identity.sharedHistory { try shareHistory(of: profile, with: primaryProfile) }
+            try attachBrain(to: identity, state: state)
 
-        if identity.surfaces.desktop {
-            try FileManager.default.createDirectory(at: identity.desktopData(in: paths), withIntermediateDirectories: true)
-            try buildApp(for: identity, claude: claude)
-            identity.builtForClaudeVersion = claude.version
+            if identity.surfaces.desktop {
+                try fm.createDirectory(at: identity.desktopData(in: paths), withIntermediateDirectories: true)
+                try buildApp(for: identity, claude: claude)
+                identity.builtForClaudeVersion = claude.version
+            }
+            state.identities.append(identity)
+            try store.save(state)
+        } catch {
+            undoAttach(identity, state: state, registryBefore: registryBefore, created: created)
+            for app in apps(of: identity) where fm.fileExists(atPath: app.path) { try? fm.removeItem(at: app) }
+            throw error
         }
-        state.identities.append(identity)
-        try store.save(state)
         // Added from the app or with `brainmerge identity add`: its terminal command, where the brainmerge link points.
         if state.terminalCommands {
             _ = try? CLIInstaller.linkAccount(paths: paths, slug: identity.slug, target: URL(fileURLWithPath: cliPath))
@@ -405,8 +431,11 @@ public final class IdentityManager: @unchecked Sendable {
         var state = try store.load()
         guard var identity = state.identity(slug: slug) else { throw BrainmergeError.identityNotFound(slug) }
         guard state.brain(id: id) != nil else { throw BrainmergeError.brainUnknown(id) }
-        try ensureStopped(identity)
         identity.brain = id
+        var next = state
+        next.identities = next.identities.map { $0.slug == slug ? identity : $0 }
+        try ensureSharedHistoryMemory(next)
+        try ensureStopped(identity)
         try attachBrain(to: identity, state: state)
         state.identities = state.identities.map { $0.slug == slug ? identity : $0 }
         try store.save(state)
@@ -423,9 +452,16 @@ public final class IdentityManager: @unchecked Sendable {
         let profile = CLIProfile(directory: identity.cliProfile(in: paths))
         guard profile.exists else { throw BrainmergeError.profileMissing(profile.directory.path) }
         try BrainGit(brain: brain).withLock(timeout: memoryLockTimeout) {
-            try brain.ensureIgnores()
             let claudeMD = profile.claudeMD.resolvingSymlinksInPath()
-            let existing = (try? String(contentsOf: claudeMD, encoding: .utf8)) ?? ""
+            // A CLAUDE.md that is not UTF-8 is the person's text all the same: never replaced by the block alone.
+            var existing = ""
+            if FileManager.default.fileExists(atPath: claudeMD.path) {
+                guard let text = try? String(contentsOf: claudeMD, encoding: .utf8) else {
+                    throw BrainmergeError.unreadableText(profile.claudeMD.path)
+                }
+                existing = text
+            }
+            try brain.ensureIgnores()
             let block = ManagedBlock.render(identityName: identity.name, slug: identity.slug, brainPath: brain.root.path)
             try Data(ManagedBlock.upsert(in: existing, block: block).utf8).write(to: claudeMD, options: .atomic)
             try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
@@ -463,6 +499,35 @@ public final class IdentityManager: @unchecked Sendable {
         if let failure { throw failure }
     }
 
+    /// Undoes what attaching an account that was never saved wrote: its hooks and block (only when there, so a file
+    /// Brainmerge did not change is not rewritten), its lists of notes, the memory's list of accounts as it was, and the
+    /// folders made for it. The notes it brought stay in the memory: nothing is lost.
+    func undoAttach(_ identity: Identity, state: AppState, registryBefore: Data?, created: [URL]) {
+        let fm = FileManager.default
+        let profile = CLIProfile(directory: identity.cliProfile(in: paths))
+        if (try? HookInstaller.isInstalled(settingsFile: profile.settingsFile)) == true {
+            try? HookInstaller.remove(settingsFile: profile.settingsFile)
+        }
+        let claudeMD = profile.claudeMD.resolvingSymlinksInPath()
+        if let content = try? String(contentsOf: claudeMD, encoding: .utf8), ManagedBlock.contains(content) {
+            try? Data(ManagedBlock.remove(from: content).utf8).write(to: claudeMD, options: .atomic)
+        }
+        if let brain = try? memory(for: identity, in: state) {
+            let ledger = TouchedLedger(brain: brain, slug: identity.slug)
+            for list in [ledger.file, ledger.sending] { try? fm.removeItem(at: list) }
+            // Empty: there was none. nil: it could not be read, so it is left as it is.
+            if let registryBefore, registryBefore.isEmpty { try? fm.removeItem(at: brain.identitiesFile) }
+            else if let registryBefore { try? registryBefore.write(to: brain.identitiesFile, options: .atomic) }
+        }
+        for folder in created { try? fm.removeItem(at: folder) }
+    }
+
+    /// The memory's list of accounts before an attach, for `undoAttach`: empty when there is none, nil when unreadable.
+    func registrySnapshot(for identity: Identity, in state: AppState) -> Data? {
+        guard let file = (try? memory(for: identity, in: state))?.identitiesFile else { return nil }
+        return FileManager.default.fileExists(atPath: file.path) ? try? Data(contentsOf: file) : Data()
+    }
+
     /// Removes the block and every Brainmerge hook. The memory links stay: they break nothing and the brain keeps everything.
     public func detachBrain(from identity: Identity) throws {
         let profile = CLIProfile(directory: identity.cliProfile(in: paths))
@@ -476,6 +541,28 @@ public final class IdentityManager: @unchecked Sendable {
     }
 
     // MARK: Internals
+
+    /// The slugs a new account may not take: the accounts', and those whose Claude Code or Claude app folder is already
+    /// there (left by a removed account and still signed in, or made by hand). A new account never takes over a folder it
+    /// did not create, so deleting an account's data only ever deletes what Brainmerge made.
+    func slugsInUse(_ state: AppState) -> Set<String> {
+        let fm = FileManager.default
+        func leftovers(in folder: URL, prefix: String) -> [String] {
+            ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).map { $0.lowercased() }
+                .filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+        }
+        let support = paths.desktopData(slug: "x", isPrimary: false).deletingLastPathComponent()
+        return state.takenSlugs.union(leftovers(in: paths.home, prefix: ".claude-")).union(leftovers(in: support, prefix: "claude-"))
+    }
+
+    /// An account with a shared conversation history uses the first account's memory: both wire the same project links,
+    /// which would otherwise go back and forth between two memories.
+    func ensureSharedHistoryMemory(_ state: AppState) throws {
+        let first = state.primary.flatMap { state.brain(for: $0)?.id } ?? state.defaultBrain?.id
+        if state.identities.contains(where: { $0.sharedHistory && !$0.isPrimary && state.brain(for: $0)?.id != first }) {
+            throw BrainmergeError.sharedHistoryNeedsSameMemory
+        }
+    }
 
     /// Two identities never share a name: the name forms the launcher app's path.
     func ensureNameAvailable(_ name: String, excluding slug: String?, in state: AppState) throws {
@@ -537,12 +624,15 @@ public final class IdentityManager: @unchecked Sendable {
         }
     }
 
-    /// The identity's icon, kept in Application Support/Brainmerge/icons/<slug>.icns.
+    /// The identity's icon, kept in Application Support/Brainmerge/icons/<slug>.icns. A photo that is gone keeps the icon
+    /// made from it, or the tinted one when there is none.
     func makeIcon(for identity: Identity, claude: ClaudeApp) throws -> URL {
         try FileManager.default.createDirectory(at: paths.iconsDir, withIntermediateDirectories: true)
         let output = paths.iconsDir.appending(path: "\(identity.slug).icns")
-        if let logo = identity.logoPath {
+        if let logo = identity.logoPath, FileManager.default.fileExists(atPath: logo) {
             try IconGenerator.icns(fromImage: URL(fileURLWithPath: logo), output: output, shell: shell)
+        } else if identity.logoPath != nil, FileManager.default.fileExists(atPath: output.path) {
+            // The photo was moved or deleted: the icon already made from it stays, and a change never fails for it.
         } else {
             try IconGenerator.tintedICNS(from: claude.icon, tint: identity.tint, output: output, shell: shell)
         }

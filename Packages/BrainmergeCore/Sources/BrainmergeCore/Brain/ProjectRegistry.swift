@@ -30,19 +30,27 @@ public struct ProjectRegistry: Codable, Equatable, Sendable {
         projects.first { $0.value.paths[machineID] == path }?.key
     }
 
-    /// Finds or assigns a unique name. A name already known without a path on this machine is reused:
-    /// it's the same project seen from another machine.
+    /// Finds or assigns a unique name. A name already known without a path on this machine is reused, with its spelling:
+    /// it's the same project seen from another machine. Names are compared ignoring letter case: on a Mac's usual disk,
+    /// `memory/Website` and `memory/website` are one folder.
     public mutating func register(preferredName: String, path: String, machineID: String) -> String {
         if let existing = name(forPath: path, machineID: machineID) { return existing }
         var name = preferredName
         var n = 2
-        while let entry = projects[name], entry.paths[machineID] != nil {
+        while let key = key(matching: name), projects[key]?.paths[machineID] != nil {
             name = "\(preferredName)-\(n)"
             n += 1
         }
+        name = key(matching: name) ?? name
         var entry = projects[name] ?? Entry(paths: [:])
         entry.paths[machineID] = path
         projects[name] = entry
         return name
+    }
+
+    /// The name already in the registry that is this one, ignoring letter case; the exact spelling first.
+    func key(matching name: String) -> String? {
+        if projects[name] != nil { return name }
+        return projects.keys.sorted().first { $0.caseInsensitiveCompare(name) == .orderedSame }
     }
 }

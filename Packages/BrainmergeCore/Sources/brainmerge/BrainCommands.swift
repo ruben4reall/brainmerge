@@ -188,7 +188,7 @@ extension BrainCommand {
 struct AdoptPrimary: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "adopt-primary",
                                                     abstract: "Register the existing Claude installation as the primary identity and attach it to the brain.")
-    @Option var name: String = "Perso"
+    @Option var name: String = "Me"
     func run() throws {
         let context = Context()
         try context.ensureCLILink()
