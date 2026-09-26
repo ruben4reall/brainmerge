@@ -37,6 +37,9 @@ public struct AppState: Codable, Equatable, Sendable {
     public var claudeAppPath: String?
     /// The person's own edits to the notes, outside Claude, are saved in the memory's history as You (see OwnEdits).
     public var saveOwnEdits: Bool = true
+    /// The macOS and Claude versions the app last checked its setup after (see Doctor): a new one runs the check once.
+    public var lastCheckedMacOS: String?
+    public var lastCheckedClaude: String?
 
     public init(schemaVersion: Int = AppState.currentSchema, machineID: String = UUID().uuidString,
                 brainPath: String? = nil, identities: [Identity] = [], autoRebuild: Bool = true,
@@ -47,7 +50,7 @@ public struct AppState: Codable, Equatable, Sendable {
         if brains.isEmpty, let brainPath { self.brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: brainPath)] }
     }
 
-    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory, claudeAppPath, saveOwnEdits, terminalCommands }
+    enum CodingKeys: String, CodingKey { case schemaVersion, machineID, brainPath, brains, identities, autoRebuild, brainLanguage, notesApp, menuBarIcon, graphVault, graphMemory, claudeAppPath, saveOwnEdits, terminalCommands, lastCheckedMacOS, lastCheckedClaude }
 
     /// Schema 1 (a single `brainPath`) becomes a list with one memory called Shared.
     public init(from decoder: Decoder) throws {
@@ -66,6 +69,9 @@ public struct AppState: Codable, Equatable, Sendable {
         // Added without a schema bump, like the menu bar icon: a file written before it saves the person's edits.
         saveOwnEdits = try c.decodeIfPresent(Bool.self, forKey: .saveOwnEdits) ?? true
         terminalCommands = try c.decodeIfPresent(Bool.self, forKey: .terminalCommands) ?? false
+        // Added without a schema bump too: a file written before has checked after no version yet.
+        lastCheckedMacOS = try c.decodeIfPresent(String.self, forKey: .lastCheckedMacOS)
+        lastCheckedClaude = try c.decodeIfPresent(String.self, forKey: .lastCheckedClaude)
         let list = try c.decodeIfPresent([MemoryFolder].self, forKey: .brains) ?? []
         if list.isEmpty, let path = try c.decodeIfPresent(String.self, forKey: .brainPath) {
             brains = [MemoryFolder(id: Self.defaultBrainID, name: Self.defaultBrainName, path: path)]
@@ -91,6 +97,8 @@ public struct AppState: Codable, Equatable, Sendable {
         try c.encodeIfPresent(claudeAppPath, forKey: .claudeAppPath)
         try c.encode(saveOwnEdits, forKey: .saveOwnEdits)
         try c.encode(terminalCommands, forKey: .terminalCommands)
+        try c.encodeIfPresent(lastCheckedMacOS, forKey: .lastCheckedMacOS)
+        try c.encodeIfPresent(lastCheckedClaude, forKey: .lastCheckedClaude)
     }
 
     /// The default memory's folder. Setting it moves the default memory to that folder, or creates it.

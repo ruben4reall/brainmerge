@@ -55,6 +55,8 @@ public struct SettingsView: View {
                 ScreenHeader("Settings")
                 GlassCard {
                     VStack(alignment: .leading, spacing: 0) {
+                        // First: what the doctor found, each with the button that mends it.
+                        section("Health") { HealthSection(model: model) }
                         section("Where Claude is") {
                             if let claude = model.claude {
                                 Text("\(claude.url.path) · version \(claude.version)").foregroundStyle(Theme.Colors.textMuted)
@@ -147,7 +149,7 @@ public struct SettingsView: View {
             .frame(maxWidth: Theme.Layout.formWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task { await model.refreshHooks() }
+        .task { await model.refreshHooks(); await model.checkHealth() }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory) }
         .sheet(isPresented: $showUninstall) { UninstallSheet(model: model, isPresented: $showUninstall) }
     }

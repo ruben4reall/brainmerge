@@ -347,6 +347,53 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.identityNotFound("nobody")) { try e.manager.setBrain(of: "nobody", to: "work") }
     }
 
+    /// "Choose memory folder" for a memory whose folder is gone: the folder it lives in now (moved by the person), or an
+    /// empty one to start it again. Its accounts follow; the notes are never moved.
+    @Test func aMissingMemoryIsPointedAtItsNewFolder() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        try e.manager.setBrain(of: "perso", to: "work")
+        try Data("# pricing\n".utf8).write(to: Brain(root: work.url).memoryDir(forProject: "atelier").appending(path: "pricing.md"))
+        let moved = e.home.url.appending(path: "Notes/Work", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: moved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: work.url, to: moved)
+
+        let folder = try e.manager.relocateBrain(id: "work", to: moved, language: .en)
+        #expect(folder.path == moved.path && folder.name == "Work")
+        #expect(try e.store.load().brain(id: "work")?.path == moved.path)
+        let notes = Brain(root: moved).memoryDir(forProject: "atelier")
+        #expect(FileManager.default.fileExists(atPath: notes.appending(path: "pricing.md").path))
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == notes.path)
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains(moved.path))
+
+        // An empty folder: the memory starts again there.
+        let fresh = e.home.url.appending(path: "Fresh", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+        _ = try e.manager.relocateBrain(id: "work", to: fresh, language: .en)
+        #expect(Brain(root: fresh).isInitialized)
+        #expect(FileManager.default.fileExists(atPath: notes.appending(path: "pricing.md").path), "the old folder is left as it is")
+
+        #expect(throws: BrainmergeError.brainFolderInUse(e.brain.root.path)) { try e.manager.relocateBrain(id: "work", to: e.brain.root, language: .en) }
+        #expect(throws: BrainmergeError.brainUnknown("gone")) { try e.manager.relocateBrain(id: "gone", to: fresh, language: .en) }
+        let inside = e.home.url.appending(path: "repo/notes", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: e.home.url.appending(path: "repo/.git"), withIntermediateDirectories: true)
+        #expect(throws: BrainmergeError.memoryInsideRepository(e.home.url.appending(path: "repo").resolvingSymlinksInPath().path)) {
+            try e.manager.relocateBrain(id: "work", to: inside, language: .en)
+        }
+        #expect(try e.store.load().brain(id: "work")?.path == fresh.path)
+    }
+
+    /// No memory at all yet: choosing a folder makes it the default one.
+    @Test func choosingAFolderWithNoMemoryMakesTheDefaultOne() throws {
+        let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
+        let folder = try e.manager.relocateBrain(id: AppState.defaultBrainID, to: e.home.paths.defaultBrain, language: .en)
+        #expect(folder.id == AppState.defaultBrainID)
+        #expect(try e.store.load().brainPath == e.home.paths.defaultBrain.path)
+        #expect(Brain(root: e.home.paths.defaultBrain).isInitialized)
+    }
+
     @Test func forgettingAMemoryInUseIsRefusedAndTheFolderStays() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")

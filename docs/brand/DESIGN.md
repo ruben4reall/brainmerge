@@ -24,7 +24,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.surfaceLine` | white at 12% | dividers |
 | `Colors.field` | white at 7% | text fields on glass |
 | `Colors.accent` | `#A06BE0` | the one accent |
-| `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices (and the "Only here" mark of an account's MCP servers) / the fill of prominent buttons |
+| `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices (and the "Only here" mark of an account's MCP servers, the small mark before a failed save's line on a card and the Memory screen, the dot of a Health finding that is an error; a warning's dot is `textFaint`) / the fill of prominent buttons |
 | `Colors.button` | `accentDeep` | prominent buttons (4.7:1 with `onAccent`) |
 | `Colors.selection` | accent at 18% | the selected sidebar row, the memory box of the diagram |
 | `Colors.rowHover` | text at 6% | a sidebar row under the pointer (neutral, fainter than `selection`) |
@@ -32,7 +32,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.accentSoft` | accent at 35% | the older bars of the usage chart |
 | `Colors.onAccent` | `#FBF7FF` | text on the accent |
 | `Colors.meter` | text at 42% | the RAM bars of the Usage screen that are not an account's (the Mac, terminal sessions, other apps); an account's bar takes its tint (its share of RAM, and each limit "Check limits" shows), every bar sits on a `field` track |
-| `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states |
+| `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states, Health's "Everything is in place." |
 | `Colors.vaultBackground` | `#262626` | an Obsidian vault's graph, flat like Obsidian's canvas (Minimal theme, dark) |
 | `Colors.vaultNode` / `vaultLine` / `vaultText` | `#999999` / `#3F3F3F` / `#D1D1D1` | a vault's nodes without a color group, its lines (one pixel, opaque), its labels |
 | `Colors.vaultHighlight` / `vaultFocused` | `#750F0F` / `#8C1212` | the hovered node and its lines / the ring around it (the two shades Minimal draws from the accent `#8B1212`) |

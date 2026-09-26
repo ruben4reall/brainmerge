@@ -3,7 +3,8 @@ import Foundation
 import BrainmergeCore
 
 /// Called by each identity's Stop hook: commits exactly what this account wrote (its list, see TouchedLedger), in each
-/// memory it wrote to, under its name. Always exits with 0: never block Claude.
+/// memory it wrote to, under its name, then leaves how it went for the app (SaveStatus, codes only). Always exits with
+/// 0: never block Claude.
 struct Sync: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Commit what an identity wrote in the memory, under its name. Used by the Stop hook; always exits 0.")
     @Option var identity: String
@@ -13,12 +14,14 @@ struct Sync: ParsableCommand {
         let log = SyncLog(paths: context.paths)
         let start = Date()
         let timeout = Double(ProcessInfo.processInfo.environment["BRAINMERGE_LOCK_TIMEOUT"] ?? "") ?? 20
+        let statuses = SaveStatusStore(paths: context.paths)
+        func failed(_ reason: SaveStatus.Reason) { statuses.write(SaveStatus(date: Date(), outcome: .failed, reason: reason), slug: identity) }
         do {
             let state = try context.store.load()
-            guard let id = state.identity(slug: identity) else { log.write("\(identity): unknown identity"); return }
-            guard let folder = state.brain(for: id) else { log.write("\(identity): no memory configured"); return }
+            guard let id = state.identity(slug: identity) else { log.write("\(identity): unknown identity"); failed(.unknown); return }
+            guard let folder = state.brain(for: id) else { log.write("\(identity): no memory configured"); failed(.notARepository); return }
             let own = Brain(root: folder.url)
-            guard own.isInitialized else { log.write("\(identity): memory missing at \(own.root.path)"); return }
+            guard own.isInitialized else { log.write("\(identity): memory missing at \(own.root.path)"); failed(.notARepository); return }
             // Its own memory, and any other one it wrote a note in (or left a list in, when a save stopped half way).
             let others = state.brains.filter { $0.id != folder.id }.filter { other in
                 let ledger = TouchedLedger(brain: Brain(root: other.url), slug: id.slug)
@@ -28,6 +31,8 @@ struct Sync: ParsableCommand {
             var held: Set<String> = []
             var behind = 0
             var wentThrough = 0
+            // The first memory that failed says why: one that waits is enough for the app to say the saves are stuck.
+            var failure: SaveStatus.Reason?
             // Each memory on its own: one that waits (a lock, the person's merge left open for days) never stops the
             // others. A memory that failed keeps its list for the next save (see AccountSave).
             for memory in [folder] + others {
@@ -42,8 +47,10 @@ struct Sync: ParsableCommand {
                     wentThrough += 1
                 } catch BrainmergeError.lockTimeout {
                     log.write("\(identity): \(memory.name): brain lock held by another process, skipped")
+                    failure = failure ?? .locked
                 } catch {
                     log.write("\(identity): \(memory.name): \(error)")
+                    failure = failure ?? SaveStatus.Reason(error)
                 }
                 behind += git.indexBehind.count
             }
@@ -59,10 +66,15 @@ struct Sync: ParsableCommand {
             if !held.isEmpty {
                 log.write("\(identity): held back \(held.count) file\(held.count == 1 ? " (looks like a key)" : "s (they look like keys)")")
             }
+            if let failure { failed(failure) }
+            else if !held.isEmpty { statuses.write(SaveStatus(date: Date(), outcome: .held, reason: .heldBack), slug: identity) }
+            else { statuses.write(SaveStatus(date: Date(), outcome: saved > 0 ? .committed : .nothing), slug: identity) }
         } catch BrainmergeError.lockTimeout {
             log.write("\(identity): brain lock held by another process, skipped")
+            failed(.locked)
         } catch {
             log.write("\(identity): \(error)")
+            failed(SaveStatus.Reason(error))
         }
     }
 }

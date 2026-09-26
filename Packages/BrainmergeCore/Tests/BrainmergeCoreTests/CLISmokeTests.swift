@@ -87,6 +87,40 @@ import BrainmergeTestSupport
         #expect(try String(contentsOf: logFile, encoding: .utf8).contains("memory missing"))
     }
 
+    /// Each save leaves how it went for the app, per account: committed, nothing, or failed with the reason's code.
+    @Test func syncWritesHowTheSaveWent() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let statuses = SaveStatusStore(paths: e.home.paths)
+        let start = Date().addingTimeInterval(-1)
+
+        // Its lists of projects and accounts, written when it was set up.
+        #expect(try run(e, ["sync", "--identity", "perso"]).status == 0)
+        let committed = try #require(statuses.read(slug: "perso"))
+        #expect(committed.outcome == .committed && committed.reason == nil && committed.date >= start)
+        #expect(try run(e, ["sync", "--identity", "perso"]).status == 0)
+        #expect(statuses.read(slug: "perso")?.outcome == .nothing)
+
+        #expect(try run(e, ["sync", "--identity", "nope"]).status == 0)
+        #expect(statuses.read(slug: "nope") == SaveStatus(date: try #require(statuses.read(slug: "nope")?.date), outcome: .failed, reason: .unknown))
+
+        let git = BrainGit(brain: e.brain)
+        let acquired = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async { try? git.withLock(timeout: 5) { acquired.signal(); release.wait() } }
+        acquired.wait()
+        let locked = try run(e, ["sync", "--identity", "perso"], extra: ["BRAINMERGE_LOCK_TIMEOUT": "1"])
+        release.signal()
+        #expect(locked.status == 0)
+        #expect(statuses.read(slug: "perso")?.outcome == .failed)
+        #expect(statuses.read(slug: "perso")?.reason == .locked)
+
+        try FileManager.default.removeItem(at: e.brain.root)
+        #expect(try run(e, ["sync", "--identity", "perso"]).status == 0)
+        #expect(statuses.read(slug: "perso")?.outcome == .failed)
+        #expect(statuses.read(slug: "perso")?.reason == .notARepository)
+    }
+
     /// Like Claude Code runs a hook: the session's JSON on the standard input, which is then closed.
     func run(_ e: ManagerEnv, _ arguments: [String], input: String) throws -> ShellResult {
         let process = Process()
@@ -223,6 +257,9 @@ import BrainmergeTestSupport
         let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
         #expect(log.contains("perso: Shared: \(BrainmergeError.gitOperationUnfinished)"), "\(log)")
         #expect(log.contains("perso: committed 1 file"), "\(log)")
+        // One memory that waits is enough for the app to say the account's saves are stuck.
+        #expect(SaveStatusStore(paths: e.home.paths).read(slug: "perso")?.outcome == .failed)
+        #expect(SaveStatusStore(paths: e.home.paths).read(slug: "perso")?.reason == .locked)
     }
 
     /// A note that looks like it holds a key is not committed, and nothing that could carry the key is written anywhere:
@@ -247,7 +284,12 @@ import BrainmergeTestSupport
         #expect(held.contains("memory/acme-api/deploy.md"))
         let doctor = try run(e, ["doctor"])
         #expect(doctor.stdout.contains("acme-api/deploy.md, line 3, looks like a GitHub token"))
-        for text in [log, held, doctor.stdout, doctor.stderr, sync.stderr, try run(e, ["doctor", "--json"]).stdout] {
+        // The app learns that a note waits, with a code: never which note, never the line.
+        #expect(SaveStatusStore(paths: e.home.paths).read(slug: "perso")?.outcome == .held)
+        #expect(SaveStatusStore(paths: e.home.paths).read(slug: "perso")?.reason == .heldBack)
+        let status = try String(contentsOf: e.home.paths.appSupport.appending(path: "saves/perso.json"), encoding: .utf8)
+        #expect(!status.contains("deploy") && !status.contains("acme"))
+        for text in [log, held, status, doctor.stdout, doctor.stderr, sync.stderr, try run(e, ["doctor", "--json"]).stdout] {
             #expect(!text.contains(value) && !text.contains(String(value.suffix(12))) && !text.contains("Push with"))
         }
     }

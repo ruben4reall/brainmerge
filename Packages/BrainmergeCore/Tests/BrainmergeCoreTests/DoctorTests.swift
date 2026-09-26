@@ -13,7 +13,9 @@ import BrainmergeTestSupport
         let missing = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
         let findings = Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath, git: missing).run()
         #expect(findings.contains(Doctor.Finding(level: .error, title: "git",
-                                                 detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install")))
+                                                 detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install",
+                                                 plain: "Apple's Command Line Tools are missing: the memory keeps its history with them.",
+                                                 fix: .installAppleTools)))
         #expect(doctor(e).run().contains { $0.title == "git" && $0.level == .ok })
     }
 
@@ -123,6 +125,68 @@ import BrainmergeTestSupport
         for finding in findings {
             #expect(!finding.detail.contains("\u{2014}") && !finding.detail.contains("\u{2013}"))
         }
+    }
+
+    /// A setup with something wrong everywhere a button can mend it.
+    func brokenEverywhere(_ e: ManagerEnv) throws -> [Doctor.Finding] {
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.update(slug: "perso", name: nil, tint: nil, logo: nil, ownApp: true)
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        try FileManager.default.removeItem(at: work.url)
+        try FileManager.default.removeItem(at: e.home.paths.launcherApp(name: "Client"))
+        try FileManager.default.removeItem(at: e.home.paths.launcherApp(name: "Perso"))
+        try HookInstaller.remove(settingsFile: e.primaryProfile.settingsFile)
+        try Data("# sans bloc\n".utf8).write(to: CLIProfile(directory: client.cliProfile(in: e.home.paths)).claudeMD)
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: e.home.url.appending(path: "gone"))
+        let missing = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
+        return Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath, git: missing).run()
+    }
+
+    /// Each finding the app can mend names the one button that mends it; the others, and every finding that is fine, none.
+    @Test func eachFindingNamesItsFix() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let findings = try brokenEverywhere(e)
+        func fix(_ title: String) -> Doctor.Fix?? { findings.first { $0.title == title }.map(\.fix) }
+        #expect(fix("git") == .some(.installAppleTools))
+        #expect(fix("Command line") == .some(.installCLI))
+        #expect(fix("Perso: hooks") == .some(.repairHooks))
+        #expect(fix("Client: CLAUDE.md") == .some(.repairLinks(brainID: "shared")))
+        #expect(fix("Perso: memory atelier") == .some(.repairLinks(brainID: "shared")))
+        #expect(fix("Client: launcher") == .some(.rebuild(slug: "client")))
+        #expect(fix("Perso: own app") == .some(.rebuild(slug: "perso")))
+        #expect(fix("Memory: Work") == .some(.chooseMemory(brainID: "work")))
+        #expect(fix("Claude.app") == .some(nil))
+        #expect(fix("Client: login") == .some(nil))
+        #expect(findings.filter { $0.level == .ok }.allSatisfy { $0.fix == nil })
+
+        let current = findings.first { $0.title == "Client: hooks" }
+        #expect(current?.level == .ok && current?.fix == nil)
+
+        // No memory at all: choosing its folder is the fix.
+        let bare = try ManagerEnv.make(withBrain: false); defer { bare.home.remove() }
+        let none = doctor(bare).run().first { $0.title == "Memory" }
+        #expect(none?.fix == .chooseMemory(brainID: AppState.defaultBrainID))
+    }
+
+    /// The app shows `plain`: a sentence for a person, never a command to type. The command line keeps its "Run: …".
+    @Test func plainSentencesNeverNameACommand() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        var findings = try brokenEverywhere(e)
+        let bare = try ManagerEnv.make(withBrain: false); defer { bare.home.remove() }
+        findings += doctor(bare).run()
+        try FileManager.default.removeItem(at: bare.claude.url)
+        findings += doctor(bare).run()
+        #expect(findings.contains { $0.detail.contains("Run: brainmerge ") })
+        for finding in findings {
+            #expect(!finding.plain.isEmpty, "\(finding.title)")
+            #expect(!finding.plain.contains("brainmerge ") && !finding.plain.contains("Run:"), "\(finding.title): \(finding.plain)")
+            #expect(!finding.plain.contains("\u{2014}") && !finding.plain.contains("\u{2013}"), "\(finding.title)")
+        }
+        #expect(findings.first { $0.title == "Perso: hooks" }?.plain == "The hooks of Perso are missing: its memory is not saved when a turn ends.")
+        #expect(findings.first { $0.title == "Memory: Work" }?.plain == "The memory Work is missing from ~/Brain-work.")
     }
 
     @Test func everyMemoryIsChecked() throws {

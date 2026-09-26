@@ -80,6 +80,20 @@ import BrainmergeTestSupport
         #expect(try JSONDecoder().decode(AppState.self, from: data).saveOwnEdits == false)
     }
 
+    /// The macOS and Claude versions the app last checked its setup after: none in a file from before, and kept by a save
+    /// from the command line, which never knows them.
+    @Test func theVersionsLastCheckedRoundTrip() throws {
+        let older = #"{"schemaVersion": 2, "machineID": "m", "identities": [], "autoRebuild": true, "brainLanguage": "en"}"#
+        let before = try JSONDecoder().decode(AppState.self, from: Data(older.utf8))
+        #expect(before.lastCheckedMacOS == nil && before.lastCheckedClaude == nil)
+        var state = AppState(machineID: "m")
+        state.lastCheckedMacOS = "26.1.0"
+        state.lastCheckedClaude = "2.7032.0"
+        let back = try JSONDecoder().decode(AppState.self, from: try JSONEncoder().encode(state))
+        #expect(back.lastCheckedMacOS == "26.1.0" && back.lastCheckedClaude == "2.7032.0")
+        #expect(back.schemaVersion == AppState.currentSchema)
+    }
+
     /// Claude Code sessions of any account: in a terminal, or under a Claude window's Code tab.
     @Test func aClaudeCodeSessionIsSeenWhereverItRuns() {
         let idle = ProcessMonitor.snapshot(psOutput: """

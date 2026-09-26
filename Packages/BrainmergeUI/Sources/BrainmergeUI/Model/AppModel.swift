@@ -132,7 +132,7 @@ public final class AppModel {
     private var workLabels: [WorkLabel] = []
     private var lastWorkID = 0
     /// Core work runs here, one at a time and in order: two changes never read and save the state at the same time.
-    private let coreQueue = DispatchQueue(label: "ch.rubencatalao.brainmerge.core", qos: .userInitiated)
+    let coreQueue = DispatchQueue(label: "ch.rubencatalao.brainmerge.core", qos: .userInitiated)
     /// The last process brought to the front by "Show" (observable in tests).
     public private(set) var lastShownProcess: Int32?
     public private(set) var lastMemorySave: Date?
@@ -161,6 +161,28 @@ public final class AppModel {
     @ObservationIgnored public var findBrowsers: @Sendable (URL) -> [InstalledBrowser] = { BrowserProfiles.available(home: $0) }
     /// What Settings says about the accounts' hooks, read when it opens (see `refreshHooks`); nil until then.
     public private(set) var hooks: HooksSummary?
+
+    // Health (see AppModel+Health).
+    /// The doctor's findings at its last check, fine or not; nil before the first one.
+    public internal(set) var health: [Doctor.Finding]?
+    public internal(set) var healthChecking = false
+    /// The last check ran out of its budget.
+    public internal(set) var healthTimedOut = false
+    /// The one line said after a macOS or Claude update was checked, until the person answers it.
+    public internal(set) var healthNote: String?
+    /// Each account's last save, as its Stop hook left it (see SaveStatus).
+    public internal(set) var saveStatuses: [String: SaveStatus] = [:]
+    /// When each account whose last save failed last saved in its memory, from its history.
+    public internal(set) var lastSaves: [String: Date] = [:]
+    /// The doctor's run, replaced in tests.
+    @ObservationIgnored var runHealth: @Sendable (Doctor) -> [Doctor.Finding] = { $0.run() }
+    @ObservationIgnored var healthBudget: Duration = .seconds(10)
+    @ObservationIgnored var healthTask: Task<[Doctor.Finding]?, Never>?
+    @ObservationIgnored var checkingAfterUpdate = false
+    @ObservationIgnored var macOSVersion: @Sendable () -> String = {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
     /// The command line embedded in this copy of the app, which the link the hooks call points at; a fake in tests.
     @ObservationIgnored public var commandLine: () -> URL? = { AppModel.embeddedCLI }
     /// Opens a browser; a fake in tests, which never open one.
@@ -762,9 +784,11 @@ public final class AppModel {
         refreshHeld()
     }
 
-    /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects.
+    /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects, and how
+    /// each account's last save went.
     public func refreshMemory() {
         refreshHeld()
+        refreshSaves()
         guard let brain = selectedBrain, let folder = selectedFolder else { memoryEvents = []; memoryCounts = [:]; projectCount = 0; return }
         let entries = prefetchedLog.flatMap { $0.root == brain.root ? $0.entries : nil } ?? (try? BrainGit(brain: brain).log(limit: 200)) ?? []
         memoryEvents = MemoryFeed.events(from: Array(entries.prefix(50)), identities: accounts.map(\.identity))
@@ -1366,7 +1390,8 @@ public final class AppModel {
 
     /// An account whose app is being worked on (an update, a rename, a swap, a removal) is left alone: its change
     /// rebuilds it anyway. Each account is looked at again when its turn comes, as an earlier step may have changed it.
-    /// A failure is said once per Claude version, so the same failure never comes back every few minutes.
+    /// A failure is said once per Claude version, so the same failure never comes back every few minutes. Then, after a
+    /// macOS or Claude update, the setup is checked once (see `checkAfterUpdate`), once the copies are rebuilt.
     public func checkClaudeUpdate() async {
         reload()
         guard let claude, !checkingClaudeUpdate else { return }
@@ -1386,6 +1411,7 @@ public final class AppModel {
                 present(error)
             }
         }
+        await checkAfterUpdate()
     }
 
     @discardableResult

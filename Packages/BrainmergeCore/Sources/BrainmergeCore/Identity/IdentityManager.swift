@@ -341,6 +341,32 @@ public final class IdentityManager: @unchecked Sendable {
         return folder
     }
 
+    /// "Choose memory folder" for a memory whose folder is gone: the folder it lives in now (the person moved it), or an
+    /// empty one where it starts again (only what is missing is created, like `Brain.initialize`). Its accounts are
+    /// attached to it there; no note is moved. With no memory at all, the folder becomes the default memory. A folder
+    /// another memory uses, or one inside another git repository, is refused before anything changes.
+    @discardableResult
+    public func relocateBrain(id: String, to folder: URL, language: BrainLanguage) throws -> MemoryFolder {
+        let held = try store.lock()
+        defer { held.release() }
+        var state = try store.load()
+        let index = state.brains.firstIndex { $0.id == id }
+        guard index != nil || (state.brains.isEmpty && id == AppState.defaultBrainID) else { throw BrainmergeError.brainUnknown(id) }
+        let root = folder.standardizedFileURL
+        if state.brains.contains(where: { $0.id != id && $0.url.standardizedFileURL.path == root.path }) { throw BrainmergeError.brainFolderInUse(root.path) }
+        let brain = try Brain.initialize(at: root, language: language)
+        if let index { state.brains[index].path = brain.root.path } else { state.brainPath = brain.root.path }
+        try store.save(state)
+        // Every account of this memory follows it; one that cannot (its Claude Code folder is gone) does not stop the others.
+        var firstError: Error?
+        for identity in state.identities(using: id) {
+            do { try attachBrain(to: identity, state: state) } catch { firstError = firstError ?? error }
+        }
+        if let firstError { throw firstError }
+        guard let saved = state.brain(id: id) else { throw BrainmergeError.brainUnknown(id) }
+        return saved
+    }
+
     /// Forgets a memory: its entry goes, its folder stays. Never the default one, never one an account still uses.
     public func forgetBrain(id: String) throws {
         let held = try store.lock()

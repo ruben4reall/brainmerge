@@ -27,6 +27,7 @@ public struct AccountsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 if let warning = model.memoryWarning { memoryBanner(warning) }
                 if let banner = model.updateBanner { updateBanner(banner) }
+                if let note = model.healthNote { healthBanner(note) }
                 ScreenHeader("Accounts", subtitle: subtitle) {
                     HStack(spacing: 10) {
                         searchField
@@ -131,6 +132,15 @@ public struct AccountsView: View {
                         Circle().fill(account.isRunning ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 6, height: 6)
                         Text(Self.status(of: account, memory: memory))
                             .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                    }
+                    // Its last save failed and it has not saved since: when, and why, quietly.
+                    if let failure = model.saveFailureSentence(of: account.id) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Image(systemName: "exclamationmark.circle").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                            Text(failure).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .help(failure)
                     }
                     if let version = model.staleVersion(of: account.id) {
                         let waiting = model.restartingWhenIdle.contains(account.id)
@@ -321,6 +331,22 @@ public struct AccountsView: View {
             Text(text).font(Theme.Fonts.secondary)
             Spacer()
             Button("Update all") { Task { await model.updateAll() } }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    /// The line after the check a macOS or Claude update started: "Show" opens Settings, where Health lists what to fix.
+    func healthBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.shield").foregroundStyle(Theme.Colors.textMuted)
+            Text(text).font(Theme.Fonts.secondary)
+            Spacer()
+            if model.healthProblems.isEmpty {
+                Button("OK") { model.dismissHealthNote() }.buttonStyle(.glass).controlSize(.small)
+            } else {
+                Button("Show") { model.dismissHealthNote(); model.requestedScreen = .settings }.buttonStyle(.glass).controlSize(.small)
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10, style: .continuous))

@@ -67,6 +67,13 @@ public struct MemoryView: View {
                     }
                 }
             }
+            // An account of this memory whose last save failed and that has not saved since: when, and why, quietly.
+            ForEach(model.memorySaveFailures, id: \.self) { line in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: "exclamationmark.circle").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                    Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                }
+            }
             if let summary = AppModel.heldSummary(model.heldNotes) { heldBanner(summary) }
             switch mode {
             case .graph:
