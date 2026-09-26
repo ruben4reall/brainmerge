@@ -184,7 +184,8 @@ import BrainmergeTestSupport
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
         m.markOpening("client", fallback: .milliseconds(30))
-        m.markOpening("client", fallback: .seconds(30))
+        // An hour: the newer mark must outlive the whole test even on a slow CI runner.
+        m.markOpening("client", fallback: .seconds(3600))
         try await Task.sleep(for: .milliseconds(150))
         #expect(m.opening == ["client"])
         m.markOpening("other", fallback: .milliseconds(30))
