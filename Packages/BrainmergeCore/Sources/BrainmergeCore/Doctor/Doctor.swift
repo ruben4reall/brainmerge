@@ -298,10 +298,15 @@ public struct Doctor: Sendable {
                                     detail: "\(lock.path) was left by a git that stopped: saves fail while it is there. If no git runs in \(folder.path), remove that file",
                                     plain: "A git that stopped left \(shown(lock.path)) in the memory \(folder.name): saves fail until that file is removed."))
         }
-        if (try? BrainGit(brain: brain, availability: git).operationUnfinished()) == true {
+        let repo = BrainGit(brain: brain, availability: git)
+        if (try? repo.branchCheckedOut()) == false {
             findings.append(Finding(level: .warning, title: "Memory: \(folder.name)",
-                                    detail: "Saves wait: git is stopped half way in \(folder.path) (a merge, a rebase, a cherry-pick or conflicts). Finish or abort it there",
-                                    plain: "Saves to the memory \(folder.name) wait: git is stopped half way there (a merge, a rebase or a cherry-pick). Finish or abort it."))
+                                    detail: "Saves wait: no branch is checked out in \(folder.path) (a commit, to look at it). Check out a branch there",
+                                    plain: "Saves to the memory \(folder.name) wait: no branch is checked out there. Check out a branch again."))
+        } else if (try? repo.operationUnfinished()) == true {
+            findings.append(Finding(level: .warning, title: "Memory: \(folder.name)",
+                                    detail: "Saves wait: git is stopped half way in \(folder.path) (a merge, a rebase, a cherry-pick, a revert, a bisect or conflicts). Finish or abort it there",
+                                    plain: "Saves to the memory \(folder.name) wait: git is stopped half way there (a merge, a rebase, a cherry-pick, a revert or a bisect). Finish or abort it."))
         }
         return findings
     }

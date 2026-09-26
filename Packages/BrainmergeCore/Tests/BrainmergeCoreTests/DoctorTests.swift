@@ -176,6 +176,20 @@ import BrainmergeTestSupport
         try FileManager.default.removeItem(at: e.brain.gitDir.appending(path: "MERGE_HEAD"))
         #expect(memory().map(\.level) == [.ok])
 
+        // No branch checked out (a commit, to look at it): saves wait too, and doctor says to check out a branch, not
+        // to finish a merge there is none of.
+        let head = e.brain.gitDir.appending(path: "HEAD")
+        let branch = try String(contentsOf: head, encoding: .utf8)
+        _ = try Shell().check("/usr/bin/git", ["-c", "user.name=Here", "-c", "user.email=here@example.com", "-c", "commit.gpgsign=false",
+                                               "commit", "-q", "--allow-empty", "--no-verify", "-m", "first"], cwd: e.brain.root)
+        let commit = try Shell().check("/usr/bin/git", ["rev-parse", "HEAD"], cwd: e.brain.root).trimmingCharacters(in: .whitespacesAndNewlines)
+        try Data("\(commit)\n".utf8).write(to: head)
+        let detached = try #require(memory().first { $0.level == .warning })
+        #expect(detached.plain.contains("no branch") && !detached.plain.contains("merge"), "\(detached)")
+        #expect(detached.detail.contains("Check out a branch") && detached.detail.contains(e.brain.root.path), "\(detached)")
+        try Data(branch.utf8).write(to: head)
+        #expect(memory().map(\.level) == [.ok])
+
         #expect(!doctor(e).run().contains { $0.title == "Perso: saves" })
         SaveStatusStore(paths: e.home.paths).write(SaveStatus(date: Date(), outcome: .failed, reason: .locked), slug: "perso")
         let failed = try #require(doctor(e).run().first { $0.title == "Perso: saves" })
