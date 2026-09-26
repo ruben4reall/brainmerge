@@ -69,5 +69,7 @@ final class ShellCalls: @unchecked Sendable {
             try Brain.initialize(at: home.paths.defaultBrain, language: .en, shell: recording, availability: missing)
         }
         #expect(calls.all.isEmpty)
+        // Nothing half made: no memory folder, no BRAIN.md, no meta files for a memory that could not keep its history.
+        #expect(!FileManager.default.fileExists(atPath: home.paths.defaultBrain.path))
     }
 }

@@ -74,8 +74,11 @@ public final class OnboardingModel {
         gitFound = await app.checkGit()
         let resolve = app.limitsBinary, home = app.paths.home
         claudeCodeFound = await Task.detached(priority: .userInitiated) { () -> Bool in
-            if case .found = resolve(home) { return true }
-            return false
+            // A Claude Code that is not Anthropic's build (a script from npm) is still there: never "install it".
+            switch resolve(home) {
+            case .found, .notSigned: return true
+            case .notFound: return false
+            }
         }.value
         let profile = CLIProfile(directory: app.paths.primaryCLIProfile)
         projectCount = (try? profile.projects().count) ?? 0

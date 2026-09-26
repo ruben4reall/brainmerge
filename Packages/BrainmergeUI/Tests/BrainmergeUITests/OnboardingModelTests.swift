@@ -74,6 +74,14 @@ import BrainmergeTestSupport
         #expect(!onboarding.gitFound && !onboarding.claudeCodeFound)
     }
 
+    /// Installed but not Anthropic's build (a script from npm, say): it is there, so the setup never says to install it.
+    @Test func aClaudeCodeNotSignedByAnthropicIsStillFound() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        app.limitsBinary = { _ in .notSigned("/opt/homebrew/bin/claude") }
+        await onboarding.detect()
+        #expect(onboarding.claudeCodeFound)
+    }
+
     @Test func claudeCodeIsLookedForOffTheMainThread() async throws {
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }
         let seen = Threads()

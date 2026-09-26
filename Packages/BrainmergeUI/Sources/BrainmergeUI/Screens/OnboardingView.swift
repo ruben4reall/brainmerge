@@ -303,6 +303,7 @@ public struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 4) { Text(m.title).font(.headline); Text(m.detail).foregroundStyle(Theme.Colors.textMuted) }
                 Spacer()
                 if m.action == .getClaude { Button(m.actionLabel ?? "Get Claude") { if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) } }.buttonStyle(.glassProminent).tint(Theme.Colors.button) }
+                if m.action == .installAppleTools { Button(m.actionLabel ?? "Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass) }
                 Button("Dismiss") { model.error = nil }.buttonStyle(.glass)
             }
             .padding(14)

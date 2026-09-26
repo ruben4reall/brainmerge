@@ -39,7 +39,9 @@ public enum LaunchPhase: Equatable, Sendable { case loading, ready }
 
 public struct UserMessage: Identifiable, Equatable, Sendable {
     /// What a message's button does: typed, so it never depends on a label.
-    public enum Action: Equatable, Sendable { case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications }
+    public enum Action: Equatable, Sendable {
+        case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications, installAppleTools
+    }
     public let id = UUID()
     public let title: String
     public let detail: String
@@ -72,6 +74,8 @@ public final class AppModel {
     enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, browser(String) }
     /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
     private var pendingSaves: [Setting: Int] = [:]
+    /// Tests only: runs on the core queue as a setting's save begins, before it waits for the state lock.
+    @ObservationIgnored var saveBegins: @Sendable () -> Void = {}
     private func isSaving(_ setting: Setting) -> Bool { (pendingSaves[setting] ?? 0) > 0 }
     /// The Obsidian vault the Memory screen's graph shows, by its folder; nil shows the selected memory.
     public private(set) var graphVault: String? { didSet { if graphVault != oldValue { graphVaultGone = false } } }
@@ -1334,10 +1338,11 @@ public final class AppModel {
     /// The value on screen has already moved; the task ends once it is saved.
     func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
         pendingSaves[setting, default: 0] += 1
-        let store = self.store, queue = coreQueue
+        let store = self.store, queue = coreQueue, begins = saveBegins
         return Task {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 queue.async {
+                    begins()
                     // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
                     try? store.update { change(&$0) }
                     done.resume()
@@ -1405,7 +1410,13 @@ public final class AppModel {
         case .brainNotConfigured, .brainNotFound:
             return UserMessage(title: "Choose where the memory lives first", detail: "Open Settings and pick a folder for the memory.", action: .openSettings, actionLabel: "Open Settings")
         case .lockTimeout:
-            return UserMessage(title: "The memory is busy", detail: "Another account is saving right now. Try again in a few seconds.")
+            // The memory's lock and the list of accounts' lock alike: the hooks and the command line save too.
+            return UserMessage(title: "Busy saving", detail: "Another Brainmerge process is saving. Try again in a few seconds.")
+        case .gitUnavailable:
+            // The detail stands alone: the new memory sheet shows it without the button.
+            return UserMessage(title: "History needs git",
+                               detail: "Brainmerge keeps each memory's history with git, which comes with Apple's Command Line Tools. Install Apple's tools, then try again.",
+                               action: .installAppleTools, actionLabel: "Install Apple's tools")
         case .profileMissing(let path):
             return UserMessage(title: "Claude Code setup not found", detail: "Expected a folder at \(path). Open Claude once, then try again.")
         case .cliOnReadOnlyVolume:

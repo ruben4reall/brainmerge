@@ -94,4 +94,30 @@ import BrainmergeTestSupport
         #expect(FileManager.default.fileExists(atPath: app.appending(path: "Contents/MacOS/Claude-bin").path))
         #expect(try FileManager.default.contentsOfDirectory(atPath: home.paths.launchersDir.path) == ["Client (Claude).app"])
     }
+
+    /// The copy is made, then signing fails: the half-built copy goes, the old app stays as it was.
+    @Test func aFailedSignatureLeavesTheOldAppAndNoBuildingFolder() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        let icon = home.url.appending(path: "i.icns")
+        try IconGenerator.tintedICNS(from: claude.icon, tint: .green, output: icon)
+        let identity = Identity(slug: "client", name: "Client", iconMode: .tintedClone)
+        let app = try TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher)
+            .build(for: identity, claude: claude, icon: icon, register: false)
+        let marker = app.appending(path: "Contents/Resources/old-build")
+        try Data().write(to: marker)
+        let copied = ShellCalls()
+        let failingSign = Shell { executable, arguments, cwd, environment in
+            if executable == "/usr/bin/codesign", arguments.contains("--sign") { return ShellResult(status: 1, stdout: "", stderr: "failed") }
+            if executable == "/bin/cp" { copied.record(arguments) }
+            return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+        }
+        #expect(throws: (any Error).self) {
+            try TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher, shell: failingSign)
+                .build(for: identity, claude: claude, icon: icon, register: false)
+        }
+        #expect(!copied.all.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: home.paths.launchersDir.path) == ["Client (Claude).app"])
+    }
 }

@@ -193,6 +193,7 @@ public struct RootView: View {
         case .getClaude: if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) }
         case .openSettings: section = .settings
         case .moveToApplications: Installer.moveAndRelaunch { error in model.present(error) }
+        case .installAppleTools: model.installAppleTools()
         case nil: break
         }
     }

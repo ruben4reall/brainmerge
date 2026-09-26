@@ -57,15 +57,30 @@ import BrainmergeTestSupport
         #expect(StateProblem.damaged.detail(canRestore: false) == "The file is damaged. Your accounts, memories and logins are untouched.")
     }
 
+    /// The command line holds the state lock through its own change: a setting saved meanwhile waits for it.
     @Test func settingsAreSavedUnderTheStateLock() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
         m.reload()
+        let begun = DispatchSemaphore(value: 0)
+        m.saveBegins = { begun.signal() }
         let held = try e.store.lock()
         let task = m.setAutoRebuild(false)
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(try e.store.load().autoRebuild == true)
-        held.release()
+        let paths = e.home.paths
+        // Off the main actor, which other suites keep busy: the wait starts only once the save really runs on the core
+        // queue, and the lock is released on time whatever the main actor does (the save gives up after 10 s).
+        // nil: the save never began, or the file could not be read.
+        let whileHeld: Bool? = await withCheckedContinuation { done in
+            Thread.detachNewThread {
+                guard begun.wait(timeout: .now() + 30) == .success else { held.release(); done.resume(returning: nil); return }
+                // An unlocked write would land within microseconds of the start.
+                Thread.sleep(forTimeInterval: 0.3)
+                let value = try? StateStore(paths: paths).load().autoRebuild
+                held.release()
+                done.resume(returning: value)
+            }
+        }
+        #expect(whileHeld == true)
         await task.value
         #expect(try e.store.load().autoRebuild == false)
     }
@@ -341,7 +356,12 @@ import BrainmergeTestSupport
         #expect(AppModel.sentence(for: BrainmergeError.brainNotConfigured).action == .openSettings)
         #expect(AppModel.sentence(for: BrainmergeError.identityNameTaken("Client")).detail == "There is already an account called Client. Pick another name.")
         #expect(AppModel.sentence(for: BrainmergeError.brainNotConfigured).title == "Choose where the memory lives first")
-        #expect(AppModel.sentence(for: BrainmergeError.lockTimeout).title == "The memory is busy")
+        #expect(AppModel.sentence(for: BrainmergeError.lockTimeout).detail == "Another Brainmerge process is saving. Try again in a few seconds.")
+        // Never a terminal command: the same button as the setup and the Memory screen.
+        let git = AppModel.sentence(for: BrainmergeError.gitUnavailable)
+        #expect(git.title == "History needs git")
+        #expect(git.action == .installAppleTools && git.actionLabel == "Install Apple's tools")
+        #expect(!git.detail.contains("xcode-select"))
         #expect(AppModel.sentence(for: NSError(domain: "x", code: 1)).title == "Something went wrong")
     }
 

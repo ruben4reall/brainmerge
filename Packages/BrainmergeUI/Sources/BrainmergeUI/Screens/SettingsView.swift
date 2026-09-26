@@ -142,7 +142,7 @@ public struct SettingsView: View {
         .sheet(isPresented: $showUninstall) { UninstallSheet(model: model, isPresented: $showUninstall) }
     }
 
-    /// Picks another Claude app: refused unless Anthropic signed it, used from the next launch.
+    /// Picks another Claude app: refused unless Anthropic signed it, used by Brainmerge from its next launch.
     func chooseClaude() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.application]
@@ -153,7 +153,8 @@ public struct SettingsView: View {
             if let refusal = await model.chooseClaude(url) {
                 claudeNote = refusal.detail
             } else {
-                claudeNote = "Brainmerge uses this Claude from its next launch."
+                // An account's app keeps the path of the Claude it was built with: only a rebuild moves it.
+                claudeNote = "Brainmerge uses this Claude from its next launch. Apps already made for your accounts keep the Claude they were built with until you rebuild them."
             }
         }
     }

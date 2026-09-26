@@ -88,6 +88,19 @@ import BrainmergeTestSupport
         #expect(try store.load().machineID == "second")
     }
 
+    /// A save over a damaged file keeps the good copy from before: the damaged one is not worth putting back.
+    @Test func aDamagedFileNeverReplacesTheGoodPreviousCopy() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        try store.save(AppState(machineID: "good"))
+        try store.save(AppState(machineID: "later"))
+        try Data("{ broken".utf8).write(to: home.paths.stateFile)
+        try store.save(AppState(machineID: "fresh"))
+        let previous = try? JSONDecoder().decode([String: AnyCodableValue].self, from: Data(contentsOf: store.previousFile))
+        #expect(previous?["machineID"] == .string("good"))
+        #expect(try store.load().machineID == "fresh")
+    }
+
     @Test func aDamagedFileIsNeverAFreshState() throws {
         let home = try TempHome(); defer { home.remove() }
         let store = StateStore(paths: home.paths)
@@ -168,10 +181,9 @@ import BrainmergeTestSupport
                 group.addTask {
                     // A separate store each time: a separate descriptor on the lock, like the app and the command line.
                     try? StateStore(paths: paths).update { state in
-                        let seen = state.identities.count
+                        // Read, wait, write: without the lock, another update would land in between and be lost.
                         usleep(50_000)
                         state.identities.append(Identity(slug: slug, name: slug.capitalized))
-                        _ = seen
                     }
                 }
             }

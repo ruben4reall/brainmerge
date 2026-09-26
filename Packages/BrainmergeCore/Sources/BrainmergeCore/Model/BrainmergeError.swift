@@ -44,7 +44,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .identityNotFound(let s): return "No identity with slug \(s)."
         case .brainNotConfigured: return "No brain configured yet. Run: brainmerge brain init"
         case .brainNotFound(let p): return "Brain folder missing at \(p)."
-        case .lockTimeout: return "Another Brainmerge process holds the brain lock."
+        case .lockTimeout: return "Another Brainmerge process is saving. Try again in a few seconds."
         case .shellFailed(let c, let s, let e): return "Command failed (\(s)): \(c)\n\(e)"
         case .timedOut(let c): return "Command took too long and was stopped: \(c)"
         case .iconFailed(let p): return "Cannot build an icon from \(p)."
