@@ -129,83 +129,83 @@ public struct AccountsView: View {
         let opening = model.opening.contains(account.id)
         let memory = model.ramBytes(of: account.id)
         let sameAs = model.duplicateCodeAccount(of: account.id)?.identity.name
-        let othersOpen = model.openAccounts.contains { $0.id != account.id }
-        let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
-                                             othersOpen: othersOpen, appExists: model.appURL(of: account.id) != nil)
+        let action = action(of: account)
         let tint = Theme.color(for: account.identity.tint)
         let status = Self.status(of: account, memory: memory)
         return ZStack {
-            HStack(spacing: 12) {
-                OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 40)
-                    // A card added while the app runs: one ring in its color around the orb.
-                    .overlay { RingPulseView(ring: .added, start: model.addedAt[account.id], color: tint) }
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 5) {
-                        Text(account.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
-                            .help(Self.nameHelp(of: account) ?? "")
-                        // One Claude account used twice: a small mark, the whole sentence on hover and for VoiceOver.
-                        if let sameAs {
-                            Image(systemName: "person.2.fill").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
-                                .help(Self.duplicateHelp(sameAs: sameAs))
-                                .accessibilityLabel(Self.duplicateHelp(sameAs: sameAs))
+            // The row, then the lines that need room (a failed save, a window on the previous Claude) under it, the whole
+            // width of the card, lined up under the name: at the default window a card is 330 points wide, and its text
+            // column beside the buttons holds a status, not a sentence.
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 40)
+                        // A card added while the app runs: one ring in its color around the orb.
+                        .overlay { RingPulseView(ring: .added, start: model.addedAt[account.id], color: tint) }
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 5) {
+                            Text(account.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
+                                .help(Self.nameHelp(of: account) ?? "")
+                            // One Claude account used twice: a small mark, the whole sentence on hover and for VoiceOver.
+                            if let sameAs {
+                                Image(systemName: "person.2.fill").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                                    .help(Self.duplicateHelp(sameAs: sameAs))
+                                    .accessibilityLabel(Self.duplicateHelp(sameAs: sameAs))
+                            }
+                        }
+                        // The note or email keeps a few characters at least; the memory's name gives way after it.
+                        HStack(spacing: 0) {
+                            Text(Self.subtitle(of: account)).lineLimit(1)
+                                .truncationMode(account.identity.note == nil ? .middle : .tail)
+                                .frame(minWidth: 44, alignment: .leading)
+                                .layoutPriority(1)
+                            let suffix = memorySuffix(account)
+                            if !suffix.isEmpty { Text(suffix).lineLimit(1) }
+                        }
+                        .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                        .help(Self.subtitleHelp(of: account) ?? "")
+                        HStack(spacing: 5) {
+                            statusDot(account, updating: action == .updating, opened: model.openedAt[account.id])
+                            // Open, closed, opening: the new words come in once the old ones have gone; the RAM figure that follows
+                            // moves at once, never rolls.
+                            SwappingText(text: status, key: Self.status(of: account, memory: 0))
+                                .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                         }
                     }
-                    // The note or email keeps a few characters at least; the memory's name gives way after it.
-                    HStack(spacing: 0) {
-                        Text(Self.subtitle(of: account)).lineLimit(1)
-                            .truncationMode(account.identity.note == nil ? .middle : .tail)
-                            .frame(minWidth: 44, alignment: .leading)
-                            .layoutPriority(1)
-                        let suffix = memorySuffix(account)
-                        if !suffix.isEmpty { Text(suffix).lineLimit(1) }
-                    }
-                    .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                    .help(Self.subtitleHelp(of: account) ?? "")
-                    HStack(spacing: 5) {
-                        statusDot(account, updating: action == .updating, opened: model.openedAt[account.id])
-                        // Open, closed, opening: the new words come in once the old ones have gone; the RAM figure that follows
-                        // moves at once, never rolls.
-                        SwappingText(text: status, key: Self.status(of: account, memory: 0))
-                            .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
-                    }
-                    // Its last save failed and it has not saved since: when, and why, quietly.
-                    if let failure = model.saveFailureSentence(of: account.id) {
-                        HStack(alignment: .firstTextBaseline, spacing: 5) {
-                            Image(systemName: "exclamationmark.circle").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
-                            Text(failure).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
-                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    // One width for Open, Opening…, Show, Update and Log in: a new word never reflows the text beside it. The
+                    // old word goes before the new one comes. An account that still has to log in gets "Log in" here, its Open
+                    // in the menu.
+                    let button = Self.cardButton(for: account, action: action)
+                    if let button {
+                        ZStack(alignment: .trailing) {
+                            cardButton(button, for: account, action: action).id(button.label).transition(SwapText.transition(reduceMotion))
                         }
-                        .help(failure)
+                        .frame(minWidth: Self.buttonSlot, alignment: .trailing)
+                        .animation(Theme.Motion.layout(Theme.Motion.out(SwapText.insertion), reduceMotion), value: button.label)
                     }
-                    if let version = model.staleVersion(of: account.id) {
-                        let waiting = model.restartingWhenIdle.contains(account.id)
-                        HStack(spacing: 6) {
-                            Text(Self.staleLine(version: version, waiting: waiting)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.accentLight)
-                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                            Button("Restart") { Task { await model.restart(account.id) } }.buttonStyle(.glass).controlSize(.mini)
-                                .disabled(waiting || model.restarting.contains(account.id))
-                                .help("Quits this window, waits for it to close, then opens it again on Claude \(version)")
-                        }
+                    moreMenu(account)
+                }
+                // Its last save failed and it has not saved since: when, and why, quietly.
+                if let failure = model.saveFailureSentence(of: account.id) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Image(systemName: "exclamationmark.circle").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                        Text(failure).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    .padding(.leading, Self.linesInset)
+                    .help(failure)
                 }
-                Spacer(minLength: 8)
-                if Self.showsLogInButton(account, opening: opening) {
-                    Button("Log in") { model.beginLogin(account.id) }.buttonStyle(.glass).controlSize(.small)
-                        .disabled(model.accountsBusy.contains(account.id))
-                        .help("Closes your other Claude windows, opens \(account.identity.name) to log in, then reopens the others on your click")
-                        .transition(.fade(reduceMotion))
-                }
-                // One width for Open, Opening…, Show and Update: a new word never reflows the text beside it. The old word
-                // goes before the new one comes.
-                let button = Self.cardButton(for: account, action: action)
-                if let button {
-                    ZStack(alignment: .trailing) {
-                        cardButton(button, for: account, action: action).id(button.label).transition(SwapText.transition(reduceMotion))
+                if let version = model.staleVersion(of: account.id) {
+                    let waiting = model.restartingWhenIdle.contains(account.id)
+                    HStack(spacing: 6) {
+                        Text(Self.staleLine(version: version, waiting: waiting)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.accentLight)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Restart") { Task { await model.restart(account.id) } }.buttonStyle(.glass).controlSize(.mini)
+                            .disabled(waiting || model.restarting.contains(account.id))
+                            .help("Quits this window, waits for it to close, then opens it again on Claude \(version)")
                     }
-                    .frame(minWidth: Self.buttonSlot, alignment: .trailing)
-                    .animation(Theme.Motion.layout(Theme.Motion.out(SwapText.insertion), reduceMotion), value: button.label)
+                    .padding(.leading, Self.linesInset)
                 }
-                moreMenu(account)
             }
             .launchObstacle("accounts.card.\(account.id)")
             .padding(14)
@@ -220,6 +220,12 @@ public struct AccountsView: View {
         .contextMenu { actions(account) }
         // The apps made by hand for the account are looked for as the pointer comes: "Edit…" opens its sheet at once.
         .onHover { inside in if inside { Task { await model.prefetchOtherApps(account.id) } } }
+    }
+
+    /// What a click on the account does, in the sidebar's words.
+    func action(of account: Account) -> SidebarAccountAction {
+        SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
+                                othersOpen: model.openAccounts.contains { $0.id != account.id }, appExists: model.appURL(of: account.id) != nil)
     }
 
     /// The sheet opens once the apps made by hand for the account and its connections are known: at its full size, nothing
@@ -243,11 +249,17 @@ public struct AccountsView: View {
             switch button.run {
             case .update: Task { await model.updateAccount(account.id) }
             case .rebuild, .open: Task { await model.perform(action, on: account.id) }
+            case .logIn: model.beginLogin(account.id)
             }
         }
-        let help = button.run == .update
-            ? (account.isRunning ? "Quits this account, rebuilds its copy of Claude for the version installed, and opens it again" : "Rebuilds this account's copy of Claude for the version installed, then you can open it")
-            : action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id }, staleVersion: model.staleVersion(of: account.id))
+        let help = switch button.run {
+        case .update:
+            account.isRunning ? "Quits this account, rebuilds its copy of Claude for the version installed, and opens it again" : "Rebuilds this account's copy of Claude for the version installed, then you can open it"
+        case .logIn:
+            "Closes your other Claude windows, opens \(account.identity.name) to log in, then reopens the others on your click"
+        case .open, .rebuild:
+            action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id }, staleVersion: model.staleVersion(of: account.id))
+        }
         if button.isProminent {
             Button(button.label, action: run).buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
                 .disabled(!button.isEnabled).help(help)
@@ -283,6 +295,11 @@ public struct AccountsView: View {
     }
 
     @ViewBuilder func actions(_ account: Account) -> some View {
+        // "Log in" holds the card's button: its Open (or Show) is here.
+        let action = action(of: account)
+        if let open = Self.menuAction(for: account, action: action), let label = open.label {
+            Button(label) { Task { await model.perform(open, on: account.id) } }.disabled(!open.isEnabled)
+        }
         Button("Edit…") { startEditing(account) }
         // brainmerge code <slug>, or claude-<slug> with the per-account commands on: never a hand-typed CLAUDE_CONFIG_DIR.
         Button("Copy Terminal Command") {
@@ -342,6 +359,8 @@ public struct AccountsView: View {
 
     /// The room for the card's button, as wide as its widest word ("Opening…").
     static let buttonSlot: CGFloat = 76
+    /// The lines under a card's row start under its name: past the orb (40) and the space after it (12).
+    static let linesInset: CGFloat = 52
 
     /// "Log in" on the card: an account that has not logged in, or whose session is gone.
     nonisolated static func showsLogInButton(_ account: Account, opening: Bool) -> Bool { account.needsLogin && !opening }
@@ -356,7 +375,7 @@ public struct AccountsView: View {
 
     /// The card's main button.
     struct CardButton: Equatable {
-        enum Run: Equatable { case open, rebuild, update }
+        enum Run: Equatable { case open, rebuild, update, logIn }
         let label: String
         let run: Run
         let isEnabled: Bool
@@ -391,8 +410,19 @@ public struct AccountsView: View {
         if account.isOutdated, action != .opening, action != .updating {
             return CardButton(label: "Update", run: .update, isEnabled: true, isProminent: true)
         }
+        if logInHoldsTheButton(account, action: action) { return CardButton(label: "Log in", run: .logIn, isEnabled: true, isProminent: true) }
         guard let label = action.label else { return nil }
         return CardButton(label: label, run: action == .rebuild ? .rebuild : .open, isEnabled: action.isEnabled, isProminent: action != .show)
+    }
+
+    /// An account that still has to log in, ready to open or already open: "Log in" is what to do, and takes the button.
+    nonisolated static func logInHoldsTheButton(_ account: Account, action: SidebarAccountAction) -> Bool {
+        (action == .open || action == .show) && !account.isOutdated && showsLogInButton(account, opening: false)
+    }
+
+    /// The Open (or Show) that "Log in" moved from the card's button to its menu; nil when the button still holds it.
+    nonisolated static func menuAction(for account: Account, action: SidebarAccountAction) -> SidebarAccountAction? {
+        logInHoldsTheButton(account, action: action) ? action : nil
     }
 
     /// The mark next to the name of an account whose Claude Code uses the same email as another one.
