@@ -13,6 +13,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case brainNotConfigured
     case brainNotFound(String)
     case lockTimeout
+    case lockUnavailable(String)
     case shellFailed(command: String, status: Int32, stderr: String)
     case timedOut(command: String)
     case iconFailed(String)
@@ -57,6 +58,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .brainNotConfigured: return "No brain configured yet. Run: brainmerge brain init"
         case .brainNotFound(let p): return "Brain folder missing at \(p)."
         case .lockTimeout: return "Another Brainmerge process is saving. Try again in a few seconds."
+        case .lockUnavailable(let path): return "Brainmerge cannot open \(path). Check that you can write in that folder."
         case .shellFailed(let c, let s, let e): return "Command failed (\(s)): \(c)\n\(e)"
         case .timedOut(let c): return "Command took too long and was stopped: \(c)"
         case .iconFailed(let p): return "Cannot build an icon from \(p)."

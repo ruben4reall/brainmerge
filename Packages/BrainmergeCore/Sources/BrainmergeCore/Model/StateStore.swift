@@ -67,7 +67,7 @@ public struct StateStore: Sendable {
     public func lock(timeout: TimeInterval = 10) throws -> Held {
         try FileManager.default.createDirectory(at: paths.appSupport, withIntermediateDirectories: true)
         let fd = open(lockFile.path, O_CREAT | O_RDWR, 0o644)
-        guard fd >= 0 else { throw BrainmergeError.lockTimeout }
+        guard fd >= 0 else { throw BrainmergeError.lockUnavailable(lockFile.path) }
         let deadline = Date().addingTimeInterval(timeout)
         while flock(fd, LOCK_EX | LOCK_NB) != 0 {
             if Date() >= deadline { close(fd); throw BrainmergeError.lockTimeout }

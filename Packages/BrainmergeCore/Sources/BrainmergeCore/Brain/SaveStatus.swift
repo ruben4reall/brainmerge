@@ -6,12 +6,15 @@ public struct SaveStatus: Codable, Equatable, Sendable {
     public enum Outcome: String, Codable, Sendable, CaseIterable { case committed, nothing, failed, held }
 
     public enum Reason: String, Codable, Sendable, CaseIterable {
-        case locked, gitMissing, diskFull, notARepository, heldBack, unknown
+        case locked, gitMissing, diskFull, notARepository, heldBack, gitStopped, noAccess, unknown
 
         /// The reason an error stands for. Git's own words are only looked at here, never kept.
         public init(_ error: Error) {
             switch error {
-            case BrainmergeError.lockTimeout, BrainmergeError.gitOperationUnfinished: self = .locked
+            case BrainmergeError.lockTimeout: self = .locked
+            case BrainmergeError.gitOperationUnfinished: self = .gitStopped
+            case BrainmergeError.lockUnavailable: self = .noAccess
+            case let error as CocoaError where error.code == .fileWriteNoPermission || error.code == .fileReadNoPermission: self = .noAccess
             case BrainmergeError.gitUnavailable: self = .gitMissing
             case BrainmergeError.brainNotFound, BrainmergeError.brainNotConfigured: self = .notARepository
             case BrainmergeError.shellFailed(_, _, let stderr): self = Self(gitSaid: stderr)

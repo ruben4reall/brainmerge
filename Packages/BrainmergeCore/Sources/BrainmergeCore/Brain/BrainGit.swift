@@ -351,7 +351,8 @@ public struct BrainGit: Sendable {
     public func withLock<T>(timeout: TimeInterval, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: brain.metaDir, withIntermediateDirectories: true)
         let fd = open(brain.lockFile.path, O_CREAT | O_RDWR, 0o644)
-        guard fd >= 0 else { throw BrainmergeError.lockTimeout }
+        // Permissions or a read-only folder: waiting would not help.
+        guard fd >= 0 else { throw BrainmergeError.lockUnavailable(brain.lockFile.path) }
         defer { close(fd) }
         let deadline = Date().addingTimeInterval(timeout)
         while flock(fd, LOCK_EX | LOCK_NB) != 0 {

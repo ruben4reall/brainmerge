@@ -49,4 +49,16 @@ import BrainmergeTestSupport
         Thread.sleep(forTimeInterval: 0.3)
         #expect(try git.withLock(timeout: 1) { 42 } == 42)
     }
+
+    /// A lock file that cannot be opened (a memory folder without write permission) is said as such, never as another
+    /// Brainmerge process saving.
+    @Test func aLockThatCannotBeOpenedIsNotATimeout() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        try? FileManager.default.removeItem(at: brain.lockFile)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: brain.metaDir.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: brain.metaDir.path) }
+        #expect(throws: BrainmergeError.lockUnavailable(brain.lockFile.path)) { try BrainGit(brain: brain).withLock(timeout: 0.1) { } }
+    }
+
 }
