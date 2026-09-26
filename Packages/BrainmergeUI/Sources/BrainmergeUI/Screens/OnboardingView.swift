@@ -305,8 +305,8 @@ public struct OnboardingView: View {
     }
 
     /// The added account's card: where it stands, what it says to do next, and its button while there is one to click.
-    /// Once "Open" (or "Quit Claude and open") is clicked, it never asks for it again: the account opens, then Claude's
-    /// window asks for the login.
+    /// Once "Open" (or "Quit Claude and open") is clicked, it does not ask again while the account opens or is open: the
+    /// account opens, then Claude's window asks for the login. Should nothing open after all, the button comes back.
     struct AddedCard: Equatable {
         enum Phase: Equatable { case ready, opening, open, connected }
         let phase: Phase

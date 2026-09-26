@@ -298,8 +298,8 @@ import BrainmergeTestSupport
         #expect(OnboardingModel(app: app).finished)
     }
 
-    /// Opening the added account from its card is remembered: the card never asks for it again, even before (or without)
-    /// the new window being seen running.
+    /// Opening the added account from its card is remembered: the card never asks for it again while it opens, even
+    /// before the new window is seen running.
     @Test func openingTheAddedAccountIsRemembered() async throws {
         let (e, app, onboarding) = try setup(monitor: ProcessMonitor(psOutput: { "" })); defer { e.home.remove() }
         onboarding.primaryName = "Ruben"
@@ -311,6 +311,37 @@ import BrainmergeTestSupport
         #expect(!onboarding.openedAdded)
         await onboarding.openAddedAccount()?.value
         #expect(onboarding.openedAdded && launched.entries == ["work"])
+    }
+
+    /// "Opening" holds only while an open is under way or the window is seen: a window that quits before the login, or
+    /// one that never comes, gives the card its Open button back instead of "Opening" with no button for good.
+    @Test func theAddedCardOffersOpenAgainOnceNothingOpens() async throws {
+        let ps = CoreWorkTests.FakePS("")
+        let (e, app, onboarding) = try setup(monitor: ProcessMonitor(psOutput: { ps.output })); defer { e.home.remove() }
+        onboarding.primaryName = "Personal"
+        await onboarding.finish()
+        onboarding.secondAccount.name = "Work"
+        #expect(await onboarding.addSecondAccount())
+        let work = try #require(onboarding.addedAccount).identity
+        // A pid above macOS's limit (99,999): no real process is ever matched.
+        let window = "4000002 1 1000 \(e.claude.executable.path) --user-data-dir=\(work.desktopData(in: e.home.paths).path)"
+        app.launchAccount = { _, _ in ps.output = window }
+        await onboarding.openAddedAccount()?.value
+        #expect(onboarding.addedAccount?.isRunning == true)
+        #expect(onboarding.openedAdded)
+        // Its Claude quits before the login: nothing opens any more, and the card asks again.
+        ps.output = ""
+        app.reload()
+        #expect(onboarding.addedAccount?.isRunning == false)
+        #expect(!onboarding.openedAdded)
+        // A window that never comes: Opening from the click until the account's fallback, then Open again.
+        app.openingFallback = .milliseconds(50)
+        app.launchAccount = { _, _ in }
+        let opening = onboarding.openAddedAccount()
+        #expect(onboarding.openedAdded)
+        await opening?.value
+        for _ in 0..<1000 where onboarding.openedAdded { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!onboarding.openedAdded)
     }
 
     @Test func theSecondAccountCanGetItsOwnMemory() async throws {
