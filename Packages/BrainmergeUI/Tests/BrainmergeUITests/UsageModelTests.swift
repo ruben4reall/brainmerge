@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 import BrainmergeCore
 import BrainmergeTestSupport
@@ -44,6 +46,48 @@ import BrainmergeTestSupport
         let empty = UsageView.Placeholder.of(refreshing: false, updated: Date())
         #expect(empty == .nothingYet && !empty.spinner)
         #expect(empty.text == "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
+    }
+
+    /// The Usage screen's spending, drawn again as the model changes.
+    struct Spent: View {
+        let model: AppModel
+        var body: some View { VStack(alignment: .leading, spacing: 16) { UsageView(model: model).spent }.frame(width: 640).padding(20) }
+    }
+
+    /// The first figures take the place of the card that said it was reading: that card goes at once, and never fades
+    /// over the account's card coming in at its place ("Reading tPersonal and Studio").
+    @Test func theReadingCardNeverFadesOverTheFirstFigures() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        let project = e.primaryProfile.projectsDir.appending(path: "-Users-me-atelier", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        try Data(assistant(id: "a", at: Date(), output: 120).utf8).write(to: project.appending(path: "s.jsonl"))
+        let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
+                                      claudeAppURL: e.claude.url, registerLaunchers: false)
+        let model = AppModel(paths: e.home.paths, store: e.store, manager: manager, claudeAppURL: e.claude.url)
+        model.reload()
+        let film = Film(Spent(model: model), size: CGSize(width: 680, height: 520))
+        defer { film.close() }
+        film.run(for: 0.3)
+        let before = film.shot()
+        // The reading card's words are the one cream line; its first letters are left out, where the orb of the account's
+        // card comes (its name is black).
+        let line = try #require(before.lines(.light).first, "the reading card is not drawn")
+        let words = try #require(before.words(.light, in: line, gap: Int(8 * before.scale)).first)
+        let skip = Int(12 * before.scale)
+        let area = Film.PixelRect(x: words.x + skip, y: words.y, width: words.width - skip, height: words.height).grown(top: 4, bottom: 4)
+        let reading = before.count(.light, in: area, threshold: 0.15)
+        #expect(reading > 100, "Reading the transcripts is not drawn")
+        await model.refreshUsage()
+        #expect(!model.usage.isEmpty)
+        let shots = film.shots(for: 0.4)
+        // Frames drawn before the change still show the card whole; from the first one that shows the change, nothing of it.
+        for (time, shot) in shots {
+            let left = shot.count(.light, in: area, threshold: 0.15)
+            guard Double(left) < 0.97 * Double(reading) else { continue }
+            #expect(left == 0, "the reading card still shows \(Int(time * 1000)) ms after the figures came: \(left) of \(reading) pixels")
+        }
+        #expect(try #require(shots.last).shot.count(.light, in: area, threshold: 0.15) == 0, "the reading card never went")
     }
 
     @Test func tokensReadLikeNumbers() {

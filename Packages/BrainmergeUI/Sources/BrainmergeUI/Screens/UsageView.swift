@@ -29,26 +29,7 @@ public struct UsageView: View {
                 sectionLabel("RAM and disk")
                 ResourcesSection(model: model)
                 sectionLabel("Spent in Claude Code").padding(.top, 8)
-                if model.usage.isEmpty {
-                    let placeholder = Placeholder.of(refreshing: model.usageRefreshing, updated: model.usageUpdatedAt)
-                    GlassCard {
-                        HStack(spacing: 8) {
-                            if placeholder.spinner { ProgressView().controlSize(.small).transition(.fade(reduceMotion)) }
-                            Text(placeholder.text)
-                                .foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
-                        }
-                        .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-                        .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: placeholder)
-                    }
-                    .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
-                    // Goes as the first cards come, never cut.
-                    .transition(AnyTransition.opacity.animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion)))
-                }
-                // The first read comes in card by card, 50 ms apart; a later visit finds them in place.
-                ForEach(Array(model.usage.enumerated()), id: \.element.id) { index, entry in
-                    card(entry, index: index, arrivedAt: model.usageArrivedAt).frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
-                        .id(entry.id)   // the quick opener's Cmd-U scrolls to it
-                }
+                spent
                 HStack(spacing: 6) {
                     if let date = model.usageUpdatedAt { Text("Updated \(date.formatted(date: .omitted, time: .shortened)).") }
                     Text("Estimates: output tokens are what Claude wrote, context is what it read (cache included). Brainmerge never switches accounts for you.")
@@ -71,6 +52,31 @@ public struct UsageView: View {
                 await model.refreshDisk()
                 try? await Task.sleep(for: .seconds(5))
             }
+        }
+    }
+
+    /// What each account spent: a card that stands in for the figures until there are some, then a card per account
+    /// (per shared history).
+    @ViewBuilder var spent: some View {
+        if model.usage.isEmpty {
+            let placeholder = Placeholder.of(refreshing: model.usageRefreshing, updated: model.usageUpdatedAt)
+            GlassCard {
+                HStack(spacing: 8) {
+                    if placeholder.spinner { ProgressView().controlSize(.small).transition(.fade(reduceMotion)) }
+                    Text(placeholder.text)
+                        .foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
+                }
+                .padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: placeholder)
+            }
+            .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+            // Goes at once as the first cards come in at its place: fading, its words crossed theirs.
+            .transition(.identity)
+        }
+        // The first read comes in card by card, 50 ms apart; a later visit finds them in place.
+        ForEach(Array(model.usage.enumerated()), id: \.element.id) { index, entry in
+            card(entry, index: index, arrivedAt: model.usageArrivedAt).frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+                .id(entry.id)   // the quick opener's Cmd-U scrolls to it
         }
     }
 

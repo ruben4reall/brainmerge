@@ -79,8 +79,16 @@ import SwiftUI
 
         /// How much darker than the ground: a black word at full strength is about 0.45.
         func dark(_ x: Int, _ y: Int) -> CGFloat { max(0, Film.ground - luma(x, y)) }
-        /// How much lighter than the ground: a cream word.
+        /// How much lighter than the ground: a cream word at full strength is about 0.45, a muted one about 0.3.
         func light(_ x: Int, _ y: Int) -> CGFloat { max(0, luma(x, y) - Film.ground) }
+        func ink(_ tone: Tone, _ x: Int, _ y: Int) -> CGFloat { tone == .dark ? dark(x, y) : light(x, y) }
+
+        /// The pixels of `rect` in `tone` by more than `threshold`.
+        func count(_ tone: Tone, in rect: PixelRect, threshold: CGFloat) -> Int {
+            var count = 0
+            for y in rect.rows(in: self) { for x in rect.columns(in: self) where ink(tone, x, y) > threshold { count += 1 } }
+            return count
+        }
 
         /// The rows of `rect` (pixels) holding a pixel darker than the ground by more than `threshold`.
         func darkRows(in rect: PixelRect, threshold: CGFloat = 0.2) -> [Int] {
@@ -105,11 +113,16 @@ import SwiftUI
 
         /// The black lines of the shot, from the top: runs of rows with dark pixels, split where `gap` rows hold none.
         func darkLines(in rect: PixelRect? = nil, threshold: CGFloat = 0.2, gap: Int = 4) -> [PixelRect] {
+            lines(.dark, in: rect, threshold: threshold, gap: gap)
+        }
+
+        /// The lines of words in `tone`, from the top: runs of rows with such pixels, split where `gap` rows hold none.
+        func lines(_ tone: Tone, in rect: PixelRect? = nil, threshold: CGFloat = 0.2, gap: Int = 4) -> [PixelRect] {
             let area = rect ?? PixelRect(x: 0, y: 0, width: width, height: height)
             var lines: [PixelRect] = []
             var top: Int?, last = 0
             for y in area.rows(in: self) {
-                let inked = area.columns(in: self).contains { dark($0, y) > threshold }
+                let inked = area.columns(in: self).contains { ink(tone, $0, y) > threshold }
                 if inked {
                     if top == nil { top = y }
                     last = y
@@ -124,10 +137,15 @@ import SwiftUI
 
         /// The words of a line: runs of columns with dark pixels, split where `gap` columns hold none.
         func darkWords(in line: PixelRect, threshold: CGFloat = 0.2, gap: Int) -> [PixelRect] {
+            words(.dark, in: line, threshold: threshold, gap: gap)
+        }
+
+        /// The words of a line in `tone`: runs of columns with such pixels, split where `gap` columns hold none.
+        func words(_ tone: Tone, in line: PixelRect, threshold: CGFloat = 0.2, gap: Int) -> [PixelRect] {
             var words: [PixelRect] = []
             var left: Int?, last = 0
             for x in line.columns(in: self) {
-                let inked = line.rows(in: self).contains { dark(x, $0) > threshold }
+                let inked = line.rows(in: self).contains { ink(tone, x, $0) > threshold }
                 if inked {
                     if left == nil { left = x }
                     last = x
@@ -140,6 +158,9 @@ import SwiftUI
             return words
         }
     }
+
+    /// Black words, darker than the ground, or cream ones, lighter.
+    enum Tone { case dark, light }
 
     /// A rectangle of pixels; clipped to the shot wherever it is read.
     struct PixelRect: Equatable, CustomStringConvertible {
