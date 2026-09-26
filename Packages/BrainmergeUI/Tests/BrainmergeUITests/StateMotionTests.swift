@@ -144,6 +144,21 @@ import Testing
         #expect(problem.repeats == 1)
     }
 
+    /// A sentence that is not a refusal (a choice that worked) drops in like a problem but never shakes, even said twice;
+    /// a refusal after it enters again instead of shaking.
+    @Test func aGoodNewsLineNeverShakes() {
+        var line = InlineProblem()
+        line.note("Brainmerge uses this Claude from its next launch.")
+        line.note("Brainmerge uses this Claude from its next launch.")
+        #expect(line.text == "Brainmerge uses this Claude from its next launch." && line.repeats == 0)
+        line.show("Not signed by Anthropic.")
+        line.note("Brainmerge uses this Claude from its next launch.")
+        line.show("Not signed by Anthropic.")
+        #expect(line.repeats == 0)
+        line.show("Not signed by Anthropic.")
+        #expect(line.repeats == 1)
+    }
+
     /// x 0, -4, 4, -3, 0 over 0.3 s; with Reduce Motion an opacity blink 1, 0.4, 1 instead.
     @Test func theShakeIsShortAndEndsInPlace() {
         #expect(Shake.offsets.map(\.value) == [-4, 4, -3, 0])
@@ -161,6 +176,12 @@ import Testing
         shown.show("Give this memory a name.")
         #expect(height(VStack(spacing: 14) { Text("a"); ProblemLine(problem: shown); Text("b") }) > bare)
         #expect(height(VStack(spacing: 14) { Text("a"); WorkingLine(text: "Creating the memory…"); Text("b") }) > bare)
+    }
+
+    /// A long working sentence wraps next to a sheet's buttons instead of losing its end ("…and Stu…").
+    @MainActor @Test func aLongWorkingSentenceWraps() {
+        func height(_ text: String) -> CGFloat { NSHostingView(rootView: WorkingLine(text: text).frame(width: 200)).fittingSize.height }
+        #expect(height("Swapping the names of Personal and Studio in every app and folder…") > height("Saving…") * 1.5)
     }
 
     // MARK: E4 to E6, the sidebar

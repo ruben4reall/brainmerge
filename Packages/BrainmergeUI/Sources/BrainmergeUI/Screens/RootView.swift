@@ -181,12 +181,12 @@ public struct RootView: View {
                     if let label = action.label { SidebarRowHint(text: label) }
                     if account.isRunning {
                         Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4)
-                            .transition(reduceMotion ? .opacity : .asymmetric(
+                            .transition(reduceMotion ? .fade(true) : .asymmetric(
                                 insertion: .scale(scale: 0.4).combined(with: .opacity).animation(Theme.Motion.pop),
                                 removal: .opacity.animation(Theme.Motion.out(Theme.Motion.quick))))
                     }
                 }
-                .animation(Theme.Motion.unlessReduced(Theme.Motion.pop, reduceMotion), value: account.isRunning)
+                .animation(Theme.Motion.layout(Theme.Motion.pop, reduceMotion), value: account.isRunning)
             }
             .launchObstacle("sidebar.row.\(account.id)")
             .padding(.horizontal, 10).padding(.vertical, 5)

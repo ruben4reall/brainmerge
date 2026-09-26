@@ -67,6 +67,70 @@ import BrainmergeCore
         #expect(!Theme.Motion.isCapture(environment: ["BRAINMERGE_HOME": "/tmp/demo"]))
     }
 
+    /// Reduce Motion means opacity and color only: what moves or resizes the layout gets no animation at all (the layout
+    /// changes at once), while a color or an opacity keeps a 0.15 s fade.
+    @Test func reduceMotionDropsLayoutAnimations() {
+        #expect(Theme.Motion.layout(Theme.Motion.settle, true) == nil)
+        #expect(Theme.Motion.layout(Theme.Motion.settle, false) == Theme.Motion.settle)
+        #expect(Theme.Motion.unlessReduced(Theme.Motion.settle, true) == Theme.Motion.reduced)
+    }
+
+    /// Every animation keyed on something that moves or resizes the layout (a card added, a line or a block that drops
+    /// in, a spinner before a sentence, a sheet that grows) is dropped under Reduce Motion, never swapped for the 0.15 s
+    /// linear fade, which would still slide the layout; what appears fades in place by its own transition.
+    @Test func reduceMotionNeverSlidesTheLayout() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI")
+        let layoutKeys: [(String, String)] = [
+            ("Screens/AccountsView.swift", "model.accounts.map(\\.id)"), ("Screens/AccountsView.swift", "button"),
+            ("Design/ScreenHeader.swift", "busy"),
+            ("Screens/ConnectionsSection.swift", "options.isEmpty"), ("Screens/ConnectionsSection.swift", "choice"),
+            ("Screens/ConnectionsSection.swift", "serversRead"), ("Screens/ConnectionsSection.swift", "showsServers"),
+            ("Screens/AddAccountSheet.swift", "advanced"), ("Screens/EditAccountSheet.swift", "swapProblem?.id"),
+            ("Screens/UsageView.swift", "state"), ("Screens/UsageView.swift", "model.usageRefreshing"),
+            ("Screens/UsageView.swift", "days.map(\\.output)"), ("Screens/UsageView.swift", "output"), ("Screens/UsageView.swift", "total"),
+            ("Design/SidebarRow.swift", "text"), ("Screens/MemoryGraphView.swift", "recent"),
+            ("Screens/StateProblemView.swift", "model.canRestorePreviousState"),
+            ("Screens/SettingsView.swift", "model.commandLineInstalled"), ("Screens/SettingsView.swift", "sentence"),
+            ("Screens/SettingsView.swift", "model.hooks?.sentence"), ("Screens/ResourcesSection.swift", "model.diskMeasuring"),
+            ("Screens/RootView.swift", "account.isRunning"),
+            ("Screens/OnboardingView.swift", "added.isRunning"), ("Screens/OnboardingView.swift", "added.needsLogin"),
+            ("Screens/OnboardingView.swift", "model.addedSlug"),
+        ]
+        var offenders: [String] = []
+        for (file, key) in layoutKeys {
+            let source = try String(contentsOf: sources.appending(path: file), encoding: .utf8)
+            let animations = Self.animations(in: source).filter { $0.key == key }
+            if animations.isEmpty { offenders.append("\(file): nothing animates on \(key)") }
+            for animation in animations where !(animation.argument.contains("Theme.Motion.layout(") || animation.argument.hasPrefix("reduceMotion ? nil")) {
+                offenders.append("\(file): \(key) eases the layout under Reduce Motion (\(animation.argument))")
+            }
+        }
+        #expect(offenders.isEmpty, "\(offenders)")
+        // The innermost of two animations wins when both values change at once: the spinner arriving with a new sentence
+        // must still push the sentence aside at once, so the header's busy animation sits inside its crossfade.
+        let header = try String(contentsOf: sources.appending(path: "Design/ScreenHeader.swift"), encoding: .utf8)
+        let busy = try #require(header.range(of: "value: busy)")), words = try #require(header.range(of: "value: changeKey ?? subtitle)"))
+        #expect(busy.lowerBound < words.lowerBound)
+    }
+
+    /// Each `.animation(argument, value: key)` of a source, whitespace folded.
+    static func animations(in source: String) -> [(argument: String, key: String)] {
+        let folded = source.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+        return folded.components(separatedBy: ".animation(").dropFirst().compactMap { chunk in
+            guard let value = chunk.range(of: ", value: ") else { return nil }
+            let argument = String(chunk[..<value.lowerBound])
+            var depth = 0, key = ""
+            for c in chunk[value.upperBound...] {
+                if c == "(" { depth += 1 } else if c == ")" { if depth == 0 { break }; depth -= 1 }
+                key.append(c)
+            }
+            // An argument with an unbalanced parenthesis is not one `.animation(_:value:)` call.
+            guard argument.filter({ $0 == "(" }).count == argument.filter({ $0 == ")" }).count else { return nil }
+            return (argument, key)
+        }
+    }
+
     /// The six-color aura, the background halos and the unused pill button are gone for good: an opening account gets
     /// a stroke in its own color, the canvas stays quiet. Nothing may bring them back by a token change.
     @Test func noAuraHaloOrDeadButtonStyleLeft() throws {

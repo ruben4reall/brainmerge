@@ -262,9 +262,18 @@ struct InlineProblem: Equatable {
     private(set) var repeats = 0
 
     mutating func show(_ new: String?) {
-        if let new, new == text { repeats += 1 }
+        if let new, new == text, !isNote { repeats += 1 }
         text = new
+        isNote = false
     }
+
+    /// A sentence that is not a refusal (a choice that worked): it drops in the same way and never shakes.
+    mutating func note(_ new: String) {
+        text = new
+        isNote = true
+    }
+
+    private var isNote = false
 }
 
 /// The shake of a problem said again: x 0, -4, 4, -3, 0 over 0.3 s, each step on the ease-out. With Reduce Motion, an
@@ -331,8 +340,9 @@ extension View {
 
 // MARK: M2, busy
 
-/// A waiting sentence while work runs: a small spinner before it, the pair fading in and out in 0.15 s, a new sentence
-/// crossfading over the old one. Never a spinner inside a disabled button.
+/// A waiting sentence while work runs: a small spinner before its first line, the pair fading in and out in 0.15 s, a new
+/// sentence crossfading over the old one. A long sentence wraps, never loses its end. Never a spinner inside a disabled
+/// button.
 struct WorkingLine: View {
     let text: String?
     var size: ControlSize = .small
@@ -341,9 +351,12 @@ struct WorkingLine: View {
     var body: some View {
         let animation = Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion)
         if let text {
-            HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 ProgressView().controlSize(size)
-                Text(text).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                    // Centered on the first line's x-height, not sitting on its baseline.
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                Text(text).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
                     .animation(animation, value: text)
             }
@@ -368,8 +381,11 @@ struct ReducedFadeIn: ViewModifier {
 // MARK: Transitions
 
 extension AnyTransition {
-    /// A line coming in: 4 points down into place and a fade (M6). Opacity only with Reduce Motion.
-    static func line(_ reduceMotion: Bool) -> AnyTransition { reduceMotion ? .opacity : .opacity.combined(with: .offset(y: Arrival.line.offset)) }
+    /// A fade. With Reduce Motion it carries its own 0.15 s, so it plays in place while the layout around it, which gets
+    /// no animation then (`Theme.Motion.layout`), changes at once.
+    static func fade(_ reduceMotion: Bool) -> AnyTransition { reduceMotion ? .opacity.animation(Theme.Motion.reduced) : .opacity }
+    /// A line coming in: 4 points down into place and a fade (M6). A fade in place with Reduce Motion.
+    static func line(_ reduceMotion: Bool) -> AnyTransition { reduceMotion ? .fade(true) : .opacity.combined(with: .offset(y: Arrival.line.offset)) }
     /// A banner: 6 points down into place and a fade (M5).
     static func banner(_ reduceMotion: Bool) -> AnyTransition { reduceMotion ? .opacity : .opacity.combined(with: .offset(y: -6)) }
     /// A block of data or of results: 8 points up into place and a fade (M4).

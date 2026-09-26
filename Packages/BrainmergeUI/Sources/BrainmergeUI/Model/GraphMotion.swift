@@ -2,8 +2,9 @@ import CoreGraphics
 import Foundation
 
 /// The zoom buttons and Fit glide instead of jumping: zoom 0.2 s on the ease-out, the scale geometric (every step of the
-/// way looks like the same zoom); Fit 0.35 s on the in-out curve, on the center and the logarithm of the scale. Pure: the
-/// model applies it on each frame, and any gesture that moves the camera meanwhile cancels it.
+/// way looks like the same zoom); Fit 0.35 s on the in-out curve, on the center and the logarithm of the scale. A zoom
+/// clicked during a Fit goes on to the Fit's center. Pure: the model applies it on each frame, and any gesture that moves
+/// the camera meanwhile cancels it.
 struct CameraTween: Equatable {
     enum Kind: Equatable { case zoom, fit }
     let from: GraphCamera
@@ -25,7 +26,8 @@ struct CameraTween: Equatable {
         let e = progress(at: date)
         var camera = from
         camera.scale = CGFloat(exp(Ease.lerp(log(Double(from.scale)), log(Double(to.scale)), e)))
-        if kind == .fit { camera.center = Ease.lerp(from.center, to.center, e) }
+        // A zoom keeps its center, unless it goes on from a Fit still under way: then it glides to the Fit's center too.
+        if from.center != to.center { camera.center = Ease.lerp(from.center, to.center, e) }
         if e == 0 { return from }
         return camera
     }

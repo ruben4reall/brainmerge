@@ -22,12 +22,12 @@ public struct UsageView: View {
                 if model.usage.isEmpty {
                     GlassCard {
                         HStack(spacing: 8) {
-                            if model.usageRefreshing { ProgressView().controlSize(.small).transition(.opacity) }
+                            if model.usageRefreshing { ProgressView().controlSize(.small).transition(.fade(reduceMotion)) }
                             Text(model.usageRefreshing ? "Reading the transcripts…" : "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
                                 .foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
                         }
                         .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.usageRefreshing)
+                        .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.usageRefreshing)
                     }
                     .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
                 }
@@ -123,9 +123,9 @@ public struct UsageView: View {
                         ProgressView().controlSize(.mini)
                         Text(LimitsText.checking).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
                     }
-                    .transition(.opacity)
+                    .transition(.fade(reduceMotion))
                 } else if case .checked(_, let at) = state {
-                    Text(LimitsText.checkedAt(at)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint).transition(.opacity)
+                    Text(LimitsText.checkedAt(at)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint).transition(.fade(reduceMotion))
                 }
                 Button("Check limits") { Task { await model.checkLimits(slug) } }
                     .buttonStyle(.glass).controlSize(.small)
@@ -149,7 +149,7 @@ public struct UsageView: View {
                 EmptyView()
             }
         }
-        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: state)
+        .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: state)
     }
 
     /// One limit: Claude Code's label, the percent used, a thin bar in the account's color, and the reset time as written.
@@ -187,16 +187,17 @@ public struct UsageView: View {
         figure("30 days", summary.monthOutput, summary.month)
     }
 
-    /// A figure rolls to its new value when a later read changes it (at most once a minute); never on arrival.
+    /// A figure rolls to its new value when a later read changes it (at most once a minute); never on arrival. With Reduce
+    /// Motion it changes at once: a new width would slide the figures after it.
     func figure(_ label: String, _ output: Int, _ total: Int) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased()).font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
             Text(TokenFormat.short(output)).font(Theme.Fonts.figure)
                 .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(output)))
-                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(UsageMotion.update), reduceMotion), value: output)
+                .animation(Theme.Motion.layout(Theme.Motion.out(UsageMotion.update), reduceMotion), value: output)
             Text("written · \(TokenFormat.short(total)) context").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                 .contentTransition(.opacity)
-                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(UsageMotion.update), reduceMotion), value: total)
+                .animation(Theme.Motion.layout(Theme.Motion.out(UsageMotion.update), reduceMotion), value: total)
         }
         .fixedSize()
     }
@@ -231,7 +232,7 @@ public struct UsageView: View {
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .bottomLeading)
-                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(UsageMotion.update), reduceMotion), value: days.map(\.output))
+                .animation(Theme.Motion.layout(Theme.Motion.out(UsageMotion.update), reduceMotion), value: days.map(\.output))
             }
         }
         .accessibilityElement()

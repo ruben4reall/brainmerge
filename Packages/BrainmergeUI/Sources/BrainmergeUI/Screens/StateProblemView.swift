@@ -26,14 +26,14 @@ struct StateProblemView: View {
                             Task { await model.restorePreviousState(); restoring = false }
                         }
                         .buttonStyle(.glassProminent).tint(Theme.Colors.button).disabled(restoring)
-                        .transition(.opacity)
+                        .transition(.fade(reduceMotion))
                     }
                 }
                 // The restore waits for the lock while the command line changes the list: say it is working.
                 WorkingLine(text: restoring ? "Restoring the previous copy…" : nil)
             }
             .padding(40)
-            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.canRestorePreviousState)
+            .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.canRestorePreviousState)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -382,9 +382,10 @@ struct MemoryGraphView: View {
             let projects = graph.graph.nodes.count - noteCount, links = graph.graph.edges.count
             let projectCount = isVault ? "" : " · \(projects) project\(projects == 1 ? "" : "s")"
             let counts = "\(noteCount) note\(noteCount == 1 ? "" : "s")\(projectCount) · \(links) link\(links == 1 ? "" : "s")\(graph.truncated ? " · the most recent 2,000" : "")"
+            let dot = recent ? Theme.Colors.accentLight : Theme.Colors.sage
             HStack(spacing: 6) {
-                Circle().fill(recent ? Theme.Colors.accentLight : Theme.Colors.sage).frame(width: 6, height: 6)
-                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(recent ? Theme.Motion.quick : 0.3), reduceMotion), value: recent)
+                Circle().fill(dot).frame(width: 6, height: 6)
+                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(recent ? Theme.Motion.quick : 0.3), reduceMotion), value: dot)
                     .overlay { RingPulseView(ring: .changed, start: graph.lastChange, color: Theme.Colors.accentLight) }
                 Text("\(Text(recent ? "Changed just now" : "Live").foregroundStyle(Theme.Colors.textMuted)) · \(counts)")
                     .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint)
@@ -392,7 +393,8 @@ struct MemoryGraphView: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             .glassEffect(.regular, in: Capsule())
-            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: recent)
+            // The capsule eases to its new width; with Reduce Motion it takes it at once and only the dot's color fades.
+            .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: recent)
         }
     }
 

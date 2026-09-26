@@ -22,13 +22,15 @@ public struct ScreenHeader<Trailing: View>: View {
                 Text(title).font(Theme.Fonts.screenTitle)
                 if let subtitle {
                     HStack(spacing: 6) {
-                        if busy { ProgressView().controlSize(.small).transition(.opacity) }
+                        if busy { ProgressView().controlSize(.small).transition(.fade(reduceMotion)) }
                         Text(subtitle).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                             .contentTransition(.opacity)
                     }
                     .frame(maxWidth: 560, alignment: .leading)
+                    // The spinner pushes the sentence aside: with Reduce Motion it moves at once, the spinner fades in place.
+                    // Inside the crossfade, so it wins when a new sentence comes with the spinner.
+                    .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: busy)
                     .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: changeKey ?? subtitle)
-                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: busy)
                 }
             }
             Spacer(minLength: 16)

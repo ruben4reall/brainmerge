@@ -60,6 +60,24 @@ import BrainmergeTestSupport
         #expect(model.hovered == nil)
     }
 
+    /// The pointer keeps moving over empty space after leaving a bubble: each move reports no bubble again, and the grace
+    /// still ends 80 ms after the pointer left, not 80 ms after it rests.
+    @Test func movingOverEmptySpaceDoesNotStretchTheGrace() async throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try brain(home)
+        let model = MemoryGraphModel(animates: false)
+        await model.refresh(root: brain.root)
+        model.hover("project:website")
+        // About a second of pointer moves, one a frame: each comes well within the grace of the one before.
+        var cleared = false
+        for _ in 0..<60 {
+            model.hover(nil)
+            if model.hovered == nil { cleared = true; break }
+            try await Task.sleep(for: .milliseconds(16))
+        }
+        #expect(cleared)
+    }
+
     // MARK: M8, zoom and Fit
 
     /// The zoom buttons glide 0.2 s on the ease-out, the scale geometric about the view's center.
@@ -87,6 +105,19 @@ import BrainmergeTestSupport
         #expect(abs(Double(mid.scale) - 0.5 * pow(4, e)) < 1e-4)   // geometric: at e = 0.5 it would be 1, the middle of 0.5 and 2
         #expect(abs(Double(mid.center.x) - 100 * e) < 1e-3 && abs(Double(mid.center.y) - 40 * e) < 1e-3)
         #expect(tween.camera(at: start.addingTimeInterval(1)) == to)
+    }
+
+    /// A zoom click during a Fit glide goes on toward the Fit's center too, instead of holding the center and jumping
+    /// there when the zoom ends.
+    @Test func aZoomChainedOnAFitGlidesTheCenterToo() {
+        var from = GraphCamera(); from.center = .zero; from.scale = 1
+        var to = GraphCamera(); to.center = CGPoint(x: 100, y: 40); to.scale = 1.25
+        let tween = CameraTween(from: from, to: to, kind: .zoom, start: start)
+        let mid = tween.camera(at: start.addingTimeInterval(0.1))
+        let e = Ease.out(0.5)
+        #expect(abs(Double(mid.center.x) - 100 * e) < 1e-3 && abs(Double(mid.center.y) - 40 * e) < 1e-3)
+        let late = tween.camera(at: start.addingTimeInterval(0.199))
+        #expect(abs(Double(late.center.x) - 100) < 1)
     }
 
     /// Buttons ask the model; any gesture that moves the camera cancels the glide; Reduce Motion jumps.

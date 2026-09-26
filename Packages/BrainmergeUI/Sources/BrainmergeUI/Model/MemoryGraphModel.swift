@@ -348,8 +348,10 @@ public final class MemoryGraphModel {
     public func pointerLeft() { hoverGraceTask?.cancel(); hoverGraceTask = nil; pointer = nil; hovered = nil }
 
     /// The bubble under the pointer as it moves. Leaving a bubble of a memory keeps its focus for `hoverGrace`: moving on
-    /// to the next one never relights the graph in between. A vault follows Obsidian: at once.
+    /// to the next one never relights the graph in between. The grace counts from the moment the pointer left: moving on
+    /// over empty space does not start it again. A vault follows Obsidian: at once.
     public func hover(_ id: String?) {
+        if id == nil, hoverGraceTask != nil { return }
         hoverGraceTask?.cancel(); hoverGraceTask = nil
         guard id == nil, hovered != nil, style == .memory, !reduceMotion else {
             if hovered != id { hovered = id }

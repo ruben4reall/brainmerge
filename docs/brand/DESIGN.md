@@ -44,7 +44,8 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Motion.out(d)` / `inOut(d)` | `cubic-bezier(0.23, 1, 0.32, 1)` / `cubic-bezier(0.77, 0, 0.175, 1)` | entering, exiting and feedback / moving on screen (the site's `--ease-out` and `--ease-move`) |
 | `Motion.hover` / `quick` / `base` / `page` / `ring` | 0.12 / 0.15 / 0.22 / 0.32 / 1.2 s | hover and press / small changes / most changes / a page / a ring |
 | `Motion.pop` / `settle` / `hop` | springs 0.35, 0.6 / 0.4, 0.88 / 0.28, 0.55 | a dot or swatch that pops / layout that settles / a hop |
-| `Motion.reduced` / `unlessReduced(_:_:)` | 0.15 s linear | every change with Reduce Motion: opacity and color only (`unlessReduced` picks it in place of an animation) |
+| `Motion.reduced` / `unlessReduced(_:_:)` | 0.15 s linear | every change with Reduce Motion: opacity and color only (`unlessReduced` picks it in place of an animation of a color or an opacity) |
+| `Motion.layout(_:_:)` / `.fade(_:)` | none with Reduce Motion | what moves or resizes the layout (a grid, a sheet's height, a spinner before a sentence): with Reduce Motion the layout changes at once and what appears fades in place in 0.15 s (`.fade` carries its own animation) |
 | `Motion.isCapture` / `slow` | `BRAINMERGE_CAPTURE` / `BRAINMERGE_SLOW_MOTION` (debug builds) | captures show each scene's still / every token and scene slowed down to feel-check it |
 | `Launch.unit` / `lift` | 7 / 20 | one pixel of the creature on the launch splash, in points / how far its body's middle sits above the window's middle |
 | `Launch.frameDuration` | 0.12 s | one frame of the four-frame walk while a slow launch loads |

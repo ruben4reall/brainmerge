@@ -9,7 +9,8 @@ public struct SettingsView: View {
 
     @State private var showNewMemory = false
     @State private var showUninstall = false
-    /// What the last "Choose…" found: it drops in under the path, and the same refusal again shakes it.
+    /// What the last "Choose…" found: it drops in under the path, and the same refusal again shakes it (never the
+    /// sentence that says the choice worked).
     @State private var claudeNote = InlineProblem()
     @State private var repairingHooks = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -107,7 +108,7 @@ public struct SettingsView: View {
                                     .contentTransition(.opacity)
                                 Button("Install command line") { model.installCommandLine() }.buttonStyle(.glass)
                             }
-                            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.commandLineInstalled)
+                            .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.commandLineInstalled)
                             // Read when Settings opens: the line drops in once known. While "Repair hooks" works, a small
                             // spinner takes the dot's place; the new sentence then crossfades over the old one.
                             if let hooks = model.hooks, let sentence = hooks.sentence {
@@ -117,6 +118,9 @@ public struct SettingsView: View {
                                         else { statusDot(hooks.allCurrent).transition(.opacity) }
                                     }
                                     .frame(width: 8, height: 8)
+                                    // Only the dot and the spinner: the sentence that comes with the end of a repair moves
+                                    // the button at once under Reduce Motion.
+                                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: repairingHooks)
                                     Text(sentence).foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
                                     Button("Repair hooks") {
                                         repairingHooks = true
@@ -124,14 +128,13 @@ public struct SettingsView: View {
                                     }
                                     .buttonStyle(.glass).disabled(repairingHooks)
                                 }
-                                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: repairingHooks)
-                                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: sentence)
+                                .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: sentence)
                                 .transition(.line(reduceMotion))
                             }
                             Text("Optional. Everything here can be done from a terminal with the brainmerge command.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
-                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: model.hooks?.sentence)
+                        .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: model.hooks?.sentence)
                         section("About", last: true) {
                             Text("Brainmerge \(BrainmergeUIInfo.version) · Works with Claude. Not made by Anthropic.").foregroundStyle(Theme.Colors.textMuted)
                             HStack(spacing: 14) {
@@ -173,7 +176,7 @@ public struct SettingsView: View {
                 claudeNote.show(refusal.detail)
             } else {
                 // An account's app keeps the path of the Claude it was built with: only a rebuild moves it.
-                claudeNote.show("Brainmerge uses this Claude from its next launch. Apps already made for your accounts keep the Claude they were built with until you rebuild them.")
+                claudeNote.note("Brainmerge uses this Claude from its next launch. Apps already made for your accounts keep the Claude they were built with until you rebuild them.")
             }
         }
     }

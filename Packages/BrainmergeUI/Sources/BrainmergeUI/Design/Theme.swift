@@ -90,8 +90,11 @@ public enum Theme {
         /// Reduce Motion: opacity and color only, in this plain fade.
         public static let reducedDuration = 0.15
         public static let reduced = Animation.linear(duration: reducedDuration)
-        /// The animation, or Reduce Motion's plain fade in its place.
+        /// The animation, or Reduce Motion's plain fade in its place: for a color or an opacity only.
         public static func unlessReduced(_ animation: Animation, _ reduceMotion: Bool) -> Animation { reduceMotion ? reduced : animation }
+        /// For what moves or resizes the layout: none with Reduce Motion, where the layout changes at once and what appears
+        /// fades in place by its own transition (`AnyTransition.fade`).
+        public static func layout(_ animation: Animation, _ reduceMotion: Bool) -> Animation? { reduceMotion ? nil : animation }
         /// README captures: every scene shows its still, nothing plays. `BRAINMERGE_HOME` demos stay animated.
         public static let isCapture = isCapture(environment: ProcessInfo.processInfo.environment)
         static func isCapture(environment: [String: String]) -> Bool { environment["BRAINMERGE_CAPTURE"] != nil }

@@ -124,12 +124,12 @@ struct ResourcesSection: View {
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
             // While the disk is walked, a small spinner before the sentence.
             HStack(alignment: .center, spacing: 6) {
-                if model.diskMeasuring { ProgressView().controlSize(.mini).transition(.opacity) }
+                if model.diskMeasuring { ProgressView().controlSize(.mini).transition(.fade(reduceMotion)) }
                 Text(text + when).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
                     .contentTransition(.opacity)
             }
-            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.diskMeasuring)
+            .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.diskMeasuring)
             Spacer(minLength: 12)
             Button("Measure again") {
                 forcedWalk?.cancel()

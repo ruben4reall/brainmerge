@@ -114,10 +114,10 @@ import BrainmergeTestSupport
         m.refreshMemory()
         let top = try #require(m.memoryEvents.first?.id)
         #expect(m.memoryArrivals == [top: clock.now])
-        // Read again with nothing new: the date stays, nothing else is added.
+        // Read again ten seconds later with nothing new: the highlight is long over, so its date is dropped.
         clock.advance(10)
         m.refreshMemory()
-        #expect(m.memoryArrivals.count <= 1)
+        #expect(m.memoryArrivals.isEmpty)
         // Another memory: its rows are not new saves.
         let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
         let workBrain = Brain(root: work.url)

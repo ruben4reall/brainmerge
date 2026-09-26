@@ -170,82 +170,89 @@ public struct OnboardingView: View {
             Text("Add a second account").font(Theme.Fonts.onboardingTitle)
             Text("Another Claude account, for work or a client? Give it a name and a color. It opens in its own Claude window where you log in as usual. You can also do this later from the Accounts screen.")
                 .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
-            if let added = model.addedAccount {
-                GlassCard {
-                    HStack(spacing: 14) {
-                        OrbView(name: added.identity.name, tint: added.identity.tint, size: 40).secondOrb(orbSpace, moves: !reduceMotion)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(added.identity.name).font(Theme.Fonts.cardName)
-                            if !added.needsLogin {
-                                Text(added.isRunning ? "Connected. Continue whenever you like." : "Connected. Open it whenever you like.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                            } else if added.isRunning {
-                                Text("Open. Log in in its Claude window (Google or email, like always): this card turns to Connected on its own.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                            } else if model.othersOpen.isEmpty {
-                                Text("Ready. Open it to log in.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                            } else {
-                                Text("Ready. Claude is open for \(model.othersOpen.map(\.identity.name).joined(separator: ", ")): it must be closed first, or the login would land in that window.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                            }
-                        }
-                        Spacer()
-                        // Each piece comes and goes on its own: the check draws itself on, the words fade.
-                        HStack(spacing: 6) {
-                            if !added.needsLogin {
-                                ConnectedCheck(rings: { model.ringsForConnection(of: added.id) })
-                                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(SymbolEffectTransition(effect: .drawOn, options: .default)))
-                                Text("Connected").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).transition(.opacity)
-                            } else if added.isRunning {
-                                Circle().fill(Theme.Colors.sage).frame(width: 7, height: 7).transition(.opacity)
-                                Text("Open").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).transition(.opacity)
-                            } else {
-                                Button(model.othersOpen.isEmpty ? "Open \(added.identity.name)" : "Quit Claude and open \(added.identity.name)") { model.openAddedAccount() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
-                                    .transition(.opacity)
-                            }
-                        }
-                        .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.pop, value: added.needsLogin)
-                    }
-                    .padding(16)
-                }
-                // The card's height follows its sentence as the account opens, then connects.
-                .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.settle, value: added.isRunning)
-                .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.settle, value: added.needsLogin)
-                navigation { Button("Back") { model.back() }.buttonStyle(.glass); Button("Continue") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button) }
-            } else {
-                GlassCard {
-                    VStack(spacing: 12) {
+            // With Reduce Motion the step takes its new height at once and the form and the card crossfade in place.
+            Group {
+                if let added = model.addedAccount {
+                    GlassCard {
                         HStack(spacing: 14) {
-                            OrbView(name: model.secondAccount.name, tint: model.secondAccount.tint, size: 44).secondOrb(orbSpace, moves: !reduceMotion)
-                            VStack(spacing: 8) {
-                                TextField("Name (Work, Studio, a client…)", text: $model.secondAccount.name).textFieldStyle(.plain).font(.system(size: 15))
-                                    .padding(8).background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                TextField("Note (optional)", text: $model.secondAccount.note).textFieldStyle(.plain).font(Theme.Fonts.body)
-                                    .padding(8).background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            OrbView(name: added.identity.name, tint: added.identity.tint, size: 40).secondOrb(orbSpace, moves: !reduceMotion)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(added.identity.name).font(Theme.Fonts.cardName)
+                                Group {
+                                    if !added.needsLogin {
+                                        Text(added.isRunning ? "Connected. Continue whenever you like." : "Connected. Open it whenever you like.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                                    } else if added.isRunning {
+                                        Text("Open. Log in in its Claude window (Google or email, like always): this card turns to Connected on its own.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                                    } else if model.othersOpen.isEmpty {
+                                        Text("Ready. Open it to log in.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                                    } else {
+                                        Text("Ready. Claude is open for \(model.othersOpen.map(\.identity.name).joined(separator: ", ")): it must be closed first, or the login would land in that window.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                                    }
+                                }
+                                .transition(.fade(reduceMotion))
                             }
-                        }
-                        HStack(spacing: 8) {
-                            ForEach(Theme.pickableTints, id: \.self) { t in
-                                TintSwatch(tint: t, selected: model.secondAccount.tint == t, size: 22, ring: 2) { model.secondAccount.tint = t }
+                            Spacer()
+                            // Each piece comes and goes on its own: the check draws itself on, the words fade.
+                            HStack(spacing: 6) {
+                                if !added.needsLogin {
+                                    ConnectedCheck(rings: { model.ringsForConnection(of: added.id) })
+                                        .transition(reduceMotion ? .fade(true) : AnyTransition(SymbolEffectTransition(effect: .drawOn, options: .default)))
+                                    Text("Connected").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).transition(.fade(reduceMotion))
+                                } else if added.isRunning {
+                                    Circle().fill(Theme.Colors.sage).frame(width: 7, height: 7).transition(.fade(reduceMotion))
+                                    Text("Open").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).transition(.fade(reduceMotion))
+                                } else {
+                                    Button(model.othersOpen.isEmpty ? "Open \(added.identity.name)" : "Quit Claude and open \(added.identity.name)") { model.openAddedAccount() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
+                                        .transition(.fade(reduceMotion))
+                                }
                             }
+                            .animation(Theme.Motion.layout(Theme.Motion.pop, reduceMotion), value: added.needsLogin)
                         }
-                        HStack(spacing: 12) {
-                            choiceCard(title: "Shared memory", detail: "Your first account knows what it learns.", selected: model.secondAccount.memory == .shared) { model.secondAccount.memory = .shared }
-                            choiceCard(title: "Its own memory", detail: "A separate folder of notes.", selected: model.secondAccount.memory == .own) { model.secondAccount.memory = .own }
-                        }
+                        .padding(16)
                     }
-                    .padding(16)
+                    // The card's height follows its sentence as the account opens, then connects.
+                    .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: added.isRunning)
+                    .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: added.needsLogin)
+                    navigation { Button("Back") { model.back() }.buttonStyle(.glass); Button("Continue") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button) }
+                } else {
+                    GlassCard {
+                        VStack(spacing: 12) {
+                            HStack(spacing: 14) {
+                                OrbView(name: model.secondAccount.name, tint: model.secondAccount.tint, size: 44).secondOrb(orbSpace, moves: !reduceMotion)
+                                VStack(spacing: 8) {
+                                    TextField("Name (Work, Studio, a client…)", text: $model.secondAccount.name).textFieldStyle(.plain).font(.system(size: 15))
+                                        .padding(8).background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    TextField("Note (optional)", text: $model.secondAccount.note).textFieldStyle(.plain).font(Theme.Fonts.body)
+                                        .padding(8).background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                }
+                            }
+                            HStack(spacing: 8) {
+                                ForEach(Theme.pickableTints, id: \.self) { t in
+                                    TintSwatch(tint: t, selected: model.secondAccount.tint == t, size: 22, ring: 2) { model.secondAccount.tint = t }
+                                }
+                            }
+                            HStack(spacing: 12) {
+                                choiceCard(title: "Shared memory", detail: "Your first account knows what it learns.", selected: model.secondAccount.memory == .shared) { model.secondAccount.memory = .shared }
+                                choiceCard(title: "Its own memory", detail: "A separate folder of notes.", selected: model.secondAccount.memory == .own) { model.secondAccount.memory = .own }
+                            }
+                        }
+                        .padding(16)
+                    }
+                    WorkingLine(text: model.app.working)
+                    navigation {
+                        Button("Back") { model.back() }.buttonStyle(.glass)
+                        Button("Skip for now") { model.next() }.buttonStyle(.glass)
+                        Button("Add account") { Task { if await model.addSecondAccount() { model.error = nil } else { model.error = model.app.message; model.app.message = nil } } }
+                            .buttonStyle(.glassProminent).tint(Theme.Colors.button).disabled(model.app.working != nil)
+                    }
+                    Text("When it opens, macOS asks once to allow “Claude Safe Storage” (click Always Allow) and may ask to allow access to your Documents folder (click Allow).")
+                        .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
                 }
-                WorkingLine(text: model.app.working)
-                navigation {
-                    Button("Back") { model.back() }.buttonStyle(.glass)
-                    Button("Skip for now") { model.next() }.buttonStyle(.glass)
-                    Button("Add account") { Task { if await model.addSecondAccount() { model.error = nil } else { model.error = model.app.message; model.app.message = nil } } }
-                        .buttonStyle(.glassProminent).tint(Theme.Colors.button).disabled(model.app.working != nil)
-                }
-                Text("When it opens, macOS asks once to allow “Claude Safe Storage” (click Always Allow) and may ask to allow access to your Documents folder (click Allow).")
-                    .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
             }
+            .transition(.fade(reduceMotion))
         }
         // The form gives way to the account it created: its orb moves into the card, the step settles to its new height.
-        .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.settle, value: model.addedSlug)
+        .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: model.addedSlug)
     }
 
     var allSet: some View {

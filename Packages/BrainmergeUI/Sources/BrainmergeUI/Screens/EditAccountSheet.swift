@@ -135,7 +135,7 @@ public struct EditAccountSheet: View {
                 labeled("Apps you made") { otherAppLines(note) }
             }
         }
-        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: swapProblem?.id)
+        .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: swapProblem?.id)
     }
 
     /// The apps the person made that also open this account, found before the sheet opened: each once with its own

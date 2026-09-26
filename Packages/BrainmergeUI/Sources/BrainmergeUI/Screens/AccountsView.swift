@@ -42,15 +42,16 @@ public struct AccountsView: View {
                 }
                 .launchObstacle("accounts.header")
                 // A card added or removed scales a touch and fades while the others make room; a search filters at once
-                // (only the accounts themselves animate the grid, never the query).
+                // (only the accounts themselves animate the grid, never the query). With Reduce Motion the cards take their
+                // new places at once and the card itself fades in or out where it is.
                 GlassEffectContainer(spacing: 12) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(shown) { account in
-                            card(account).transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
+                            card(account).transition(reduceMotion ? .fade(true) : .opacity.combined(with: .scale(scale: 0.96)))
                         }
                     }
                 }
-                .animation(Theme.Motion.unlessReduced(Theme.Motion.settle, reduceMotion), value: model.accounts.map(\.id))
+                .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: model.accounts.map(\.id))
                 if shown.isEmpty, !query.isEmpty {
                     Text("No account matches “\(query)”.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
@@ -161,9 +162,9 @@ public struct AccountsView: View {
                 Spacer(minLength: 8)
                 let button = Self.cardButton(for: account, action: action)
                 Group {
-                    if let button { cardButton(button, for: account, action: action).transition(.opacity) }
+                    if let button { cardButton(button, for: account, action: action).transition(.fade(reduceMotion)) }
                 }
-                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: button)
+                .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: button)
                 moreMenu(account)
             }
             .launchObstacle("accounts.card.\(account.id)")

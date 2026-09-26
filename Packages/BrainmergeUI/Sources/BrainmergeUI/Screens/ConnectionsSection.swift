@@ -16,7 +16,8 @@ struct ConnectionsSection: View {
     nonisolated static func folds(serverCount: Int) -> Bool { serverCount > 6 }
 
     /// What is read after the sheet opens (the browsers, the servers) drops in as it comes, and picking a profile opens
-    /// its line: the sheet eases to each new height instead of jumping.
+    /// its line: the sheet eases to each new height instead of jumping. With Reduce Motion the sheet takes its height at
+    /// once and what comes fades in where it lands.
     var body: some View {
         let options = model.browserOptions(keeping: choice)
         let serversRead = model.mcpServers(account.id) != nil
@@ -26,7 +27,7 @@ struct ConnectionsSection: View {
                     ForEach(options, id: \.self) { option in Text(option.label).tag(option.choice) }
                 }
                 .pickerStyle(.menu).fixedSize()
-                .transition(.opacity)
+                .transition(.fade(reduceMotion))
             }
             if let label = model.openBrowserLabel(choice), let choice {
                 VStack(alignment: .leading, spacing: 8) {
@@ -47,9 +48,9 @@ struct ConnectionsSection: View {
             faint(AppModel.connectorsGuide)
             servers
         }
-        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: options.isEmpty)
-        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: choice)
-        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: serversRead)
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: options.isEmpty)
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: choice)
+        .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: serversRead)
         .task { await model.loadConnections() }
     }
 
@@ -76,7 +77,7 @@ struct ConnectionsSection: View {
             VStack(alignment: .leading, spacing: 8) {
                 if Self.folds(serverCount: count) {
                     DisclosureGroup(isExpanded: $showsServers) { list.padding(.top, 4) } label: { title }
-                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: showsServers)
+                        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: showsServers)
                 } else {
                     title
                     list

@@ -60,10 +60,11 @@ public struct AddAccountSheet: View {
                     }
                 }
                 .font(Theme.Fonts.secondary).padding(.top, 8)
+                .transition(.fade(reduceMotion))
             }
             .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-            // Opening and closing ease the sheet to its new height.
-            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: advanced)
+            // Opening and closing ease the sheet to its new height (Reduce Motion: at once, the toggles fade in place).
+            .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: advanced)
             ProblemLine(problem: problem)
             Text("macOS may ask once to allow the keychain and your Documents folder for this account: click Allow.")
                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
