@@ -65,9 +65,11 @@ import BrainmergeTestSupport
     }
 
     @Test func aClaudeDashSlugNameBecomesCode() {
-        #expect(ClaudeCodeTerminal.dispatch(["/Users/x/.local/bin/claude-work", "--resume", "x"], slugs: ["work"]) == ["code", "work", "--resume", "x"])
-        #expect(ClaudeCodeTerminal.dispatch(["claude-other"], slugs: ["work"]) == [])
-        #expect(ClaudeCodeTerminal.dispatch(["brainmerge", "doctor"], slugs: ["work"]) == ["doctor"])
+        #expect(ClaudeCodeTerminal.dispatch(["/Users/x/.local/bin/claude-work", "--resume", "x"]) == ["code", "work", "--resume", "x"])
+        // Called as an account's command, the arguments are never read as brainmerge's own: `code` says what is wrong
+        // (no such account, a state it cannot read).
+        #expect(ClaudeCodeTerminal.dispatch(["claude-other", "uninstall", "--yes"]) == ["code", "other", "uninstall", "--yes"])
+        #expect(ClaudeCodeTerminal.dispatch(["brainmerge", "doctor"]) == ["doctor"])
     }
 
     @Test func calledThroughItsAccountLinkItRunsCode() throws {
