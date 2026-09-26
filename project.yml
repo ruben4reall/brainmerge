@@ -43,6 +43,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ch.rubencatalao.brainmerge
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        # A development build has its own identifier, so its preferences (and whatever AppKit records there) never
+        # touch the installed app's.
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: ch.rubencatalao.brainmerge.debug
     preBuildScripts:
       - name: Build helpers
         script: |

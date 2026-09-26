@@ -17,6 +17,32 @@ public struct BrainmergeScenes: Scene {
         // Read here, not only in the binding: the scenes are drawn again when it changes, so the switch in Settings
         // shows or hides the icon at once.
         let shown = model.showsMenuBarIcon
+        BrainmergeWindowScene(model: model)
+        MenuBarExtra(isInserted: Binding(get: { shown }, set: { inserted in
+            // The person dragged the icon out of the menu bar: saved as off, and the window opens again if it was closed
+            // (see AppModel.menuBarIconRemoved).
+            if !inserted, model.menuBarIconRemoved() {
+                openWindow(id: BrainmergeWindow.main)
+                NSApp.activate()
+            }
+        })) {
+            BrainmergeMenuBar(model: model)
+        } label: {
+            BrainmergeMenuBarLabel(model: model)
+        }
+        .menuBarExtraStyle(.menu)
+    }
+}
+
+/// The main window alone. A capture or a demo runs only this one (see `AppLifecycle.declaresMenuBarItem`): with no menu
+/// bar item declared, AppKit records nothing about one in the preferences it shares with the installed app.
+public struct BrainmergeWindowScene: Scene {
+    let model: AppModel
+    @Environment(\.openWindow) private var openWindow
+
+    public init(model: AppModel) { self.model = model }
+
+    public var body: some Scene {
         Window("Brainmerge", id: BrainmergeWindow.main) { RootView(model: model) }
             .windowStyle(.hiddenTitleBar)
             .windowResizability(.contentMinSize)
@@ -31,18 +57,5 @@ public struct BrainmergeScenes: Scene {
                 openWindow(id: BrainmergeWindow.main)
                 NSApp.activate()
             }
-        MenuBarExtra(isInserted: Binding(get: { shown }, set: { inserted in
-            // The person dragged the icon out of the menu bar: saved as off, and the window opens again if it was closed
-            // (see AppModel.menuBarIconRemoved).
-            if !inserted, model.menuBarIconRemoved() {
-                openWindow(id: BrainmergeWindow.main)
-                NSApp.activate()
-            }
-        })) {
-            BrainmergeMenuBar(model: model)
-        } label: {
-            BrainmergeMenuBarLabel(model: model)
-        }
-        .menuBarExtraStyle(.menu)
     }
 }

@@ -20,7 +20,7 @@ mkdir -p docs/design/captures
 PID=""
 launch() { BRAINMERGE_CAPTURE=1 "$PWD/$EXE" > /dev/null 2>&1 & PID=$!; }
 # Whatever ends the script (a failed step, Ctrl-C, a timeout), the app it launched is stopped: a copy left running
-# takes over "open Brainmerge" from the installed app, since both share one bundle identifier.
+# can take over "open Brainmerge" (and brainmerge:// links) from the installed app.
 stop_launched() { if [ -z "$ATTACH" ] && [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; fi; }
 trap stop_launched EXIT INT TERM HUP
 # The demo's own process when we launched it, the app by name otherwise (--attach).

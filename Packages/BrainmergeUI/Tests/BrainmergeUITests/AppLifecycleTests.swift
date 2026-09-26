@@ -24,6 +24,17 @@ import Testing
         #expect(!AppLifecycle.isCaptureOrDemo(environment: [:]))
     }
 
+    /// A capture or a demo declares no menu bar item at all: even hidden, AppKit records an item's visibility in the app's
+    /// preferences ("NSStatusItem VisibleCC Item-0"), a file a demo shares with the installed app (SECURITY.md: a capture or
+    /// a demo never writes it). Everywhere else the item is declared, and shows as the setting says.
+    @Test func aCaptureOrADemoDeclaresNoMenuBarItem() {
+        #expect(AppLifecycle.declaresMenuBarItem(environment: [:]))
+        #expect(AppLifecycle.declaresMenuBarItem(environment: ["BRAINMERGE_HOME": ""]))
+        for key in ["BRAINMERGE_CAPTURE", "BRAINMERGE_SCREEN", "BRAINMERGE_ONBOARDING_STEP", "BRAINMERGE_HOME"] {
+            #expect(!AppLifecycle.declaresMenuBarItem(environment: [key: "1"]), "\(key)")
+        }
+    }
+
     /// With the icon, closing the window keeps Brainmerge in the menu bar; without it, closing the window quits,
     /// unless the quick opener's shortcut is registered: it works with the window closed.
     @Test func windowCloseKeepsRunningOnlyWithTheIconOrTheOpener() {

@@ -9,6 +9,11 @@ public enum AppLifecycle {
         AppModel.skipsSplash(environment: environment) || environment["BRAINMERGE_HOME"].map { !$0.isEmpty } == true
     }
 
+    /// Whether the app declares its menu bar item at all (shown or not, see `showsMenuBarIcon`). Never in a capture or a
+    /// demo: even hidden, AppKit records the item's visibility in the app's preferences ("NSStatusItem VisibleCC Item-0"),
+    /// a file a demo shares with the installed app, which a capture or a demo must never write (SECURITY.md).
+    public static func declaresMenuBarItem(environment: [String: String]) -> Bool { !isCaptureOrDemo(environment: environment) }
+
     /// Only once the window shows its screens and the guided setup is closed: before that, closing the window must quit,
     /// and the menu would offer accounts that do not exist yet.
     public static func showsMenuBarIcon(setting: Bool, phase: LaunchPhase, setupDone: Bool, environment: [String: String]) -> Bool {
