@@ -61,6 +61,7 @@ public struct RootView: View {
         .focusedSceneValue(\.brainmergeSection, model.launchPhase == .ready && !model.needsOnboarding && onboarding.finished ? $section : nil)
         .alert(model.message?.title ?? "", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } }), presenting: model.message) { m in
             if m.action != nil { Button(m.actionLabel ?? "OK") { perform(m) } }
+            if let cancel = m.cancelLabel { Button(cancel, role: .cancel) {} }
             Button(m.action == .moveToApplications ? "Not now" : "OK", role: .cancel) { if m.action == .moveToApplications { Installer.remember(declined: Installer.bundlePath) } }
         } message: { m in
             Text(m.detail)
@@ -194,6 +195,7 @@ public struct RootView: View {
         case .openSettings: section = .settings
         case .moveToApplications: Installer.moveAndRelaunch { error in model.present(error) }
         case .installAppleTools: model.installAppleTools()
+        case .reopenInstead(let slug): Task { await model.reopenInstead(slug) }
         case nil: break
         }
     }

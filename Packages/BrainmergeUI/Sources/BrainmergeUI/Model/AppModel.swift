@@ -41,14 +41,18 @@ public struct UserMessage: Identifiable, Equatable, Sendable {
     /// What a message's button does: typed, so it never depends on a label.
     public enum Action: Equatable, Sendable {
         case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications, installAppleTools
+        /// Quits the bare Claude gracefully, then opens this account through its own app.
+        case reopenInstead(slug: String)
     }
     public let id = UUID()
     public let title: String
     public let detail: String
     public let action: Action?
     public let actionLabel: String?
-    public init(title: String, detail: String, action: Action? = nil, actionLabel: String? = nil) {
-        self.title = title; self.detail = detail; self.action = action; self.actionLabel = actionLabel
+    /// The word of the button that changes nothing, when "OK" would not say it.
+    public let cancelLabel: String?
+    public init(title: String, detail: String, action: Action? = nil, actionLabel: String? = nil, cancelLabel: String? = nil) {
+        self.title = title; self.detail = detail; self.action = action; self.actionLabel = actionLabel; self.cancelLabel = cancelLabel
     }
 }
 
@@ -252,6 +256,22 @@ public final class AppModel {
     /// Read off the main thread by the first load, then used once by `reload()` and `refreshMemory()`.
     private var prefetchedSnapshot: ProcessMonitor.Snapshot?
     private var prefetchedLog: (root: URL, entries: [BrainGit.Entry])?
+
+    // MARK: Claude update safety (see AppModel+UpdateSafety)
+
+    /// Accounts whose window started before Claude was updated: they still run the previous Claude.
+    public internal(set) var staleAccounts: Set<String> = []
+    /// Accounts waiting for their Claude Code sessions to end before they restart.
+    public internal(set) var restartingWhenIdle: Set<String> = []
+    @ObservationIgnored var now: () -> Date = { Date() }
+    @ObservationIgnored var abstimeNow: () -> UInt64 = { mach_absolute_time() }
+    @ObservationIgnored var ticksPerSecond: Double = UpdateWatch.ticksPerSecond
+    @ObservationIgnored var claudeChange: UpdateWatch.Change?
+    @ObservationIgnored var seenClaudeVersion: String?
+    @ObservationIgnored var runningBefore: Set<String>?
+    @ObservationIgnored var lastSecondaryExit: (slug: String, at: Date)?
+    @ObservationIgnored var primaryAppearedAt: Date?
+    @ObservationIgnored var openRequests: [String: Date] = [:]
 
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
@@ -461,6 +481,7 @@ public final class AppModel {
         set(\.memoryWarning, Self.memoryWarning(level: level, open: openAccounts.count, bytes: totalRAMBytes))
         // A window that showed up is no longer "opening".
         set(\.opening, opening.subtracting(openAccounts.map(\.id)))
+        if watchUpdates(snapshot: snapshot) { changed = true }
         return changed
     }
 
@@ -818,6 +839,7 @@ public final class AppModel {
     /// and an older click's timer never clears a newer mark.
     public func markOpening(_ slug: String, fallback: Duration = .seconds(4)) {
         opening.insert(slug)
+        requestedOpen(slug)
         let mark = (openingMarks[slug] ?? 0) + 1
         openingMarks[slug] = mark
         Task {

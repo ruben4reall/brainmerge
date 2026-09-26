@@ -128,6 +128,15 @@ public struct AccountsView: View {
                         Text(Self.status(of: account, memory: memory))
                             .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                     }
+                    if model.staleAccounts.contains(account.id), let version = model.claude?.version {
+                        HStack(spacing: 6) {
+                            Text(Self.staleLine(version: version)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.accentLight)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            Button("Restart") { Task { await model.restart(account.id) } }.buttonStyle(.glass).controlSize(.mini)
+                                .disabled(model.restartingWhenIdle.contains(account.id))
+                                .help("Quits this window, waits for it to close, then opens it again on Claude \(version)")
+                        }
+                    }
                 }
                 Spacer(minLength: 8)
                 if let button = Self.cardButton(for: account, action: action) { cardButton(button, for: account, action: action) }
@@ -209,6 +218,9 @@ public struct AccountsView: View {
         if account.isOutdated { Button("Update for Claude") { Task { await model.updateAccount(account.id) } } }
         if !account.identity.isPrimary { Button(account.identity.iconMode == .tintedClone ? "Rebuild icon" : "Rebuild launcher") { Task { await model.rebuild(account.id) } } }
         else if account.identity.appURL(in: model.paths) != nil { Button("Rebuild app") { Task { await model.rebuild(account.id) } } }
+        if model.staleAccounts.contains(account.id), !model.restartingWhenIdle.contains(account.id) {
+            Button("Restart When Idle") { model.restartWhenIdle(account.id) }
+        }
         if account.isRunning { Button("Quit") { model.quit(account.id) } }
         Divider()
         Button("Remove from Brainmerge…", role: .destructive) { pendingRemoval = account }
@@ -239,6 +251,9 @@ public struct AccountsView: View {
         case (false, false): return "Closed"
         }
     }
+
+    /// Under the status of a window that started before Claude was updated.
+    nonisolated static func staleLine(version: String) -> String { "Runs the previous Claude. Restart to use \(version)." }
 
     /// The card's main button.
     struct CardButton: Equatable {

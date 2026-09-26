@@ -9,17 +9,21 @@ import Foundation
 public struct ProcessMonitor: Sendable {
     let psOutput: @Sendable () throws -> String
     let footprint: @Sendable (Int32) -> Int64?
+    let startTime: @Sendable (Int32) -> UInt64?
 
     public init(shell: Shell = Shell()) {
         self.psOutput = { try shell.check("/bin/ps", ["-axo", "pid=,ppid=,rss=,args="]) }
         self.footprint = { ProcessMonitor.footprint(of: $0) }
+        self.startTime = { ProcessMonitor.startAbstime(of: $0) }
     }
 
     /// For tests: a supplied `ps` output (`pid ppid rss args`). No footprint by default, so a fake pid that happens to
     /// exist on the test Mac never brings in a real process's number.
-    public init(psOutput: @escaping @Sendable () throws -> String, footprint: @escaping @Sendable (Int32) -> Int64? = { _ in nil }) {
+    public init(psOutput: @escaping @Sendable () throws -> String, footprint: @escaping @Sendable (Int32) -> Int64? = { _ in nil },
+                startTime: @escaping @Sendable (Int32) -> UInt64? = { _ in nil }) {
         self.psOutput = psOutput
         self.footprint = footprint
+        self.startTime = startTime
     }
 
     public struct Running: Equatable, Sendable {
@@ -29,8 +33,10 @@ public struct ProcessMonitor: Sendable {
         public let residentBytes: Int64
         /// Empty for a process that is not Claude's (see `snapshot(psOutput:)`).
         public let arguments: String
-        public init(pid: Int32, ppid: Int32, residentBytes: Int64, arguments: String) {
-            self.pid = pid; self.ppid = ppid; self.residentBytes = residentBytes; self.arguments = arguments
+        /// When it started, in mach absolute time (main instances only; nil when not asked or not given).
+        public var startAbstime: UInt64?
+        public init(pid: Int32, ppid: Int32, residentBytes: Int64, arguments: String, startAbstime: UInt64? = nil) {
+            self.pid = pid; self.ppid = ppid; self.residentBytes = residentBytes; self.arguments = arguments; self.startAbstime = startAbstime
         }
     }
 
@@ -84,6 +90,12 @@ public struct ProcessMonitor: Sendable {
             return TerminalUse(sessions: sessions.count, bytes: bytes)
         }
 
+        /// A Claude Code session runs somewhere below this window (the Code tab, or a terminal started from it).
+        public func hasClaudeCode(under pid: Int32) -> Bool {
+            // The Code tab's own Claude Code lives in the data folder, whose path holds a space: its folder name tells it.
+            tree(of: pid).contains { $0.pid != pid && (ProcessMonitor.isClaudeCode(arguments: $0.arguments) || $0.arguments.contains("/claude-code/")) }
+        }
+
         /// Every process in a Claude window's tree or a terminal session's tree: the only ones measuring asks about.
         var claudePids: Set<Int32> {
             let roots = mains.map(\.pid) + terminalSessions.map(\.pid)
@@ -113,7 +125,9 @@ public struct ProcessMonitor: Sendable {
     /// `measuring`: also asks the kernel for the footprint of every process in Claude's trees (a few dozen calls),
     /// for the RAM figures. Checking what runs, or quitting, does not need it.
     public func snapshot(measuring: Bool = false) throws -> Snapshot {
-        let plain = Self.snapshot(psOutput: try psOutput())
+        var plain = Self.snapshot(psOutput: try psOutput())
+        // The start of each window, from the same kernel call as the footprint: tells a window older than Claude's update.
+        plain = Snapshot(mains: plain.mains.map { var main = $0; main.startAbstime = startTime($0.pid); return main }, all: plain.all)
         guard measuring else { return plain }
         var footprints: [Int32: Int64] = [:]
         for pid in plain.claudePids { if let bytes = footprint(pid) { footprints[pid] = bytes } }
@@ -129,6 +143,16 @@ public struct ProcessMonitor: Sendable {
         }
         guard result == 0 else { return nil }
         return Int64(clamping: info.ri_phys_footprint)
+    }
+
+    /// When a process started, in mach absolute time (ri_proc_start_abstime), from the call that gives its footprint.
+    public static func startAbstime(of pid: Int32) -> UInt64? {
+        var info = rusage_info_v2()
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V2, $0) }
+        }
+        guard result == 0 else { return nil }
+        return info.ri_proc_start_abstime
     }
 
     /// Claude Code, however it was started: its native binary from PATH or by path, or its npm package run by node or bun.
