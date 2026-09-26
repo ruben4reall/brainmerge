@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 (2026-09-27)
+
+Brainmerge 0.6.1 fixes what a review of the whole core found: nothing it does can lose a note or your own text anymore, saves say why they fail and never stall, and the heavy reads are light again.
 
 ### Fixed
 
