@@ -51,7 +51,10 @@ public enum SecretGuard {
     }
 
     /// `b/<path>`, or git's quoted form for a name with quotes, control characters or bytes it escapes; nil for /dev/null.
+    /// Git ends the field with a tab when the name holds a space (after the closing quote too): the tab is not part of
+    /// the name, and a name that really holds one is always quoted.
     static func newPath(_ field: String) -> String? {
+        let field = field.hasSuffix("\t") ? String(field.dropLast()) : field
         let name = field.hasPrefix("\"") ? unquote(field) : field
         guard name.hasPrefix("b/") else { return nil }
         return String(name.dropFirst(2))

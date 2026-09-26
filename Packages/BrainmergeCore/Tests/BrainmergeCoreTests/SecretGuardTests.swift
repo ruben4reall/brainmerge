@@ -109,6 +109,25 @@ enum SecretFixtures {
         #expect(SecretGuard.scan(diff: text) { _, _ in false }.first?.path == "memory/acme/déploy \"v2\".md")
     }
 
+    /// Git ends the `+++` line with a tab when a name holds a space, after a closing quote too: the tab is not part of it.
+    @Test func theTabAfterANameIsNotPartOfIt() {
+        let text = """
+        diff --git a/memory/acme/deploy notes.md b/memory/acme/deploy notes.md
+        --- /dev/null
+        +++ b/memory/acme/deploy notes.md\t
+        @@ -0,0 +1 @@
+        +\(SecretFixtures.pem)
+        diff --git "a/memory/acme/deploy \\"v2\\" notes.md" "b/memory/acme/deploy \\"v2\\" notes.md"
+        --- /dev/null
+        +++ "b/memory/acme/deploy \\"v2\\" notes.md"\t
+        @@ -0,0 +1 @@
+        +\(SecretFixtures.pem)
+
+        """
+        #expect(SecretGuard.scan(diff: text) { _, _ in false }.map(\.path)
+                == ["memory/acme/deploy notes.md", "memory/acme/deploy \"v2\" notes.md"])
+    }
+
     /// What the guard keeps can never carry the value: a path, a number, a shape and a digest, no text of the line.
     @Test func resultsHoldNoTextOfTheLine() throws {
         let note = HeldNote(account: "work", path: "memory/acme/deploy.md", line: 3, shape: .gitHub, hash: LineHash(line: "x"))
@@ -139,8 +158,21 @@ enum SecretFixtures {
         try Data(text.utf8).write(to: url)
     }
 
+    /// The index, with names as written (NUL separated, never quoted).
     func tracked(_ git: BrainGit) throws -> [String] {
-        try git.shell.check("/usr/bin/git", ["ls-files"], cwd: git.brain.root).split(separator: "\n").map(String.init)
+        try Shell().check("/usr/bin/git", ["ls-files", "-z"], cwd: git.brain.root).split(separator: "\0").map(String.init)
+    }
+
+    /// Real git, with `after` run once the save has read what it adds (`git diff --cached`), and that output passed
+    /// through `rewrite`.
+    func watchedGit(_ brain: Brain, rewrite: @escaping @Sendable (String) -> String = { $0 },
+             after: @escaping @Sendable () throws -> Void = {}) -> BrainGit {
+        BrainGit(brain: brain, shell: Shell { executable, arguments, cwd, environment in
+            let result = try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+            guard arguments.contains("diff"), arguments.contains("--cached") else { return result }
+            try after()
+            return ShellResult(status: result.status, stdout: rewrite(result.stdout), stderr: result.stderr)
+        })
     }
 
     func setup(_ home: TempHome) throws -> (Brain, BrainGit, HeldStore) {
@@ -228,5 +260,80 @@ enum SecretFixtures {
         #expect(saved.contains("memory/acme/idea.md") && !saved.contains("memory/acme/db.md"))
         #expect(held.load().held.map(\.account) == [nil])
         #expect(held.load().held.first?.shape == .assignment)
+    }
+
+    /// A name with a space, or one git quotes, is held like any other and waits under its own name: git's headers end
+    /// such a name with a tab, which is not part of it.
+    @Test(arguments: ["memory/acme/deploy notes.md", "memory/acme/deploy \"v2\" notes.md", "memory/acme/déploy\tv2.md"])
+    func aNameWithASpaceOrQuotesIsHeld(_ name: String) throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, held) = try setup(home)
+        try write("# Deploy\nUse \(SecretFixtures.gitHub) to push.\n", name, in: brain)
+        try write("# Prices\n", "memory/acme/prices.md", in: brain)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        try ledger.append(name)
+        try ledger.append("memory/acme/prices.md")
+
+        let outcome = try AccountSave(brain: brain, git: git, held: held).run(for: work)
+        #expect(outcome.saved == ["memory/acme/prices.md"])
+        #expect(outcome.held.map(\.path) == [name])
+        #expect(held.load().held.map(\.path) == [name])
+        #expect(try tracked(git) == ["memory/acme/prices.md"], "the note is neither saved nor tracked")
+        #expect(TouchedLedger.claimed(in: brain) == [name])
+    }
+
+    /// Should the guard name a file the save did not stage, it cannot tell which note holds the key: nothing is saved,
+    /// and every path waits on the account's list.
+    @Test func aFindingThatNamesNoStagedFileSavesNothing() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, _, held) = try setup(home)
+        let git = watchedGit(brain, rewrite: {
+            $0.replacingOccurrences(of: "+++ b/memory/acme/deploy.md", with: "+++ b/memory/acme/elsewhere.md")
+        })
+        try write("Use \(SecretFixtures.gitHub) to push.\n", "memory/acme/deploy.md", in: brain)
+        try write("# Prices\n", "memory/acme/prices.md", in: brain)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        try ledger.append("memory/acme/deploy.md")
+        try ledger.append("memory/acme/prices.md")
+
+        #expect(throws: BrainmergeError.heldFileUnknown) { try AccountSave(brain: brain, git: git, held: held).run(for: work) }
+        #expect(try tracked(git).isEmpty)
+        #expect(TouchedLedger.claimed(in: brain) == ["memory/acme/deploy.md", "memory/acme/prices.md"])
+        #expect(held.load().held.isEmpty)
+    }
+
+    /// The commit holds exactly what the guard read: a note rewritten between the two keeps its new text for the next
+    /// save, unstaged.
+    @Test func theCommitHoldsWhatWasRead() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, _, held) = try setup(home)
+        let note = brain.root.appending(path: "memory/acme/deploy.md")
+        let late = "# Deploy\nUse \(SecretFixtures.gitHub) to push.\n"
+        let git = watchedGit(brain, after: { try Data(late.utf8).write(to: note) })
+        try write("# Deploy\n", "memory/acme/deploy.md", in: brain)
+        try TouchedLedger(brain: brain, slug: "work").append("memory/acme/deploy.md")
+
+        #expect(try AccountSave(brain: brain, git: git, held: held).run(for: work).saved == ["memory/acme/deploy.md"])
+        let committed = try Shell().check("/usr/bin/git", ["show", "HEAD:memory/acme/deploy.md"], cwd: brain.root)
+        #expect(committed == "# Deploy\n")
+        #expect(try String(contentsOf: note, encoding: .utf8) == late)
+        let status = try Shell().check("/usr/bin/git", ["status", "--porcelain", "--", "memory/acme/deploy.md"], cwd: brain.root)
+        #expect(status == " M memory/acme/deploy.md\n", "the new text waits, unstaged")
+    }
+
+    /// A note git would call binary is still read: a `-diff` attribute or a NUL byte never hides its lines.
+    @Test func aNoteGitCallsBinaryIsStillRead() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, held) = try setup(home)
+        try write("* -diff\n", "memory/acme/.gitattributes", in: brain)
+        try write("Use \(SecretFixtures.gitHub) to push.\n", "memory/acme/deploy.md", in: brain)
+        try write("a\u{0}b\nkey \(SecretFixtures.aws)\n", "memory/kayak/raw.md", in: brain)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        for path in ["memory/acme/.gitattributes", "memory/acme/deploy.md", "memory/kayak/raw.md"] { try ledger.append(path) }
+
+        let outcome = try AccountSave(brain: brain, git: git, held: held).run(for: work)
+        #expect(outcome.saved == ["memory/acme/.gitattributes"])
+        #expect(Set(outcome.held.map(\.path)) == ["memory/acme/deploy.md", "memory/kayak/raw.md"])
+        #expect(try tracked(git) == ["memory/acme/.gitattributes"])
     }
 }

@@ -31,6 +31,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
     case claudeAppTampered(String)
     case primaryIsClaude
     case memoryInsideRepository(String)
+    case heldFileUnknown
 
     public var description: String {
         switch self {
@@ -64,6 +65,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .claudeAppTampered(let p): return "The signature of \(p) does not match its files. Reinstall Claude before making a copy of it."
         case .memoryInsideRepository(let top):
             return "This folder is inside another git repository (\(top)). Brainmerge would create a second repository inside it, and that repository's backups would stop covering these notes. Choose the repository's top folder, or a folder outside it."
+        case .heldFileUnknown: return "A note looks like it holds a key, but Brainmerge could not tell which one, so this save kept every note back."
         case .primaryIsClaude: return "The primary account is the Claude app itself: Brainmerge never makes a copy of it. For an app with its color, use --own-app on."
         }
     }

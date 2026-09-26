@@ -92,6 +92,33 @@ import BrainmergeTestSupport
         #expect(staged.trimmingCharacters(in: .whitespacesAndNewlines) == "Journal.md")
     }
 
+    /// A save moves nothing but the branch: no ORIG_HEAD, no reset in HEAD's log, only commits.
+    @Test func aSaveLeavesNoTraceButItsCommit() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git) = try memory(home)
+        try write("# note\n", "memory/acme/note.md", in: brain)
+        try TouchedLedger(brain: brain, slug: "work").append("memory/acme/note.md")
+        #expect(try AccountSave(brain: brain, git: git, held: held(brain)).run(for: work).saved == ["memory/acme/note.md"])
+        #expect(!FileManager.default.fileExists(atPath: brain.gitDir.appending(path: "ORIG_HEAD").path))
+        let reflog = try git.shell.check("/usr/bin/git", ["reflog", "--format=%gs"], cwd: brain.root)
+        #expect(reflog.split(separator: "\n").allSatisfy { $0.hasPrefix("commit") }, "\(reflog)")
+    }
+
+    /// A path whose content is the last commit's (staged by hand, then put back on disk) is not saved: no empty commit,
+    /// no error, and what the person staged stays staged.
+    @Test func aPathBackToTheLastCommitIsNotSaved() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git) = try memory(home)
+        try write("# changed\n", "memory/acme/old.md", in: brain)
+        try git.shell.check("/usr/bin/git", ["add", "memory/acme/old.md"], cwd: brain.root)
+        try write("# old\n", "memory/acme/old.md", in: brain)
+        try TouchedLedger(brain: brain, slug: "work").append("memory/acme/old.md")
+        #expect(try AccountSave(brain: brain, git: git, held: held(brain)).run(for: work).saved == [])
+        #expect(try git.log(limit: 10).count == 1)
+        let staged = try git.shell.check("/usr/bin/git", ["diff", "--cached", "--name-only"], cwd: brain.root)
+        #expect(staged == "memory/acme/old.md\n")
+    }
+
     /// Names are taken literally: a note called like a pattern commits itself, not its neighbors.
     @Test func pathsAreLiteral() throws {
         let home = try TempHome(); defer { home.remove() }
@@ -233,10 +260,10 @@ import BrainmergeTestSupport
         try git.commitAll(authorName: "Setup", authorEmail: "setup@brainmerge.local", message: "Start")
         try FileManager.default.removeItem(at: brain.root.appending(path: "memory/acme/old.md"))
         let edits = OwnEdits(brain: brain, git: git, held: HeldStore(paths: home.paths, memoryID: "shared"))
-        #expect(try edits.newestChange(of: ["memory/acme/old.md"]).map { abs($0.timeIntervalSinceNow) < 60 } == true)
+        #expect(edits.newestChange(of: ["memory/acme/old.md"]).map { abs($0.timeIntervalSinceNow) < 60 } == true)
         let gone = brain.root.appending(path: "memory/acme")
         try FileManager.default.removeItem(at: gone)
-        #expect(try edits.newestChange(of: ["memory/acme/old.md"]).map { abs($0.timeIntervalSinceNow) < 60 } == true)
+        #expect(edits.newestChange(of: ["memory/acme/old.md"]).map { abs($0.timeIntervalSinceNow) < 60 } == true)
         #expect(try edits.save(now: Date().addingTimeInterval(OwnEdits.quietPeriod + 60), sessionRunning: false) == .saved(["memory/acme/old.md"]))
     }
 }

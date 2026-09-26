@@ -17,9 +17,9 @@ struct GuardedCommit {
         let allowlist = NotSecrets.hashes(in: brain)
         var found: [HeldNote] = []
         var staged: [String] = []
-        let saved = try git.commit(paths: paths, author: author, hold: { changed in
-            staged = changed
-            let findings = SecretGuard.scan(diff: try git.diffCachedAdded(paths: changed)) { path, hash in
+        let saved = try git.commit(paths: paths, author: author, hold: { changes in
+            staged = changes.paths
+            let findings = SecretGuard.scan(diff: try changes.addedLines()) { path, hash in
                 allowlist.contains(hash.hex) || notes.allows(account: account, path: path, hash: hash)
             }
             found = findings.map { HeldNote(account: account, path: $0.path, line: $0.line, shape: $0.shape, hash: $0.hash) }
