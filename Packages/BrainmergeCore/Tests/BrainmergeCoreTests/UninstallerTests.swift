@@ -104,6 +104,28 @@ import BrainmergeTestSupport
         #expect(try fm.destinationOfSymbolicLink(atPath: foreign.path) == e.home.url.appending(path: "somewhere-else/brainmerge").path)
     }
 
+    /// The per-account terminal commands are named in the plan and go; someone else's claude-<slug> stays.
+    @Test func theTerminalCommandsAreListedAndGo() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let fm = FileManager.default
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Other"))
+        let cli = e.home.url.appending(path: "Applications/Brainmerge.app/Contents/MacOS/brainmerge-cli")
+        try fm.createDirectory(at: cli.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: cli)
+        for slug in ["perso", "client"] { #expect(try CLIInstaller.linkAccount(paths: e.home.paths, slug: slug, target: cli)) }
+        let foreign = CLIInstaller.accountLink(in: e.home.paths, slug: "other")
+        try fm.createSymbolicLink(atPath: foreign.path, withDestinationPath: "/usr/bin/true")
+
+        let plan = try uninstaller(e).plan()
+        #expect(plan.removed.contains("The terminal commands claude-perso, claude-client in \(e.home.paths.localBin.path)"))
+        try uninstaller(e).run()
+        #expect((try? fm.destinationOfSymbolicLink(atPath: CLIInstaller.accountLink(in: e.home.paths, slug: "perso").path)) == nil)
+        #expect((try? fm.destinationOfSymbolicLink(atPath: CLIInstaller.accountLink(in: e.home.paths, slug: "client").path)) == nil)
+        #expect(try fm.destinationOfSymbolicLink(atPath: foreign.path) == "/usr/bin/true")
+    }
+
     /// The primary's own app is Brainmerge's and goes, even while Claude runs; Claude and an app the person made stay.
     @Test func thePrimarysOwnAppGoesAndThePersonsAppsStay() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }

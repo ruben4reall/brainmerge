@@ -87,23 +87,39 @@ public enum CLIInstaller {
         paths.localBin.appending(path: ClaudeCodeTerminal.linkPrefix + slug)
     }
 
-    /// Made only where nothing exists: never over a file or someone else's link. True when the link is there and ours.
+    /// Made only where nothing exists: never over a file or someone else's link. The same rules as the brainmerge link:
+    /// Brainmerge's own link to a Brainmerge that was moved or trashed is pointed at `target`, and nothing is linked from
+    /// a read-only disk (the disk image). `target` must be Brainmerge's command line, or the link could never be
+    /// recognized, and removed, later. True when the link is there and ours.
     @discardableResult
-    public static func linkAccount(paths: Paths, slug: String, target: URL) throws -> Bool {
+    public static func linkAccount(paths: Paths, slug: String, target: URL, readOnly: (String) -> Bool = isOnReadOnlyVolume) throws -> Bool {
         let fm = FileManager.default
         let link = accountLink(in: paths, slug: slug)
-        if let existing = try? fm.destinationOfSymbolicLink(atPath: link.path) { return madeByBrainmerge(destination: existing) }
-        if fm.fileExists(atPath: link.path) { return false }
+        let resolved = target.resolvingSymlinksInPath()
+        if let existing = try? fm.destinationOfSymbolicLink(atPath: link.path) {
+            guard madeByBrainmerge(destination: existing) else { return false }
+            let pointed = URL(fileURLWithPath: existing, relativeTo: link.deletingLastPathComponent()).path
+            if fm.isExecutableFile(atPath: pointed) { return true }
+            guard madeByBrainmerge(destination: resolved.path), !readOnly(resolved.path) else { return true }
+            try fm.removeItem(at: link)
+        } else if fm.fileExists(atPath: link.path) {
+            return false
+        }
+        guard madeByBrainmerge(destination: resolved.path), !readOnly(resolved.path) else { return false }
         try fm.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
-        try fm.createSymbolicLink(at: link, withDestinationURL: target.resolvingSymlinksInPath())
+        try fm.createSymbolicLink(at: link, withDestinationURL: resolved)
         return true
+    }
+
+    /// The account's command is there and is Brainmerge's.
+    public static func hasAccountLink(paths: Paths, slug: String) -> Bool {
+        guard let existing = try? FileManager.default.destinationOfSymbolicLink(atPath: accountLink(in: paths, slug: slug).path) else { return false }
+        return madeByBrainmerge(destination: existing)
     }
 
     /// Removed only after checking that the link points at Brainmerge's command line.
     public static func unlinkAccount(paths: Paths, slug: String) {
-        let fm = FileManager.default
-        let link = accountLink(in: paths, slug: slug)
-        guard let existing = try? fm.destinationOfSymbolicLink(atPath: link.path), madeByBrainmerge(destination: existing) else { return }
-        try? fm.removeItem(at: link)
+        guard hasAccountLink(paths: paths, slug: slug) else { return }
+        try? FileManager.default.removeItem(at: accountLink(in: paths, slug: slug))
     }
 }

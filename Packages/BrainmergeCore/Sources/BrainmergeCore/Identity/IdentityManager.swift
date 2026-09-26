@@ -93,6 +93,10 @@ public final class IdentityManager: @unchecked Sendable {
         }
         state.identities.append(identity)
         try store.save(state)
+        // Added from the app or with `brainmerge identity add`: its terminal command, where the brainmerge link points.
+        if state.terminalCommands {
+            _ = try? CLIInstaller.linkAccount(paths: paths, slug: identity.slug, target: URL(fileURLWithPath: cliPath))
+        }
         return identity
     }
 
