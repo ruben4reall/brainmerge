@@ -219,8 +219,9 @@ struct Arrival: Equatable {
     static let data = Arrival(duration: 0.24, offset: 8)
     /// A line, a problem, a small result: 4 points down into place in 0.18 s (M6).
     static let line = Arrival(duration: 0.18, offset: -4)
-    /// A new row at the top of the timeline: 6 points down into place in 0.24 s (M10).
-    static let row = Arrival(duration: 0.24, offset: -6)
+    /// A new row at the top of the timeline: 6 points down into place in 0.24 s (M10), once the rows under it have made
+    /// its room (RowPush.room).
+    static let row = Arrival(delay: RowPush.room, duration: 0.24, offset: -6)
 
     func delayed(_ seconds: Double) -> Arrival { var copy = self; copy.delay = seconds; return copy }
     /// When it is in place, from its start.
@@ -234,6 +235,16 @@ struct Arrival: Equatable {
         let e = Ease.out(Ease.progress(elapsed, from: delay, over: duration))
         return Look(opacity: e, offset: offset * CGFloat(1 - e))
     }
+}
+
+/// The rows under a new save at the top of the timeline slide down to make its room, on the settle spring
+/// (Theme.Motion.settle).
+enum RowPush {
+    static let spring = Ease.Spring(response: 0.4, damping: 0.88)
+    /// When the new row comes in, from the save: the rows under it are 94% of the way down, within its 6 point drop of
+    /// their place, and they end their way ahead of it, for rows up to 100 points tall. Coming in at once, it faded in at
+    /// its place over the top row still leaving it.
+    static let room = 0.24
 }
 
 /// Plays an arrival from `start` (nil: in place).

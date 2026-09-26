@@ -189,11 +189,15 @@ public struct MemoryView: View {
                         Text("Nothing remembered yet. Open an account and work on a project: what it learns shows up here.")
                             .foregroundStyle(Theme.Colors.textMuted).padding(22)
                     }
-                    // A new save drops in at the top and wears the selection color for a moment; the rows under it slide
-                    // down. With Reduce Motion, only the color.
+                    // The rows under a new save slide down to make its room; once it is made, the new save drops in, its
+                    // divider with it, and wears the selection color for a moment. With Reduce Motion, only the color.
                     ForEach(Array(model.memoryEvents.enumerated()), id: \.element.id) { index, event in
-                        row(event, arrived: model.memoryArrivals[event.id])
-                        if index < model.memoryEvents.count - 1 { Divider().overlay(Theme.Colors.surfaceLine).padding(.leading, Self.rowInset) }
+                        let arrived = model.memoryArrivals[event.id]
+                        VStack(alignment: .leading, spacing: 0) {
+                            row(event, arrived: arrived)
+                            if index < model.memoryEvents.count - 1 { Divider().overlay(Theme.Colors.surfaceLine).padding(.leading, Self.rowInset) }
+                        }
+                        .arrives(.row, from: reduceMotion ? nil : arrived)
                     }
                 }
                 .animation(reduceMotion ? nil : Theme.Motion.settle, value: model.memoryEvents.first?.id)
@@ -251,7 +255,7 @@ public struct MemoryView: View {
         .glassEffect(.regular, in: Capsule())
     }
 
-    /// A save; a new one (seen `arrived`) drops in and fades from the selection color.
+    /// A save; a new one (seen `arrived`) fades from the selection color.
     func row(_ event: MemoryEvent, arrived: Date?) -> some View {
         HStack(alignment: .center, spacing: 14) {
             OrbView(name: event.name, tint: event.tint, size: 30)
@@ -271,14 +275,21 @@ public struct MemoryView: View {
         .geometryGroup()
         // Inset like the sidebar's selection, so the first row's color stays inside the card's rounded corners.
         .background {
-            BeatView(start: arrived, duration: Highlight.duration) { elapsed in
+            BeatView(start: arrived, duration: Self.highlightDuration(reduceMotion: reduceMotion)) { elapsed in
                 RoundedRectangle(cornerRadius: Theme.Layout.rowRadius, style: .continuous)
-                    .fill(Theme.Colors.selection.opacity(Highlight.opacity(elapsed: elapsed)))
+                    .fill(Theme.Colors.selection.opacity(Highlight.opacity(elapsed: Self.highlightElapsed(elapsed, reduceMotion: reduceMotion))))
                     .padding(.horizontal, 4).padding(.vertical, 2)
             }
         }
-        .arrives(.row, from: reduceMotion ? nil : arrived)
     }
+
+    /// A new save's color counts from the moment its row comes in, once the rows under it have made its room: on the
+    /// row's own clock (`elapsed` since the save, or since a first frame that came late), so it never runs ahead of the
+    /// row. With Reduce Motion, from the save: the row is there at once.
+    static func highlightElapsed(_ elapsed: Double?, reduceMotion: Bool) -> Double? {
+        reduceMotion ? elapsed : elapsed.map { max(0, $0 - Arrival.row.delay) }
+    }
+    static func highlightDuration(reduceMotion: Bool) -> Double { (reduceMotion ? 0 : Arrival.row.delay) + Highlight.duration }
 
     static func relative(_ date: Date) -> String {
         if Date().timeIntervalSince(date) < 60 { return "just now" }

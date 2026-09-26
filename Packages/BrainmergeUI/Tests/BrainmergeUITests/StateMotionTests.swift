@@ -150,6 +150,24 @@ import Testing
         #expect(data.look(elapsed: 0.15, reduceMotion: true) == Arrival.Look(opacity: 1, offset: 0))
     }
 
+    /// A new save at the top of the timeline: the rows under it slide down on the settle spring, and it comes in once they
+    /// have made its room. In no frame does it overlap the row it pushes down, for rows 40 to 100 points tall: it fell in
+    /// at its place from the start, over the row still leaving it.
+    @Test func aNewRowComesInOnceTheRowsUnderItHaveMadeItsRoom() {
+        let row = Arrival.row
+        for height in stride(from: 40.0, through: 100.0, by: 10) {
+            for i in 0...Int(row.end * 480) {
+                let t = Double(i) / 480, look = row.look(elapsed: t, reduceMotion: false)
+                guard look.opacity > 0 else { continue }
+                let bottom = height + Double(look.offset), next = height * RowPush.spring.value(t)
+                #expect(bottom <= next + 0.5, "a \(Int(height)) point row, \(Int(t * 1000)) ms: its bottom at \(bottom), the next row's top at \(next)")
+            }
+        }
+        // The rows' own spring, and not a moment more than it needs: in place under half a second after the save.
+        #expect(Theme.Motion.settle == Animation.spring(response: RowPush.spring.response * Theme.Motion.slow, dampingFraction: RowPush.spring.damping))
+        #expect(row.delay == RowPush.room && row.end <= 0.5)
+    }
+
     /// A new save in the timeline: the selection color from full to nothing over 1.6 s, so it can be found.
     @Test func aNewRowsHighlightFadesOverOnePointSixSeconds() {
         #expect(Highlight.opacity(elapsed: nil) == 0)
@@ -157,6 +175,20 @@ import Testing
         #expect(Highlight.opacity(elapsed: 0.8) > 0.1 && Highlight.opacity(elapsed: 0.8) < 0.5)
         #expect(Highlight.opacity(elapsed: 1.6) == 0)
         #expect(Highlight.duration == 1.6)
+    }
+
+    /// The highlight counts from the moment the new row comes in, once its room is made, on the row's own clock: all of
+    /// it shows, even on a screen whose first frame came late. With Reduce Motion nothing moves and the row is there at
+    /// once, and so is its color.
+    @MainActor @Test func aNewRowsHighlightStartsAsTheRowComesIn() {
+        let delay = Arrival.row.delay
+        #expect(delay > 0)
+        #expect(MemoryView.highlightElapsed(nil, reduceMotion: false) == nil)
+        #expect(MemoryView.highlightElapsed(delay / 2, reduceMotion: false) == 0)
+        #expect(abs((MemoryView.highlightElapsed(delay + 0.5, reduceMotion: false) ?? 0) - 0.5) < 1e-9)
+        #expect(MemoryView.highlightElapsed(0.1, reduceMotion: true) == 0.1)
+        #expect(MemoryView.highlightDuration(reduceMotion: false) == delay + Highlight.duration)
+        #expect(MemoryView.highlightDuration(reduceMotion: true) == Highlight.duration)
     }
 
     // MARK: M4, Usage

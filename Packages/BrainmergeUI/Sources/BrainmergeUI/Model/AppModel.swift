@@ -977,7 +977,7 @@ public final class AppModel {
     /// New saves of the memory shown are dated; the dates of older ones go once their highlight is over.
     private func noticeArrivals(_ events: [MemoryEvent], in root: URL) {
         let date = now()
-        var kept = memoryArrivals.filter { date.timeIntervalSince($0.value) < (Highlight.duration + 0.5) * Theme.Motion.slow }
+        var kept = memoryArrivals.filter { date.timeIntervalSince($0.value) < (Arrival.row.delay + Highlight.duration + 0.5) * Theme.Motion.slow }
         if eventsRoot == root {
             for id in MemoryFeed.arrivals(from: memoryEvents.map(\.id), to: events.map(\.id)) { kept[id] = date }
         } else {

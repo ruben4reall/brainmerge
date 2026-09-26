@@ -67,7 +67,8 @@ import BrainmergeTestSupport
 
     /// The rows under a new save slide down to make room for it, each as one piece: a row's words and its detail line
     /// under them keep their gap in every frame. The words, in the primary color, were drawn apart from the rest of the
-    /// row (vibrant, inside the glass: the capture does not see them) and ran ahead of their detail line, over it.
+    /// row (vibrant, inside the glass: the capture does not see them) and ran ahead of their detail line, over it. The new
+    /// save comes in once the room is made: it faded in at its place from the start, over the top row still leaving it.
     @Test func eachRowSlidesDownWhole() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let personal = try e.manager.adoptPrimary(name: "Personal")
@@ -99,15 +100,28 @@ import BrainmergeTestSupport
         let gap = try #require(resting.first ?? nil, "\(rest)")
         #expect(resting.allSatisfy { $0.map { abs($0 - gap) <= 1 } == true }, "\(resting)")
 
+        // From a row's detail line to the next row's words, at rest: the room between two rows.
+        let pairs = Array(zip(rest, rest.dropFirst()))
+        let next = try #require(pairs.first { upper, lower in upper.kind == .detail && lower.kind == .words }, "\(rest)")
+        let between = next.1.top - next.0.bottom
+
         try save(e, studio, ["memory/newsletter/e.md"])
         m.refreshMemory()
         #expect(m.memoryEvents.count == rows + 1)
-        // The rows that were under the top one: the new save fades in over the one it pushes down, by design.
+        // Every row that was there, the top one too, keeps its gap; and the new save comes in once they have made its room:
+        // two lines one above the other are a row's words over its detail line, or two rows at least their room apart.
         let shots = film.shots(for: 0.7)
+        let tolerance = Int(2 * scale)
         for (time, shot) in shots {
-            let now = Self.gaps(Self.lines(shot, in: column), last: rows - 1)
-            #expect(now.allSatisfy { $0.map { abs($0 - gap) <= Int(2 * scale) } == true },
+            let lines = Self.lines(shot, in: column)
+            let now = Self.gaps(lines, last: rows)
+            #expect(now.allSatisfy { $0.map { abs($0 - gap) <= tolerance } == true },
                     "\(Int(time * 1000)) ms after the save: gaps \(now) for \(gap)")
+            for (upper, lower) in zip(lines, lines.dropFirst()) {
+                let apart = lower.top - upper.bottom
+                #expect(abs(apart - gap) <= tolerance || apart >= between - tolerance,
+                        "\(Int(time * 1000)) ms after the save: the new save over the row leaving its place, \(apart) px apart (\(lines))")
+            }
         }
         #expect(Self.lines(try #require(shots.last).shot, in: column).filter { $0.kind == .words }.count == rows + 1)
     }
