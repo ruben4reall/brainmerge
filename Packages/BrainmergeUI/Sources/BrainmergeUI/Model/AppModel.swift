@@ -113,6 +113,9 @@ public final class AppModel {
     var linkGate = BrainmergeLink.Gate()
     /// The Accounts menu's Add Account…: the Accounts screen opens its add sheet.
     public var requestedAdd = false
+    /// Goes up each time a link or the Accounts menu needs the window (a screen, the Log in sheet, a message): the
+    /// scenes open it, or bring it forward, even when a link arrives with it closed (Brainmerge kept in the menu bar).
+    public internal(set) var windowRequests = 0
     public var message: UserMessage?
     /// Accounts launched and not seen running yet: cleared as soon as `reload()` sees their process,
     /// or after a few seconds if it never shows up.

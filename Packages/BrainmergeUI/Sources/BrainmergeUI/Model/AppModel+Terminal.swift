@@ -2,9 +2,10 @@ import Foundation
 import BrainmergeCore
 
 extension AppModel {
-    /// What the card's Copy Terminal Command copies: the account's own command when the links are on.
+    /// What the card's Copy Terminal Command copies: the account's own command when the links are on and that one is
+    /// Brainmerge's (a claude-<slug> of someone else's would run their program).
     public func terminalCommand(for slug: String) -> String {
-        terminalCommands ? ClaudeCodeTerminal.linkPrefix + slug : "brainmerge code \(slug)"
+        terminalCommands && CLIInstaller.hasAccountLink(paths: paths, slug: slug) ? ClaudeCodeTerminal.linkPrefix + slug : "brainmerge code \(slug)"
     }
 
     /// Settings, Command line: makes each account's claude-<slug> link, or removes those that are Brainmerge's.

@@ -38,6 +38,20 @@ import BrainmergeTestSupport
         #expect(m.terminalCommand(for: "work") == "claude-work")
     }
 
+    /// The switch is on but claude-work is someone else's program: the card copies the command that is surely ours.
+    @Test func aCommandThatIsNotOursIsNeverCopied() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        try FileManager.default.createDirectory(at: e.home.paths.localBin, withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: CLIInstaller.accountLink(in: e.home.paths, slug: "work"))
+        let m = model(e, cli: try embeddedCLI(in: e))
+        m.reload()
+        await m.setTerminalCommands(true).value
+        #expect(m.terminalCommand(for: "ruben") == "claude-ruben")
+        #expect(m.terminalCommand(for: "work") == "brainmerge code work")
+    }
+
     @Test func theSwitchMakesAndRemovesEachAccountsLink() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")

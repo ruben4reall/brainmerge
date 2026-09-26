@@ -66,10 +66,8 @@ public struct BrainmergeCommands: Commands {
     public var body: some Commands {
         CommandMenu("Accounts") {
             ForEach(model.accountsMenuItems) { item in
-                let button = Button(item.title) {
-                    model.openFromMenu(item.id)
-                    if model.login != nil { openWindowNow() }
-                }
+                // The Log in sheet or a message brings the window (see AppModel.windowRequests).
+                let button = Button(item.title) { model.openFromMenu(item.id) }
                 .disabled(!item.entry.isEnabled || route == .off)
                 if let key = item.shortcut {
                     button.keyboardShortcut(KeyEquivalent(key), modifiers: [.command, .option])

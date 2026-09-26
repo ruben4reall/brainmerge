@@ -19,21 +19,29 @@ extension AppModel {
         case .memory(let id):
             if let id, brains.contains(where: { $0.id == id }) { selectBrain(id) }
             requestedScreen = .memory
-        case .usage: requestedScreen = .usage
-        case .settings: requestedScreen = .settings
+            windowRequests += 1
+        case .usage: requestedScreen = .usage; windowRequests += 1
+        case .settings: requestedScreen = .settings; windowRequests += 1
         }
     }
 
     /// The Accounts menu and links: an account that still has to log in, with other Claude windows open, goes
-    /// through the Log in sheet, which closes the others first.
-    public func openFromMenu(_ slug: String) {
-        guard let account = accounts.first(where: { $0.id == slug }) else { return }
+    /// through the Log in sheet, which closes the others first. Both can come with the window closed: the sheet, or a
+    /// message the click produced, asks for it (see `windowRequests`).
+    @discardableResult
+    public func openFromMenu(_ slug: String) -> Task<Void, Never>? {
+        guard let account = accounts.first(where: { $0.id == slug }) else { return nil }
         if account.needsLogin, !account.isRunning, openAccounts.contains(where: { $0.id != slug }) {
             requestedScreen = .accounts
             beginLogin(slug)
-            return
+            windowRequests += 1
+            return nil
         }
-        Task { await perform(menuEntries.first { $0.id == slug }?.action ?? .open, on: slug) }
+        return Task {
+            let before = message?.id
+            await perform(menuEntries.first { $0.id == slug }?.action ?? .open, on: slug)
+            if MenuBarMenu.revealsWindow(before: before, after: message) { windowRequests += 1 }
+        }
     }
 
     /// Open Claude windows, and the Claude Code sessions running in them, for the quit confirmation.

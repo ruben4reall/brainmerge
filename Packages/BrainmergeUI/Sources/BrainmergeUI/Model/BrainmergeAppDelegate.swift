@@ -21,6 +21,12 @@ public final class BrainmergeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// brainmerge:// links, window open or not (Brainmerge kept in the menu bar has no view to receive them). The
+    /// window's onOpenURL may see the same link: the model's 2 s gate acts on it once.
+    public func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { model.handle(url) }
+    }
+
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         AppLifecycle.quitsWhenLastWindowCloses(iconShown: model.showsMenuBarIcon)
     }
