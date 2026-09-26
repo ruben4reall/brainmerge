@@ -6,7 +6,7 @@ public struct SaveStatus: Codable, Equatable, Sendable {
     public enum Outcome: String, Codable, Sendable, CaseIterable { case committed, nothing, failed, held }
 
     public enum Reason: String, Codable, Sendable, CaseIterable {
-        case locked, gitMissing, diskFull, notARepository, heldBack, gitStopped, noAccess, unknown
+        case locked, gitMissing, diskFull, notARepository, heldBack, gitStopped, noAccess, gitLicense, unknown
 
         /// The reason an error stands for. Git's own words are only looked at here, never kept.
         public init(_ error: Error) {
@@ -25,11 +25,18 @@ public struct SaveStatus: Codable, Equatable, Sendable {
             }
         }
 
+        /// Git's words when Xcode's license waits to be accepted.
+        static func isLicense(_ stderr: String) -> Bool { stderr.contains("xcodebuild -license") || stderr.contains("Xcode license") }
+
         private init(gitSaid stderr: String) {
             if stderr.contains("No space left on device") { self = .diskFull }
             else if stderr.contains("not a git repository") { self = .notARepository }
             // Apple's stub in /usr/bin/git without the Command Line Tools.
             else if stderr.contains("invalid active developer path") { self = .gitMissing }
+            // An Xcode updated whose license is not accepted yet: git refuses to run at all.
+            else if Self.isLicense(stderr) { self = .gitLicense }
+            // A memory folder owned by another user (an external disk): git refuses it (safe.directory).
+            else if stderr.contains("dubious ownership") { self = .noAccess }
             // Another git (an editor's, the person's) holds the memory's index, or its branch: a save commits through an
             // index of its own, so the lock it meets is the branch's ("cannot lock ref").
             else if stderr.contains("index.lock") || stderr.contains("cannot lock ref") || stderr.contains(".lock': File exists") { self = .locked }

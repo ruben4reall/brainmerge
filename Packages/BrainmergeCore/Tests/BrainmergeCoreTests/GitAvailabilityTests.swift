@@ -72,4 +72,20 @@ final class ShellCalls: @unchecked Sendable {
         // Nothing half made: no memory folder, no BRAIN.md, no meta files for a memory that could not keep its history.
         #expect(!FileManager.default.fileExists(atPath: home.paths.defaultBrain.path))
     }
+
+    /// Git there but refusing to run (an Xcode license not accepted after an update) is said, with what to run; a git
+    /// that runs says nothing, and without the tools nothing is started at all.
+    @Test func gitThatDoesNotRunIsSaid() {
+        let license = Shell { executable, _, _, _ in
+            executable == "/usr/bin/xcode-select"
+                ? ShellResult(status: 0, stdout: "/Applications/Xcode.app/Contents/Developer\n", stderr: "")
+                : ShellResult(status: 69, stdout: "", stderr: "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window.")
+        }
+        #expect(GitAvailability(shell: license, isExecutable: { _ in true }).runProblem() == "git waits for Xcode's license to be accepted. Run: sudo xcodebuild -license")
+        #expect(GitAvailability(shell: Self.shell(status: 0, path: "/Library/Developer/CommandLineTools"), isExecutable: { _ in true }).runProblem() == nil)
+        let calls = ShellCalls()
+        #expect(GitAvailability(shell: Self.shell(status: 2, path: "", calls: calls), isExecutable: { _ in true }).runProblem() == nil)
+        #expect(calls.all == [["/usr/bin/xcode-select", "-p"]])
+    }
+
 }

@@ -193,6 +193,7 @@ public enum HealthText {
         case .heldBack: "a note looks like it holds a key."
         case .gitStopped: "a merge or rebase is still open in the memory. Finish it, and saves go on."
         case .noAccess: "Brainmerge cannot write in the memory folder. Check its permissions."
+        case .gitLicense: "git waits for Xcode's license to be accepted (sudo xcodebuild -license in Terminal)."
         case .unknown: "something unexpected stopped it."
         }
     }

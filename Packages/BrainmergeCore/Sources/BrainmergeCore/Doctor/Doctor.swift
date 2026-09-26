@@ -73,8 +73,10 @@ public struct Doctor: Sendable {
                                     plain: "Brainmerge can't use the Claude app at \(shown(claudeAppURL.path)). Choose it under Where Claude is."))
         }
 
+        let gitProblem = git.runProblem()
         findings.append(git.isAvailable
-            ? Finding(level: .ok, title: "git", detail: "Apple's Command Line Tools are installed", plain: "Apple's Command Line Tools are installed.")
+            ? (gitProblem.map { Finding(level: .error, title: "git", detail: $0, plain: "git is installed but does not run, so the memory is not saved.") }
+               ?? Finding(level: .ok, title: "git", detail: "Apple's Command Line Tools are installed", plain: "Apple's Command Line Tools are installed."))
             : Finding(level: .error, title: "git", detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install",
                       plain: "Apple's Command Line Tools are missing: the memory keeps its history with them.", fix: .installAppleTools))
 
