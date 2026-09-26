@@ -1241,10 +1241,14 @@ import BrainmergeTestSupport
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
         #expect(await m.waitForWork(limit: .seconds(1)))
-        let work = Task { _ = await m.outcome("Rebuilding Work…") { Thread.sleep(forTimeInterval: 0.3) } }
+        // The work lasts until the short wait is over, however late a busy main actor wakes that wait (with the whole suite
+        // running, a fixed 0.3 s could end first, and the wait then rightly saw nothing left).
+        let release = DispatchSemaphore(value: 0)
+        let work = Task { _ = await m.outcome("Rebuilding Work…") { release.wait() } }
         while m.working == nil { await Task.yield() }
         #expect(await m.waitForWork(limit: .milliseconds(20)) == false)
-        #expect(await m.waitForWork(limit: .seconds(5)))
+        release.signal()
+        #expect(await m.waitForWork(limit: .seconds(30)))
         #expect(m.working == nil)
         await work.value
     }
