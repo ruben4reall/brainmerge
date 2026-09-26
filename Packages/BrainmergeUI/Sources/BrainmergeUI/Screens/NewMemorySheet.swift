@@ -11,6 +11,8 @@ public struct NewMemorySheet: View {
     @State private var name: String
     @State private var folder: URL?
     @State private var problem: String?
+    /// The button that goes with the problem, when it has one (git missing: Apple's installer).
+    @State private var problemAction: UserMessage.Action?
 
     public init(model: AppModel, isPresented: Binding<Bool>, attach: Account? = nil) {
         self.model = model; _isPresented = isPresented; self.attach = attach
@@ -51,7 +53,14 @@ public struct NewMemorySheet: View {
                 Text("Created if missing. A folder you already have is used as is: nothing in it is renamed.")
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
             }
-            if let problem { Text(problem).foregroundStyle(Theme.Colors.accentLight).font(Theme.Fonts.secondary) }
+            if let problem {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(problem).foregroundStyle(Theme.Colors.accentLight).font(Theme.Fonts.secondary)
+                    if Self.offersAppleTools(problemAction) {
+                        Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass).controlSize(.small)
+                    }
+                }
+            }
             HStack(spacing: 10) {
                 if let working = model.working { Text(working).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
                 Spacer()
@@ -65,15 +74,23 @@ public struct NewMemorySheet: View {
         .background(WarmBackground(accents: [.purple]))
     }
 
+    /// Git missing: the sheet offers Apple's installer itself, like the Memory screen, since its message is not shown.
+    nonisolated static func offersAppleTools(_ action: UserMessage.Action?) -> Bool { action == .installAppleTools }
+
     func create() {
         let clean = name.trimmingCharacters(in: .whitespaces)
+        problemAction = nil
         guard !clean.isEmpty else { problem = "Give this memory a name."; return }
         // An open account cannot move: say so before creating anything.
         if let attach, attach.isRunning { problem = "Quit \(attach.identity.name) first, then try again."; return }
         Task {
-            guard let created = await model.addBrain(name: clean, path: folder) else { problem = model.message?.detail; model.message = nil; return }
+            guard let created = await model.addBrain(name: clean, path: folder) else {
+                problem = model.message?.detail; problemAction = model.message?.action; model.message = nil; return
+            }
             if let attach {
-                if let failure = await model.setBrain(of: attach.id, to: created.id) { problem = failure.detail; model.dismiss(failure); return }
+                if let failure = await model.setBrain(of: attach.id, to: created.id) {
+                    problem = failure.detail; problemAction = failure.action; model.dismiss(failure); return
+                }
             }
             isPresented = false
         }
@@ -87,6 +104,7 @@ public struct NewMemorySheet: View {
             folder = url
             // Said as soon as it is chosen: a folder inside another repository is refused.
             problem = model.folderProblem(url)
+            problemAction = nil
         }
     }
 }

@@ -382,6 +382,17 @@ import BrainmergeTestSupport
     }
 
 
+    /// New memory shows a failure's own button, like the Memory screen: without git, "Install Apple's tools", a plain
+    /// glass button next to the sheet's one purple Create.
+    @Test func newMemoryWithoutGitOffersApplesTools() throws {
+        #expect(NewMemorySheet.offersAppleTools(AppModel.sentence(for: BrainmergeError.gitUnavailable).action))
+        #expect(!NewMemorySheet.offersAppleTools(AppModel.sentence(for: BrainmergeError.lockTimeout).action))
+        #expect(!NewMemorySheet.offersAppleTools(nil))
+        let sheet = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens/NewMemorySheet.swift"), encoding: .utf8)
+        #expect(sheet.contains(#"Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass)"#))
+    }
+
     @Test func errorsBecomeSentences() {
         #expect(AppModel.sentence(for: BrainmergeError.claudeAppNotFound("/Applications/Claude.app")).title == "Claude isn't installed")
         #expect(AppModel.sentence(for: BrainmergeError.claudeAppNotFound("/Applications/Claude.app")).action == .getClaude)
