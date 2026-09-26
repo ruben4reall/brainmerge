@@ -608,6 +608,20 @@ import BrainmergeTestSupport
         #expect(appsInLaunchersDir(e) == ["Agency.app"])
     }
 
+    /// The second account cannot take its new name (its Claude Code folder is gone): the first, already renamed in the
+    /// shared memory, is put back under the same hold of the memory's lock, so no save can slip in between and leave two
+    /// accounts claiming one name.
+    @Test func aSwapThatFailsHalfWayPutsTheFirstAccountBack() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let agency = try e.manager.add(IdentityManager.AddRequest(name: "Agency"))
+        try FileManager.default.removeItem(at: agency.cliProfile(in: e.home.paths))
+        #expect(throws: BrainmergeError.profileMissing(agency.cliProfile(in: e.home.paths).path)) { try e.manager.swapNames("ruben", with: "agency") }
+        #expect(try e.store.load().identities.map(\.name) == ["Ruben", "Agency"])
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains("identity \"Ruben\""))
+        #expect(try IdentityRegistry.load(e.brain.identitiesFile).identities["ruben"]?.name == "Ruben")
+    }
+
     /// Files the swap or a rename must not touch when it fails, with a date in the past: a write would change it.
     func pinDates(_ urls: [URL]) throws {
         for url in urls {

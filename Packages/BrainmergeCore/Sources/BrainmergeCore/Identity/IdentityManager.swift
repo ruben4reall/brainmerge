@@ -193,11 +193,19 @@ public final class IdentityManager: @unchecked Sendable {
         var next = state
         next.identities = next.identities.map { identity in updated.first { $0.slug == identity.slug } ?? identity }
         do {
-            for identity in updated { try attachBrain(to: identity, state: next) }
+            try attachBrains(to: updated, state: next, timeout: memoryLockTimeout)
             try store.save(next)
         } catch {
             replacement.restore()
-            for change in changes { try? attachBrain(to: change.before, state: state) }
+            // Waits longer than a save: accounts left half renamed would both claim one name in their sessions.
+            // One by one, so one that cannot be put back never stops the others; one whose Claude Code folder is gone
+            // has nothing left to put back.
+            let notRestored = changes.map(\.before).filter { before in
+                do { try attachBrains(to: [before], state: state, timeout: max(memoryLockTimeout, 30)); return false } catch BrainmergeError.profileMissing {
+                    return false
+                } catch { return true }
+            }
+            if !notRestored.isEmpty { throw BrainmergeError.accountsNotRestored(notRestored.map(\.name)) }
             throw error
         }
         replacement.discard()
@@ -477,32 +485,53 @@ public final class IdentityManager: @unchecked Sendable {
     /// saves that read the same lists: a lock still held after `memoryLockTimeout` fails with `.lockTimeout` ("Busy
     /// saving") before anything is written.
     public func attachBrain(to identity: Identity, state: AppState) throws {
-        let brain = try memory(for: identity, in: state)
+        try attachBrains(to: [identity], state: state, timeout: memoryLockTimeout)
+    }
+
+    /// Attaches accounts taking each memory's lock once for all of its accounts: no save slips in between two accounts
+    /// of one memory, so a change to several (Swap names) lands in each memory whole or not at all.
+    func attachBrains(to identities: [Identity], state: AppState, timeout: TimeInterval) throws {
+        var groups: [(brain: Brain, identities: [Identity])] = []
+        for identity in identities {
+            let brain = try memory(for: identity, in: state)
+            if let index = groups.firstIndex(where: { $0.brain.root.standardizedFileURL == brain.root.standardizedFileURL }) {
+                groups[index].identities.append(identity)
+            } else {
+                groups.append((brain, [identity]))
+            }
+        }
+        for group in groups {
+            try BrainGit(brain: group.brain).withLock(timeout: timeout) {
+                for identity in group.identities { try attachLocked(identity, brain: group.brain, state: state) }
+            }
+        }
+    }
+
+    /// One account's instructions, hooks, project links and entry in the memory's list; the memory's lock is held.
+    private func attachLocked(_ identity: Identity, brain: Brain, state: AppState) throws {
         let profile = CLIProfile(directory: identity.cliProfile(in: paths))
         guard profile.exists else { throw BrainmergeError.profileMissing(profile.directory.path) }
-        try BrainGit(brain: brain).withLock(timeout: memoryLockTimeout) {
-            let claudeMD = profile.claudeMD.resolvingSymlinksInPath()
-            // A CLAUDE.md that is not UTF-8 is the person's text all the same: never replaced by the block alone.
-            var existing = ""
-            if FileManager.default.fileExists(atPath: claudeMD.path) {
-                guard let text = try? String(contentsOf: claudeMD, encoding: .utf8) else {
-                    throw BrainmergeError.unreadableText(profile.claudeMD.path)
-                }
-                existing = text
+        let claudeMD = profile.claudeMD.resolvingSymlinksInPath()
+        // A CLAUDE.md that is not UTF-8 is the person's text all the same: never replaced by the block alone.
+        var existing = ""
+        if FileManager.default.fileExists(atPath: claudeMD.path) {
+            guard let text = try? String(contentsOf: claudeMD, encoding: .utf8) else {
+                throw BrainmergeError.unreadableText(profile.claudeMD.path)
             }
-            try brain.ensureIgnores()
-            let block = ManagedBlock.render(identityName: identity.name, slug: identity.slug, brainPath: brain.root.path)
-            try Data(ManagedBlock.upsert(in: existing, block: block).utf8).write(to: claudeMD, options: .atomic)
-            try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
-            _ = try MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
-                .wire(profile: profile, identitySlug: identity.slug)
-            var registry = try IdentityRegistry.load(brain.identitiesFile)
-            let before = registry
-            registry.record(identity)
-            try registry.save(to: brain.identitiesFile)
-            // The account's entry in the memory's list of accounts: its save carries it, like its list of projects.
-            if registry != before { try? TouchedLedger(brain: brain, slug: identity.slug).append(".brainmerge/identities.json") }
+            existing = text
         }
+        try brain.ensureIgnores()
+        let block = ManagedBlock.render(identityName: identity.name, slug: identity.slug, brainPath: brain.root.path)
+        try Data(ManagedBlock.upsert(in: existing, block: block).utf8).write(to: claudeMD, options: .atomic)
+        try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
+        _ = try MemoryWiring(brain: brain, paths: paths, machineID: state.machineID, knownRoots: state.brains.map(\.url))
+            .wire(profile: profile, identitySlug: identity.slug)
+        var registry = try IdentityRegistry.load(brain.identitiesFile)
+        let before = registry
+        registry.record(identity)
+        try registry.save(to: brain.identitiesFile)
+        // The account's entry in the memory's list of accounts: its save carries it, like its list of projects.
+        if registry != before { try? TouchedLedger(brain: brain, slug: identity.slug).append(".brainmerge/identities.json") }
     }
 
     /// Each account's hooks as they stand, for the accounts whose Claude Code folder exists, in the accounts' order.
