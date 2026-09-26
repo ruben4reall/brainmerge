@@ -111,8 +111,10 @@ public struct BrainGit: Sendable {
         let changed = Set(try status(scope: Array(wanted))).intersection(wanted).sorted()
         guard !changed.isEmpty else { return [] }
         // Another program may commit here meanwhile (the person's git, Obsidian Git): the branch only moves on from the
-        // commit the save was made on, else the save is made again on top of the new one.
-        for _ in 0..<3 {
+        // commit the save was made on, else the save is made again on top of the new one. Each new try looks again: the
+        // person may have checked out a commit meanwhile, and a save never lands on no branch.
+        for attempt in 0..<3 {
+            if attempt > 0, try operationUnfinished() { throw BrainmergeError.gitOperationUnfinished }
             if let saved = try commit(changed, author: author, hold: hold, message: message) { return saved }
         }
         throw BrainmergeError.gitOperationUnfinished
@@ -176,6 +178,9 @@ public struct BrainGit: Sendable {
             throw BrainmergeError.shellFailed(command: (["/usr/bin/git"] + move).joined(separator: " "), status: moved.status, stderr: moved.stderr)
         }
         followCommit(kept)
+        // Past git's own threshold, its loose objects are packed, as after a commit of yours: in the foreground, apart from
+        // your git setup and stopped after two minutes like every git call, and never failing a save that is made.
+        _ = try? shell.run("/usr/bin/git", ["-c", "gc.autoDetach=false", "gc", "--auto", "--quiet"], cwd: brain.root)
         return kept
     }
 

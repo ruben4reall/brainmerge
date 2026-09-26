@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import BrainmergeTestSupport
@@ -127,6 +128,65 @@ import BrainmergeTestSupport
         #expect(log.first?.files == ["memory/acme/note.md"])
         let saved = try git.shell.check("/usr/bin/git", ["ls-tree", "-r", "--name-only", "HEAD"], cwd: brain.root)
         #expect(saved.split(separator: "\n").contains("memory/acme/pulled.md"), "the other program's note is still saved")
+    }
+
+    /// While a save is made, another program commits and the person checks that commit out to look at it, on no branch.
+    /// The save's next try sees it and waits, instead of landing on no branch where its notes would go at the next checkout.
+    @Test func aSaveTriedAgainAfterACheckoutOnNoBranchWaits() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, _) = try memory(home)
+        let once = FirstTime()
+        let git = BrainGit(brain: brain, shell: Shell { executable, arguments, cwd, environment in
+            let result = try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+            if arguments.contains("add"), once.now() {
+                try Data("# pulled\n".utf8).write(to: brain.root.appending(path: "memory/acme/pulled.md"))
+                try Shell().check("/usr/bin/git", ["add", "memory/acme/pulled.md"], cwd: brain.root)
+                try Shell().check("/usr/bin/git", ["-c", "user.name=Here", "-c", "user.email=here@example.com", "commit", "-q", "-m", "Pulled"],
+                                  cwd: brain.root)
+                try Shell().check("/usr/bin/git", ["checkout", "-q", "--detach", "HEAD"], cwd: brain.root)
+            }
+            return result
+        })
+        try write("# note\n", "memory/acme/note.md", in: brain)
+        #expect(throws: BrainmergeError.gitOperationUnfinished) {
+            try git.commit(paths: ["memory/acme/note.md"], author: work.gitAuthor) { _ in "Work saved" }
+        }
+        let real = Shell()
+        #expect(try real.run("/usr/bin/git", ["symbolic-ref", "-q", "HEAD"], cwd: brain.root).status != 0, "still on no branch")
+        #expect(try real.check("/usr/bin/git", ["rev-parse", "HEAD"], cwd: brain.root) == real.check("/usr/bin/git", ["rev-parse", "main"], cwd: brain.root))
+        let subjects = try real.check("/usr/bin/git", ["log", "--all", "--format=%s"], cwd: brain.root)
+        #expect(subjects == "Pulled\nStart\n", "no save on a branch, or on no branch")
+    }
+
+    /// Each save leaves its objects loose, one file each, as a commit of yours does. Past the memory's own `gc.auto`, git
+    /// packs them after the save, as after a commit of yours: a memory never piles up thousands of loose files.
+    @Test func gitPacksAMemoryAfterSaves() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git) = try memory(home)
+        // The lowest threshold: git guesses how many loose objects there are from `objects/17` alone, and packs past one.
+        try git.shell.check("/usr/bin/git", ["config", "gc.auto", "1"], cwd: brain.root)
+        let packs = {
+            try FileManager.default.contentsOfDirectory(atPath: brain.gitDir.appending(path: "objects/pack").path).filter { $0.hasSuffix(".pack") }
+        }
+        #expect(try packs().isEmpty)
+        for n in 0..<3 {
+            let path = "memory/acme/note\(n).md"
+            try write(Self.textStoredIn17(n), path, in: brain)
+            #expect(try git.commit(paths: [path], author: work.gitAuthor) { _ in "Work saved \(n)" } == [path])
+        }
+        #expect(try !packs().isEmpty, "git packed the memory after a save")
+        #expect(try git.log(limit: 10).map(\.message) == ["Work saved 2", "Work saved 1", "Work saved 0", "Start"])
+        #expect(try git.shell.run("/usr/bin/git", ["fsck", "--no-progress"], cwd: brain.root).status == 0)
+    }
+
+    /// A note's text whose object git stores in `objects/17`, the one folder `git gc --auto` counts.
+    static func textStoredIn17(_ n: Int) -> String {
+        var attempt = 0
+        while true {
+            let text = "# note \(n), try \(attempt)\n"
+            if Array(Insecure.SHA1.hash(data: Data("blob \(text.utf8.count)\0\(text)".utf8))).first == 0x17 { return text }
+            attempt += 1
+        }
     }
 
     /// A path whose content is the last commit's (staged by hand, then put back on disk) is not saved: no empty commit,
