@@ -81,12 +81,14 @@ public struct BrainGit: Sendable {
     /// A save's paths once staged, in the save's own index: what `addedLines()` reads there is exactly what the commit
     /// holds.
     public struct Staged: Sendable {
-        /// The paths whose staged content differs from the last commit, sorted.
+        /// The paths whose staged content differs from the commit the save is made on, sorted.
         public let paths: [String]
         let git: BrainGit
         let index: URL
+        /// The commit the save is made on, nil before the first.
+        let base: String?
         /// What staging these paths adds, and only that (see `diffCachedAdded`).
-        public func addedLines() throws -> String { try git.diffCachedAdded(paths: paths, index: index) }
+        public func addedLines() throws -> String { try git.diffCachedAdded(paths: paths, index: index, base: base) }
     }
 
     /// Commits exactly these paths, those of them that changed, under `author`, and nothing else. The save works in an
@@ -106,28 +108,58 @@ public struct BrainGit: Sendable {
         try? catchUpIndex()
         let changed = Set(try status(scope: Array(wanted))).intersection(wanted).sorted()
         guard !changed.isEmpty else { return [] }
+        // Another program may commit here meanwhile (the person's git, Obsidian Git): the branch only moves on from the
+        // commit the save was made on, else the save is made again on top of the new one.
+        for _ in 0..<3 {
+            if let saved = try commit(changed, author: author, hold: hold, message: message) { return saved }
+        }
+        throw BrainmergeError.gitOperationUnfinished
+    }
+
+    /// One try of `commit(paths:author:hold:message:)`: nil when the branch moved meanwhile, and nothing was changed.
+    private func commit(_ changed: [String], author: Author, hold: (Staged) throws -> Set<String>,
+                        message: ([String]) -> String) throws -> [String]? {
         let fm = FileManager.default
+        let parent = head()
         let index = fm.temporaryDirectory.appending(path: "brainmerge-save-\(UUID().uuidString).index")
         defer { try? fm.removeItem(at: index) }
         let env = ["GIT_INDEX_FILE": index.path]
-        if head() != nil {
+        if let parent {
             // A copy of the real index keeps its file dates, so no note is read again; a reset by path takes it back to
-            // the last commit without moving HEAD's history (a bare reset would log a move and set ORIG_HEAD).
+            // the parent without moving HEAD's history (a bare reset would log a move and set ORIG_HEAD).
             let real = brain.gitDir.appending(path: "index")
             if fm.fileExists(atPath: real.path) { try fm.copyItem(at: real, to: index) }
-            try shell.check("/usr/bin/git", ["reset", "-q", "--", "."], cwd: brain.root, environment: env)
+            try shell.check("/usr/bin/git", ["reset", "-q", parent, "--", "."], cwd: brain.root, environment: env)
         }
         try shell.check("/usr/bin/git", ["--literal-pathspecs", "add", "-A", "--"] + changed, cwd: brain.root, environment: env)
-        let staged = try shell.check("/usr/bin/git", ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--no-renames", "--"] + changed,
-                                     cwd: brain.root, environment: env)
+        let base = parent.map { [$0] } ?? []
+        let staged = try shell.check("/usr/bin/git", ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--no-renames"] + base
+                                     + ["--"] + changed, cwd: brain.root, environment: env)
             .split(separator: "\0").map(String.init).sorted()
-        let held = try hold(Staged(paths: staged, git: self, index: index))
+        let held = try hold(Staged(paths: staged, git: self, index: index, base: parent))
         guard held.isSubset(of: staged) else { throw BrainmergeError.heldFileUnknown }
         let kept = staged.filter { !held.contains($0) }
         guard !kept.isEmpty else { return [] }
-        if !held.isEmpty { try unstage(staged.filter(held.contains), index: index) }
-        try shell.check("/usr/bin/git", ["-c", "user.name=\(author.name)", "-c", "user.email=\(author.email)", "commit", "-q", "-m", message(kept)],
-                        cwd: brain.root, environment: env)
+        if !held.isEmpty {
+            let out = staged.filter(held.contains)
+            // Out of the save's index again, the index only: back to the parent, or gone before the first commit.
+            try shell.check("/usr/bin/git", ["--literal-pathspecs"] + (parent.map { ["reset", "-q", $0] } ?? ["rm", "--cached", "-q", "-r"])
+                            + ["--"] + out, cwd: brain.root, environment: env)
+        }
+        let text = message(kept)
+        let tree = try shell.check("/usr/bin/git", ["write-tree"], cwd: brain.root, environment: env)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let made = try shell.check("/usr/bin/git", ["-c", "user.name=\(author.name)", "-c", "user.email=\(author.email)", "commit-tree", tree]
+                                   + base.flatMap { ["-p", $0] } + ["-m", text], cwd: brain.root, environment: env)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // The branch moves only from `parent` (none: it must not exist yet), the way `git commit` logs it.
+        let subject = text.split(separator: "\n").first.map(String.init) ?? ""
+        let move = ["update-ref", "-m", (parent == nil ? "commit (initial): " : "commit: ") + subject, "HEAD", made, parent ?? ""]
+        let moved = try shell.run("/usr/bin/git", move, cwd: brain.root)
+        guard moved.status == 0 else {
+            if head() != parent { return nil }
+            throw BrainmergeError.shellFailed(command: (["/usr/bin/git"] + move).joined(separator: " "), status: moved.status, stderr: moved.stderr)
+        }
         followCommit(kept)
         return kept
     }
@@ -193,12 +225,14 @@ public struct BrainGit: Sendable {
 
     /// What staging these paths adds, and only that: no context line, no line saved before, no rename detection, and none
     /// of the person's diff settings (an external diff, a text conversion, other prefixes). Always as text: a `-diff`
-    /// attribute or a NUL byte never hides a line. `index`: a save's own index instead of the real one.
-    public func diffCachedAdded(paths: [String], index: URL? = nil) throws -> String {
+    /// attribute or a NUL byte never hides a line. `index`: a save's own index instead of the real one; `base`: the commit
+    /// to compare with instead of HEAD.
+    public func diffCachedAdded(paths: [String], index: URL? = nil, base: String? = nil) throws -> String {
         try requireGit()
         guard !paths.isEmpty else { return "" }
         return try shell.check("/usr/bin/git", ["--literal-pathspecs", "-c", "core.quotePath=false", "diff", "--cached", "-U0", "--no-color", "--text",
-                                                "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/", "--"] + paths,
+                                                "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"]
+                               + (base.map { [$0] } ?? []) + ["--"] + paths,
                                cwd: brain.root, environment: index.map { ["GIT_INDEX_FILE": $0.path] })
     }
 

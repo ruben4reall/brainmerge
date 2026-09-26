@@ -230,12 +230,13 @@ import BrainmergeTestSupport
         try Shell().check("/usr/bin/git", ["diff", "--cached", "--name-only"], cwd: brain.root)
     }
 
-    /// Right after the save's commit, another git takes the real index, and lets go after `release` seconds, or never.
+    /// Right after the save's commit (the branch moved to it), another git takes the real index, and lets go after
+    /// `release` seconds, or never.
     func busyIndexGit(_ brain: Brain, release: TimeInterval?) -> BrainGit {
         let lock = lock(brain)
         return BrainGit(brain: brain, shell: Shell { executable, arguments, cwd, environment in
             let result = try Shell().run(executable, arguments, cwd: cwd, environment: environment)
-            if arguments.contains("commit"), result.status == 0 {
+            if arguments.first == "update-ref", result.status == 0 {
                 FileManager.default.createFile(atPath: lock.path, contents: nil)
                 // A thread of its own: a busy dispatch pool would let go late.
                 if let release { Thread.detachNewThread { Thread.sleep(forTimeInterval: release); try? FileManager.default.removeItem(at: lock) } }

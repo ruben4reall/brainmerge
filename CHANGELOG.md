@@ -38,6 +38,7 @@
 - Removing an account also takes its app out of Launch Services, where it stayed listed under its identifier after the app was gone. The command line no longer registers the apps it builds under a `BRAINMERGE_HOME` (tests, demos): every run of the test suite used to leave records on the Mac it ran on.
 - Saves run apart from your own git setup: your global and system git config, the `GIT_` variables a session carries (such as `GIT_AUTHOR_NAME` or `GIT_INDEX_FILE`), hooks and commit signing no longer take part, even where the memory's own config asks for them. With signing on, every save used to fail or ask for a passphrase or Touch ID at the end of each turn, a commit-msg hook could refuse every save, and a session's `GIT_AUTHOR_NAME` signed every account's save with your name. A git call still running after two minutes is stopped instead of holding the hook and the memory's lock.
 - A save waits while the memory has no branch checked out (a commit checked out to read an old note), as it does during a merge: it used to commit there, and the notes it saved went away at the next `git checkout main`.
+- A commit another program makes in the memory while a save runs (your git, Obsidian Git, a sync script) is kept: the save moves the branch only from the commit it was made on, and is made again on top of the new one otherwise. It used to go on top with the older content, which took that commit's notes out under the account's name.
 
 ## 0.5.0
 
