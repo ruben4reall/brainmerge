@@ -107,6 +107,32 @@ import BrainmergeTestSupport
         #expect(result.truncated)
     }
 
+    /// The graph as built, before any view filters it, never has a line or a link to a note it does not draw: not to one
+    /// the cap left out, not to one the vault hides.
+    @Test func noLineEndsOnANoteThatIsNotDrawn() throws {
+        let home = try TempHome(); defer { home.remove() }
+        func dangling(_ graph: MemoryGraph) -> [String] {
+            let ids = Set(graph.nodes.map(\.id))
+            return graph.edges.flatMap { [$0.from, $0.to] }.filter { !ids.contains($0) }
+                + graph.links.flatMap { [$0.source, $0.target] }.filter { !ids.contains($0) }
+        }
+        let memory = home.url.appending(path: "Brain", directoryHint: .isDirectory)
+        for i in 0..<30 { try write(memory, "memory/site/n\(i).md", "[[n\((i + 1) % 30)]] [n](n\((i + 2) % 30).md)\n") }
+        let capped = MemoryGraphBuilder(root: memory, maxNotes: 20).build()
+        #expect(capped.truncated)
+        #expect(!capped.graph.edges.isEmpty)
+        #expect(dangling(capped.graph).isEmpty, "\(dangling(capped.graph))")
+
+        let vault = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        try write(vault, "Notes/A.md", "[[B]] [[Secret]] [c](../Private/C.md)\n")
+        try write(vault, "Notes/B.md", "[[A]]\n")
+        try write(vault, "Private/Secret.md", "[[A]]\n")
+        try write(vault, "Private/C.md", "[[A]]\n")
+        let hidden = MemoryGraphBuilder(root: vault, style: .vault).build(showing: { path, _ in !path.hasPrefix("Private/") })
+        #expect(Set(hidden.graph.nodes.map(\.id)) == ["Notes/A.md", "Notes/B.md"])
+        #expect(dangling(hidden.graph).isEmpty, "\(dangling(hidden.graph))")
+    }
+
     /// Attachments are capped on their own and said apart: a vault that hides its images is not cut short by them.
     @Test func tooManyAttachmentsAreSaidApartFromNotes() throws {
         let home = try TempHome(); defer { home.remove() }

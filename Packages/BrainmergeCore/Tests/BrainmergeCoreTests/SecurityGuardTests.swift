@@ -282,15 +282,18 @@ import Testing
                           "Data(contentsOf", "String(contentsOf", "FileHandle", "InputStream", "fopen", "mmap", "getxattr", "listxattr",
                           "fileExists", "attributesOfItem", "resourceValues", "realpath", "resolvingSymlinksInPath", "stat(",
                           "removeItem", "moveItem", "copyItem", "createFile", "createDirectory", "write(", "setAttributes",
-                          "unlink", "rename(", "Shell", "Process", "posix_spawn", "NSWorkspace", "O_RDONLY", "O_RDWR", "O_WRONLY"] {
+                          "unlink", "rename(", "Shell", "Process", "posix_spawn", "NSWorkspace", "O_RDONLY", "O_RDWR", "O_WRONLY",
+                          "subpaths(", "contents(atPath", "isReadableFile", "displayName(atPath", "FileManager()"] {
             #expect(!code.contains(forbidden), "DiskPlan.swift must only resolve links: \(forbidden)")
         }
         for call in [#"\bopen\("#, #"\bread\("#, #"\bopenat\("#] {
             #expect(code.firstMatch(of: try Regex(call)) == nil, "DiskPlan.swift must not open or read a file: \(call)")
         }
-        let members = try Regex(#"(?:FileManager\.default|\bfm)\s*\.\s*(\w+)"#)
-        let used = Set(code.matches(of: members).map { String($0.output[1].substring ?? "") })
-        #expect(used == ["destinationOfSymbolicLink"], "file manager calls: \(used)")
+        // Every file manager in the file is `FileManager.default` asked for a link's text, written in full each time: one
+        // kept under another name, or a new one, could be asked anything without the guard seeing the call.
+        let mentions = code.matches(of: try Regex(#"FileManager"#)).count
+        let resolutions = code.matches(of: try Regex(#"FileManager\.default\.destinationOfSymbolicLink\("#)).count
+        #expect(mentions > 0 && mentions == resolutions, "every FileManager must be FileManager.default.destinationOfSymbolicLink(")
     }
 
     /// The RAM of Claude's processes is asked of the kernel as one number per process. Nothing reads another process's
