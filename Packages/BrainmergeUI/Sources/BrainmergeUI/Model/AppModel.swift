@@ -40,15 +40,19 @@ public enum LaunchPhase: Equatable, Sendable { case loading, ready }
 public struct UserMessage: Identifiable, Equatable, Sendable {
     /// What a message's button does: typed, so it never depends on a label.
     public enum Action: Equatable, Sendable {
-        case quit(slug: String), quitOthersThenOpen(slug: String), getClaude, openSettings, moveToApplications, installAppleTools
+        case quit(slug: String), getClaude, openSettings, moveToApplications, installAppleTools
+        /// Quits the bare Claude gracefully, then opens this account through its own app.
+        case reopenInstead(slug: String)
     }
     public let id = UUID()
     public let title: String
     public let detail: String
     public let action: Action?
     public let actionLabel: String?
-    public init(title: String, detail: String, action: Action? = nil, actionLabel: String? = nil) {
-        self.title = title; self.detail = detail; self.action = action; self.actionLabel = actionLabel
+    /// The word of the button that changes nothing, when "OK" would not say it.
+    public let cancelLabel: String?
+    public init(title: String, detail: String, action: Action? = nil, actionLabel: String? = nil, cancelLabel: String? = nil) {
+        self.title = title; self.detail = detail; self.action = action; self.actionLabel = actionLabel; self.cancelLabel = cancelLabel
     }
 }
 
@@ -70,8 +74,12 @@ public final class AppModel {
     public private(set) var notesApp: String?
     /// The menu bar icon setting (see `showsMenuBarIcon` for whether it shows now).
     public private(set) var menuBarIcon = true { didSet { refreshSetupState() } }
+    /// "Save my own edits to the memory's history" (see `saveOwnEditsIfQuiet`).
+    public private(set) var saveOwnEdits = true
     /// The settings saved from the app, each written to state.json on the core queue (see `save`).
-    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, browser(String) }
+    /// "A terminal command per account": claude-<slug> links next to the brainmerge command.
+    public internal(set) var terminalCommands = false
+    enum Setting: Hashable { case language, autoRebuild, notesApp, menuBarIcon, graphVault, graphMemory, saveOwnEdits, terminalCommands, browser(String) }
     /// Saves still waiting on the core queue, per setting: a reload meanwhile keeps the value shown, not the old file.
     private var pendingSaves: [Setting: Int] = [:]
     /// Tests only: runs on the core queue as a setting's save begins, before it waits for the state lock.
@@ -101,6 +109,21 @@ public final class AppModel {
     /// A screen asked for from outside the window (the menu bar, the app menu with no window): the window shows it
     /// once its screens are there.
     public var requestedScreen: AppSection?
+    /// The same brainmerge:// link twice within 2 s acts once.
+    var linkGate = BrainmergeLink.Gate()
+    /// The Accounts menu's Add Account…: the Accounts screen opens its add sheet.
+    public var requestedAdd = false
+    /// The quick opener's shortcut setting, per Mac: set by the app delegate, which owns it (nil in tests and previews).
+    public var quickOpener: QuickOpener?
+    /// The quick opener's Cmd-U: the Usage screen brings this account's card into view, then clears it.
+    public var requestedUsage: String?
+    /// Opens a memory folder with the notes app setting; a fake in tests, which never start an app.
+    @ObservationIgnored var openInNotes: @MainActor (URL, String?) -> Void = { url, setting in
+        NotesApps.open(url, with: NotesApps.target(for: setting, installed: NotesApps.installed()))
+    }
+    /// Goes up each time a link or the Accounts menu needs the window (a screen, the Log in sheet, a message): the
+    /// scenes open it, or bring it forward, even when a link arrives with it closed (Brainmerge kept in the menu bar).
+    public internal(set) var windowRequests = 0
     public var message: UserMessage?
     /// Accounts launched and not seen running yet: cleared as soon as `reload()` sees their process,
     /// or after a few seconds if it never shows up.
@@ -133,7 +156,7 @@ public final class AppModel {
     private var workLabels: [WorkLabel] = []
     private var lastWorkID = 0
     /// Core work runs here, one at a time and in order: two changes never read and save the state at the same time.
-    private let coreQueue = DispatchQueue(label: "ch.rubencatalao.brainmerge.core", qos: .userInitiated)
+    let coreQueue = DispatchQueue(label: "ch.rubencatalao.brainmerge.core", qos: .userInitiated)
     /// The last process brought to the front by "Show" (observable in tests).
     public private(set) var lastShownProcess: Int32?
     public private(set) var lastMemorySave: Date?
@@ -141,7 +164,8 @@ public final class AppModel {
     public private(set) var creatureStamps: [CreatureMoment] = []
     /// When a new save in the memory was seen (never the first read): the creature glows for `glowDuration` from it.
     public private(set) var memorySavedAt: Date?
-    /// The clock of the creature's stamps and glow, injectable in tests.
+    /// The model's clock (the creature's stamps and glow, update safety, the Log in sheet, save failures), injectable in
+    /// tests.
     @ObservationIgnored public var now: @Sendable () -> Date = { Date() }
     /// The memory's head at the last read: a newer head in the same memory is a save.
     @ObservationIgnored private var lastHead: (root: URL, hash: String, date: Date)?
@@ -164,6 +188,8 @@ public final class AppModel {
     public private(set) var usageArrivedAt: Date?
     /// What each account's last "Check limits" found, by slug. Asked only on a click (see `checkLimits`).
     public private(set) var limits: [String: LimitsState] = [:]
+    /// The Claude Code login each account's limits were asked with, when it was known (memory only, like `limits`).
+    @ObservationIgnored private var limitsLogin: [String: ClaudeCodeAccount] = [:]
     /// Finds the Claude Code to run and checks Anthropic's signature on it; a fake in tests.
     @ObservationIgnored public var limitsBinary: @Sendable (URL) -> ClaudeCodeBinary.Resolution = { home in
         ClaudeCodeBinary.resolve(candidates: ClaudeCodeBinary.candidates(home: home))
@@ -178,6 +204,28 @@ public final class AppModel {
     @ObservationIgnored public var findBrowsers: @Sendable (URL) -> [InstalledBrowser] = { BrowserProfiles.available(home: $0) }
     /// What Settings says about the accounts' hooks, read when it opens (see `refreshHooks`); nil until then.
     public private(set) var hooks: HooksSummary?
+
+    // Health (see AppModel+Health).
+    /// The doctor's findings at its last check, fine or not; nil before the first one.
+    public internal(set) var health: [Doctor.Finding]?
+    public internal(set) var healthChecking = false
+    /// The last check ran out of its budget.
+    public internal(set) var healthTimedOut = false
+    /// The one line said after a macOS or Claude update was checked, until the person answers it.
+    public internal(set) var healthNote: String?
+    /// Each account's last save, as its Stop hook left it (see SaveStatus).
+    public internal(set) var saveStatuses: [String: SaveStatus] = [:]
+    /// When each account whose last save failed last saved in its memory, from its history.
+    public internal(set) var lastSaves: [String: Date] = [:]
+    /// The doctor's run, replaced in tests.
+    @ObservationIgnored var runHealth: @Sendable (Doctor) -> [Doctor.Finding] = { $0.run() }
+    @ObservationIgnored var healthBudget: Duration = .seconds(10)
+    @ObservationIgnored var healthTask: Task<[Doctor.Finding]?, Never>?
+    @ObservationIgnored var checkingAfterUpdate = false
+    @ObservationIgnored var macOSVersion: @Sendable () -> String = {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
     /// The command line embedded in this copy of the app, which the link the hooks call points at; a fake in tests.
     @ObservationIgnored public var commandLine: @Sendable () -> URL? = { AppModel.embeddedCLI }
     /// Opens a browser; a fake in tests, which never open one.
@@ -227,6 +275,8 @@ public final class AppModel {
 
     /// The live graph of the memory shown on the Memory screen; kept here so its layout survives switching screens.
     public let memoryGraph = MemoryGraphModel()
+    /// What the Memory screen's Tidy tab found in the memory shown (see MemoryTidyModel).
+    public let memoryTidy = MemoryTidyModel()
 
     public let paths: Paths
     public let store: StateStore
@@ -298,6 +348,30 @@ public final class AppModel {
     @ObservationIgnored private var prefetchedRead: Read?
     /// When the read shown now began: a read off the main thread that began before it is older, and changes nothing.
     @ObservationIgnored private var shownRead: ContinuousClock.Instant?
+
+    // MARK: Claude update safety (see AppModel+UpdateSafety)
+
+    /// Accounts whose window started before Claude was updated: they still run the previous Claude.
+    public internal(set) var staleAccounts: Set<String> = []
+    /// Accounts waiting for their Claude Code sessions to end before they restart.
+    public internal(set) var restartingWhenIdle: Set<String> = []
+    /// The wait each of them runs: a wait that was cancelled stops at its next look.
+    @ObservationIgnored var idleWaits: [String: UUID] = [:]
+    /// Accounts being restarted now: a second click waits for the first instead of opening the window twice.
+    public internal(set) var restarting: Set<String> = []
+    /// How often Restart When Idle looks at the window's Claude Code sessions.
+    @ObservationIgnored var idlePoll: Duration = .seconds(5)
+    @ObservationIgnored var abstimeNow: () -> UInt64 = { mach_absolute_time() }
+    @ObservationIgnored var ticksPerSecond: Double = UpdateWatch.ticksPerSecond
+    /// What the reloads saw of Claude's version and the windows (see UpdateWatch).
+    @ObservationIgnored var updateWatch = UpdateWatch()
+
+    /// The "Log in to …" sheet's flow, while it shows (see AppModel+Login).
+    public internal(set) var login: LoginFlow?
+    /// An account just added that must log in while other windows run: its Log in sheet shows once the add sheet is gone.
+    @ObservationIgnored var pendingLogin: String?
+    /// Windows a cancelled login asked to close and wants back, since when: each opens once `reload()` sees it gone.
+    @ObservationIgnored var reopenOnceClosed: [String: Date] = [:]
 
     public init(paths: Paths, store: StateStore, manager: IdentityManager, claudeAppURL: URL) {
         self.paths = paths; self.store = store; self.manager = manager; self.claudeAppURL = claudeAppURL
@@ -383,7 +457,15 @@ public final class AppModel {
         let (snapshot, log, gitFound) = await Task.detached(priority: .userInitiated) { () -> (ProcessMonitor.Snapshot, (root: URL, entries: [BrainGit.Entry])?, Bool) in
             let state = try? store.load()
             if !demo, state?.identities.isEmpty == false {
-                if let cli = commandLine() { try? CLIInstaller.linkAtLaunch(paths: paths, target: cli) }
+                if let cli = commandLine() {
+                    try? CLIInstaller.linkAtLaunch(paths: paths, target: cli)
+                    // An account added from the command line since: its claude-<slug> link, where nothing is in the way.
+                    if let state, state.terminalCommands {
+                        for identity in state.identities { _ = try? CLIInstaller.linkAccount(paths: paths, slug: identity.slug, target: cli) }
+                    }
+                }
+                // An older memory's .gitignore learns to leave out what each account notes it wrote (append only).
+                for folder in state?.brains ?? [] where Brain(root: folder.url).isInitialized { try? Brain(root: folder.url).ensureIgnores() }
                 // Written only when one is not current: a launch never rewrites the settings of accounts already up to date.
                 if let health = try? manager.hooksHealth(), health.contains(where: { $0.1 != .current }) { try? manager.repairHooks() }
             }
@@ -469,6 +551,11 @@ public final class AppModel {
         if shown != showsMenuBarIcon { showsMenuBarIcon = shown }
     }
 
+    /// The Accounts menu: the menu bar's entries, Cmd-Option-1 to 9 for the first nine.
+    public var accountsMenuItems: [AccountsMenuItem] {
+        AccountsMenu.items(accounts: accounts, opening: opening, busy: accountsBusy, appExists: { appURL(of: $0) != nil })
+    }
+
     /// The accounts of the menu bar's menu, with the sidebar's words.
     public var menuEntries: [MenuBarEntry] {
         MenuBarMenu.entries(accounts: accounts, opening: opening, busy: accountsBusy, appExists: { appURL(of: $0) != nil })
@@ -503,6 +590,8 @@ public final class AppModel {
         if !isSaving(.autoRebuild) { set(\.autoRebuild, state.autoRebuild) }
         if !isSaving(.notesApp) { set(\.notesApp, state.notesApp) }
         if !isSaving(.menuBarIcon) { set(\.menuBarIcon, state.menuBarIcon) }
+        if !isSaving(.saveOwnEdits) { set(\.saveOwnEdits, state.saveOwnEdits) }
+        if !isSaving(.terminalCommands) { set(\.terminalCommands, state.terminalCommands) }
         if !isSaving(.graphVault) { set(\.graphVault, state.graphVault) }
         set(\.brains, state.brains)
         set(\.brain, state.brainURL.map(Brain.init(root:)).flatMap { $0.isInitialized ? $0 : nil })
@@ -542,6 +631,8 @@ public final class AppModel {
         set(\.memoryWarning, Self.memoryWarning(level: level, open: openAccounts.count, bytes: totalRAMBytes))
         // A window that showed up is no longer "opening".
         set(\.opening, opening.subtracting(openAccounts.map(\.id)))
+        if watchUpdates(snapshot: snapshot) { changed = true }
+        if advanceLogin() { changed = true }
         return changed
     }
 
@@ -604,6 +695,22 @@ public final class AppModel {
             return account
         }
         if updated != accounts { accounts = updated }
+        forgetLimitsOfAnotherLogin()
+    }
+
+    /// Logged out of Claude Code and in again as someone else, in the same folder: another person's card starts empty.
+    /// Only two known logins that differ count: a logout alone or a file not read yet says nothing about who comes next.
+    private func forgetLimitsOfAnotherLogin() {
+        for (slug, then) in limitsLogin {
+            guard let now = codeAccounts[slug], !Self.isSameLogin(then, now) else { continue }
+            limits[slug] = nil
+            limitsLogin[slug] = nil
+        }
+    }
+
+    /// The same email (whatever its case) in the same organization: the same person's limits.
+    nonisolated static func isSameLogin(_ a: ClaudeCodeAccount, _ b: ClaudeCodeAccount) -> Bool {
+        a.email.caseInsensitiveCompare(b.email) == .orderedSame && a.organization == b.organization
     }
 
     /// An account with Claude Code off shows nothing, even if its folder holds an entry (the Claude app's Code tab can write one).
@@ -649,13 +756,14 @@ public final class AppModel {
         accounts.first { $0.id == slug }?.identity.appURL(in: paths).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
     }
 
-    /// The apps made by hand that open each account, found ahead (the pointer over its card): "Edit…" then opens its sheet
-    /// at once. Looked for again after 30 s, and forgotten when the accounts change.
+    /// The apps made by hand that open each account, found ahead (the pointer over its card) with the connections the
+    /// edit sheet shows (see `prepareEdit`): "Edit…" then opens its sheet at once. Looked for again after 30 s, and
+    /// forgotten when the accounts change.
     @ObservationIgnored private var otherAppsFound: [String: (apps: [ExistingApp], at: Date)] = [:]
     public func knownOtherApps(_ slug: String) -> [ExistingApp]? { otherAppsFound[slug]?.apps }
     public func prefetchOtherApps(_ slug: String) async {
         if let known = otherAppsFound[slug], Date().timeIntervalSince(known.at) < 30 { return }
-        let apps = await otherApps(opening: slug)
+        let apps = await prepareEdit(slug)
         otherAppsFound[slug] = (apps, Date())
     }
 
@@ -705,7 +813,7 @@ public final class AppModel {
             }) { return failure }
         }
         // The browser profile touches no app: saved even while the account runs, only once the rest went through.
-        if edit.browser != identity.browser { await setBrowser(slug, edit.browser).value }
+        if edit.browser != identity.browser, let problem = await setBrowser(slug, edit.browser).value { return say(problem) }
         if movesMemory { return await setBrain(of: slug, to: edit.memory) }
         return nil
     }
@@ -774,8 +882,52 @@ public final class AppModel {
         accounts.filter { brain(of: $0.identity)?.id == brainID }
     }
 
-    /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects.
+    // MARK: Held notes
+
+    /// The notes of the selected memory a save held back because they look like they hold a key (see SecretGuard):
+    /// where, what they look like, never the line.
+    public private(set) var heldNotes: [HeldNote] = []
+
+    /// Read again with the memory's history: a small file in Application Support.
+    func refreshHeld() {
+        let notes = selectedFolder.map { HeldStore(paths: paths, memoryID: $0.id).load().held } ?? []
+        if notes != heldNotes { heldNotes = notes }
+    }
+
+    /// The banner's sentence, nil when nothing is held.
+    public static func heldSummary(_ notes: [HeldNote]) -> String? {
+        let files = Set(notes.map(\.path)).count
+        guard files > 0 else { return nil }
+        return files == 1 ? "1 note was not saved: it looks like it holds a key." : "\(files) notes were not saved: they look like they hold keys."
+    }
+
+    /// Where a held note is, for "Open".
+    public func heldNoteURL(_ note: HeldNote) -> URL? { selectedBrain?.root.appending(path: note.path) }
+
+    /// "It's not a secret": its line is saved by every account from now on (its digest joins the memory's list), at the
+    /// next save of whoever wrote it.
+    public func notASecret(_ note: HeldNote) async {
+        await decide("Saving your choice…") { brain, store in try HeldDecision.notASecret(note, brain: brain, store: store) }
+    }
+
+    /// "Save anyway": this note is saved once, at the next save of whoever wrote it.
+    public func saveAnyway(_ note: HeldNote) async {
+        await decide("Saving your choice…") { _, store in try HeldDecision.saveAnyway(note, store: store) }
+    }
+
+    /// Under the memory's lock, like the saves that read the same lists.
+    private func decide(_ label: String, _ work: @escaping @Sendable (Brain, HeldStore) throws -> Void) async {
+        guard let brain = selectedBrain, let folder = selectedFolder else { return }
+        let store = HeldStore(paths: paths, memoryID: folder.id), git = BrainGit(brain: brain, availability: self.git)
+        _ = await perform(label) { try git.withLock(timeout: 5) { try work(brain, store) } }
+        refreshHeld()
+    }
+
+    /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects, and how
+    /// each account's last save went.
     public func refreshMemory() {
+        refreshHeld()
+        refreshSaves()
         guard let brain = selectedBrain, let folder = selectedFolder else {
             memoryEvents = []; memoryCounts = [:]; projectCount = 0; eventsRoot = nil
             if !memoryArrivals.isEmpty { memoryArrivals = [:] }
@@ -976,6 +1128,7 @@ public final class AppModel {
             return
         }
         limits[slug] = .checking
+        limitsLogin[slug] = codeAccounts[slug]
         let home = paths.home, configDir = ClaudeCodeLimits.configDir(of: identity, paths: paths)
         let binary = limitsBinary, run = limitsRunner
         let outcome = await Task.detached(priority: .userInitiated) {
@@ -999,6 +1152,7 @@ public final class AppModel {
             return isSameLogin(before, now)
         }
         if kept.count != limits.count { limits = kept }
+        limitsLogin = limitsLogin.filter { kept[$0.key] != nil }
     }
 
     private func isSameLogin(_ before: Identity, _ now: Identity) -> Bool {
@@ -1059,6 +1213,7 @@ public final class AppModel {
     /// and an older click's timer never clears a newer mark.
     public func markOpening(_ slug: String, fallback: Duration = .seconds(4)) {
         opening.insert(slug)
+        requestedOpen(slug)
         let mark = (openingMarks[slug] ?? 0) + 1
         openingMarks[slug] = mark
         Task {
@@ -1199,16 +1354,11 @@ public final class AppModel {
     }
 
     /// A brand-new account opens Claude to log in. The browser's login link opens in the Claude instance
-    /// that's already running: if there is one, we ask to close it first. An adopted account is already logged in.
+    /// that's already running: if there is one, its Log in sheet follows the add sheet (see `beginPendingLogin`),
+    /// which closes the others on Start. An adopted account is already logged in.
     func openNewAccount(_ identity: Identity) {
         let others = openAccounts.filter { $0.id != identity.slug }
-        if identity.desktopDataPath == nil, !others.isEmpty {
-            let names = others.map(\.identity.name).joined(separator: ", ")
-            message = UserMessage(title: "Close your other Claude windows first",
-                                  detail: "\(identity.name) needs to log in. The login link from your browser opens in the Claude window that is already running (\(names)), so quit it first, then open \(identity.name) and log in.",
-                                  action: .quitOthersThenOpen(slug: identity.slug), actionLabel: "Quit and open \(identity.name)")
-            return
-        }
+        if identity.desktopDataPath == nil, !others.isEmpty { pendingLogin = identity.slug; return }
         open(identity.slug)
     }
 
@@ -1306,6 +1456,7 @@ public final class AppModel {
         let manager = self.manager
         let request = form.request
         guard let identity = await perform("Adding \(request.name)…", { try manager.add(request) }) else { return false }
+        if terminalCommands, let cli = commandLine() { _ = try? CLIInstaller.linkAccount(paths: paths, slug: identity.slug, target: cli) }
         if open, identity.surfaces.desktop { openNewAccount(identity) }
         return true
     }
@@ -1435,6 +1586,7 @@ public final class AppModel {
     public func onProjectsTick() -> Task<Void, Never>? {
         wireNewProjects()
         refreshCodeAccounts()
+        saveOwnEditsIfQuiet()
         guard windowOpen else { return nil }
         return Task { await refreshUsage() }
     }
@@ -1463,6 +1615,8 @@ public final class AppModel {
         stopWatching()
         let report: Uninstaller.Report? = await perform("Removing Brainmerge…") { try uninstaller.run() }
         if report == nil { watchingSuspended = false; updateWatching() }
+        // The quick opener's shortcut is a setting of this Mac, outside the state: it goes too.
+        else { quickOpener?.forget() }
         return report
     }
 
@@ -1546,12 +1700,53 @@ public final class AppModel {
         }
     }
 
+    /// A pass of `saveOwnEditsIfQuiet` is running: the next minute does not start a second one.
+    private var savingOwnEdits = false
+
+    /// The person's own edits to the notes, in every memory, saved as You: by the app, never by a hook, on the minute
+    /// clock (the window may be closed), once nothing moved for ten minutes and while no Claude Code session of any account
+    /// runs (see OwnEdits). With the setting off, the pass only brings git's index up to the accounts' saves (see
+    /// BrainGit.catchUpIndex). Each memory is skipped when a save holds its lock. Nil when nothing starts: git is missing,
+    /// a capture or a demo runs, or a pass is still running.
+    @discardableResult
+    func saveOwnEditsIfQuiet(now: Date = Date()) -> Task<Void, Never>? {
+        guard gitAvailable, !savingOwnEdits, !AppLifecycle.isCaptureOrDemo(environment: environment) else { return nil }
+        savingOwnEdits = true
+        let store = self.store, monitor = manager.monitor, git = self.git, paths = self.paths
+        return Task {
+            let saved = await Task.detached(priority: .utility) { () -> Bool in
+                guard let state = try? store.load() else { return false }
+                // Not knowing what runs counts as a session running: the edits wait for the next minute. Not asked
+                // with the setting off.
+                let running = !state.saveOwnEdits || ((try? monitor.snapshot())?.hasClaudeCodeSession ?? true)
+                var any = false
+                for folder in state.brains {
+                    let brain = Brain(root: folder.url)
+                    guard brain.isInitialized else { continue }
+                    let repo = BrainGit(brain: brain, availability: git)
+                    let edits = OwnEdits(brain: brain, git: repo, held: HeldStore(paths: paths, memoryID: folder.id))
+                    let outcome = try? repo.withLock(timeout: 0) { () throws -> OwnEdits.Outcome in
+                        guard state.saveOwnEdits else { try? repo.catchUpIndex(); return .nothing }
+                        return try edits.save(now: now, sessionRunning: running)
+                    }
+                    if case .saved = outcome { any = true }
+                }
+                return any
+            }.value
+            savingOwnEdits = false
+            // A note held back meanwhile shows on the Memory screen too.
+            refreshHeld()
+            if saved { refreshMemory() }
+        }
+    }
+
     /// One check at a time: the launch and the window coming to the front can both ask, a copy is never rebuilt twice at once.
     private var checkingClaudeUpdate = false
 
     /// An account whose app is being worked on (an update, a rename, a swap, a removal) is left alone: its change
     /// rebuilds it anyway. Each account is looked at again when its turn comes, as an earlier step may have changed it.
-    /// A failure is said once per Claude version, so the same failure never comes back every few minutes.
+    /// A failure is said once per Claude version, so the same failure never comes back every few minutes. Then, after a
+    /// macOS or Claude update, the setup is checked once (see `checkAfterUpdate`), once the copies are rebuilt.
     public func checkClaudeUpdate() async {
         await reloadOffMain()
         guard let claude, !checkingClaudeUpdate else { return }
@@ -1571,6 +1766,7 @@ public final class AppModel {
                 present(error)
             }
         }
+        await checkAfterUpdate()
     }
 
     @discardableResult
@@ -1679,22 +1875,44 @@ public final class AppModel {
     /// Saves one setting on the core queue, after any work already there, which saves the same file (a rebuild records
     /// its Claude version): a save from the main thread meanwhile would be undone by the state that work read before.
     /// The value on screen has already moved; the task ends once it is saved. Queued right away, in the order the settings
-    /// changed: never behind whatever else waits for the main actor.
+    /// changed: never behind whatever else waits for the main actor. A save that fails (the command line held the lock
+    /// past its 10 s, a folder that refuses the write) is said, and the screen goes back to what is saved.
     func save(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<Void, Never> {
+        let saving = saveReporting(setting, change)
+        return Task { if let problem = await saving.value { _ = say(problem) } }
+    }
+
+    /// Like `save`, for a caller that says the problem itself (the edit sheet's Save): nil once saved, else what went
+    /// wrong, with the screen already back to what is saved.
+    func saveReporting(_ setting: Setting, _ change: @escaping @Sendable (inout AppState) -> Void) -> Task<UserMessage?, Never> {
         pendingSaves[setting, default: 0] += 1
-        let store = self.store, begins = saveBegins, saved = DispatchGroup()
-        coreQueue.async(group: saved) {
+        let store = self.store, begins = saveBegins
+        // Queued now, not when the task first runs on the main actor: saves keep their order and a busy main actor
+        // cannot delay them. The task only waits for the end.
+        let outcome = SaveOutcome()
+        let saved = DispatchGroup()
+        saved.enter()
+        coreQueue.async {
             begins()
             // Under the state lock: the command line's own change in the meantime is kept, not overwritten.
-            try? store.update { change(&$0) }
+            do { try store.update { change(&$0) } } catch { outcome.failure = error }
+            saved.leave()
         }
         return Task {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                // Sendable: a closure made here would otherwise claim the main actor, and trap on the queue that runs it.
+                // Sendable: an inferred main actor closure would trap when the group calls it off the main thread.
                 saved.notify(queue: .global(qos: .userInitiated)) { @Sendable in done.resume() }
             }
             pendingSaves[setting, default: 1] -= 1
+            guard let failure = outcome.failure else { return nil }
+            reload()
+            return Self.sentence(for: failure)
         }
+    }
+
+    /// What a save on the core queue ran into, read once the queue is done with it.
+    private final class SaveOutcome: @unchecked Sendable {
+        var failure: Error?
     }
 
     /// The icon was dragged out of the menu bar: the switch turns off. True when the window must open again, as nothing
@@ -1715,6 +1933,20 @@ public final class AppModel {
             try? await Task.sleep(for: .milliseconds(50))
         }
         return true
+    }
+
+    /// "Save my own edits to the memory's history": moves at once, saved like every setting.
+    @discardableResult
+    public func setSaveOwnEdits(_ on: Bool) -> Task<Void, Never> {
+        if saveOwnEdits != on { saveOwnEdits = on }
+        return save(.saveOwnEdits) { $0.saveOwnEdits = on }
+    }
+
+    /// Why a folder cannot become a memory, said where it is chosen (setup, New memory): nil when it can.
+    public func folderProblem(_ folder: URL) -> String? {
+        guard !FileManager.default.fileExists(atPath: folder.appending(path: ".git").path),
+              let top = Brain.enclosingRepository(of: folder) else { return nil }
+        return BrainmergeError.memoryInsideRepository(top.path).description
     }
 
     @discardableResult
@@ -1776,8 +2008,14 @@ public final class AppModel {
             return UserMessage(title: "That memory is gone", detail: "It is no longer in the list. Pick another one.")
         case .brainNameTaken(let name):
             return UserMessage(title: "Name already used", detail: "There is already a memory called \(name). Pick another name.")
+        case .memoryInsideRepository:
+            // The sentence stands alone: the sheets show the detail only.
+            return UserMessage(title: "Choose another folder", detail: e.description)
         case .nameInvalid:
             return UserMessage(title: "Give it a name", detail: "One line, up to \(NameRules.maxLength) characters.")
+        case .noteBeingWritten, .noteNotSaved, .noteExists:
+            // The Tidy tab's buttons: the sentence says why, and that nothing moved.
+            return UserMessage(title: "Nothing was moved", detail: e.description)
         case .claudeAppTampered:
             return UserMessage(title: "Claude's signature is broken", detail: "The Claude app on this Mac does not match its own signature, so Brainmerge will not copy it. Reinstall Claude from claude.ai/download, then try again.", action: .getClaude, actionLabel: "Get Claude")
         default:

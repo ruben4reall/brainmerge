@@ -172,6 +172,8 @@ public enum Theme {
         public static let formWidth: CGFloat = 720
         /// The thin RAM bars of the Usage screen.
         public static let meterRadius: CGFloat = 3
+        /// The quick opener's glass panel.
+        public static let panelRadius: CGFloat = 16
     }
 
     public enum Fonts {
@@ -184,6 +186,8 @@ public enum Theme {
         public static let secondary = Font.system(size: 12.5)
         public static let sectionLabel = Font.system(size: 11.5, weight: .semibold)
         public static let caption = Font.system(size: 11)
+        /// The quick opener's search field.
+        public static let search = Font.system(size: 18)
     }
 }
 

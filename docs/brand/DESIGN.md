@@ -24,7 +24,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.surfaceLine` | white at 12% | dividers |
 | `Colors.field` | white at 7% | text fields on glass |
 | `Colors.accent` | `#A06BE0` | the one accent |
-| `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices (and the "Only here" mark of an account's MCP servers) / the fill of prominent buttons |
+| `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices (and the "Only here" mark of an account's MCP servers, the small mark before a failed save's line on a card and the Memory screen, the dot of a Health finding that is an error; a warning's dot is `textFaint`) / the fill of prominent buttons |
 | `Colors.button` | `accentDeep` | prominent buttons (4.7:1 with `onAccent`) |
 | `Colors.selection` | accent at 18% | the selected sidebar row, the flat shadow under the creature (launch, How it works), a new timeline row for 1.6 s |
 | `Colors.rowHover` | text at 6% | a sidebar row under the pointer (neutral, fainter than `selection`) |
@@ -32,7 +32,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.accentSoft` | accent at 35% | the older bars of the usage chart |
 | `Colors.onAccent` | `#FBF7FF` | text on the accent |
 | `Colors.meter` | text at 42% | the RAM bars of the Usage screen that are not an account's (the Mac, terminal sessions, other apps); an account's bar takes its tint (its share of RAM, and each limit "Check limits" shows), every bar sits on a `field` track |
-| `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states |
+| `Colors.sage` | `#8FC7A6` | "open" dots, "saved" states, Health's "Everything is in place." |
 | `Colors.vaultBackground` | `#262626` | an Obsidian vault's graph, flat like Obsidian's canvas (Minimal theme, dark) |
 | `Colors.vaultNode` / `vaultLine` / `vaultText` | `#999999` / `#3F3F3F` / `#D1D1D1` | a vault's nodes without a color group, its lines (one pixel, opaque), its labels |
 | `Colors.vaultHighlight` / `vaultFocused` | `#750F0F` / `#8C1212` | the hovered node and its lines / the ring around it (the two shades Minimal draws from the accent `#8B1212`) |
@@ -58,10 +58,11 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Layout.rowRadius` | 10 | sidebar rows: their selection, hover and press fills |
 | `Layout.readingWidth` / `formWidth` | 880 / 720 | the widest a Memory or Usage card gets / the settings form |
 | `Layout.meterRadius` | 3 | the thin RAM and limit bars of the Usage screen |
+| `Layout.panelRadius` | 16 | the quick opener's glass panel |
 
 The menu bar icon (`Design/MenuBarIcon.swift`) is the creature drawn from the same grid as a template image: macOS paints it in the menu bar's own color, so it carries no token. Cells are 1.5 pt on a Retina display (1 pt at 1x, to stay on whole pixels) in a 24 by 18 pt canvas, so the creature is 16.5 pt tall; its eyes are cut out, open while an account is open or opening, a thin line one row lower otherwise. No badge, no count, no animation. The accounts in its menu carry a 10 pt dot in their tint (`Theme.color(for:)`).
 
-Account tints (`Theme.hex(for:)`): orange `#D97757`, blue `#6FA3D8`, green `#7FA37A`, purple `#A87BC9`, pink `#D97A8E`, yellow `#E0A526`, gray `#7D8A99`. Red maps to pink and is not offered in pickers.
+Account tints (`Theme.hex(for:)`): orange `#D97757`, blue `#6FA3D8`, green `#7FA37A`, purple `#A87BC9`, pink `#D97A8E`, yellow `#E0A526`, gray `#7D8A99`. Red maps to pink and is not offered in pickers. Gray also marks what no account wrote: your own edits ("You") and authors outside Brainmerge, in the timeline and the graph.
 
 State changes (`Design/StateMotion.swift`, each a pure function of the time since it happened, so a screen opened later draws its end and a capture its still):
 
@@ -88,8 +89,13 @@ State changes (`Design/StateMotion.swift`, each a pure function of the time sinc
 | Secondary | system sans, 12.5 |
 | Section label | system sans, 11.5, semibold, uppercase |
 | Caption | system sans, 11 |
+| Quick opener field | system sans, 18 |
 
 Every screen starts with `ScreenHeader`: the serif title, an optional subtitle capped at 560 points, and the screen's actions on the right, aligned with the title line. The default font of the window is `Fonts.body`, so an unstyled text never falls back to the system size.
+
+The Memory screen switches between three tabs with one segmented control: Graph, Timeline and Tidy, whose name carries its count ("Tidy (4)", no number when there is nothing to tidy). Tidy's rows sit in glass cards under section labels, one per group: a sentence, a quiet second line (`textMuted`), and at most one glass button (File under…, Hide, Compare or Open).
+
+The quick opener is a 560 point panel over whatever app is in front, dark whatever that app is: regular glass tinted with `background` at 55%, `panelRadius` corners, no shadow of its own and no animation beyond the system's panel appearance (none with Reduce Motion). A search field in `Fonts.search`, a `surfaceLine` divider, then rows of 44 points: a 28 point orb (the photo or the tint), the name in `cardName`, the note in `secondary` `textMuted`, and the sidebar's word in `caption` on the right (`textFaint` when it does nothing). The picked row takes `selection` with `rowRadius` corners. A `caption` line at the bottom names the keys. No button at all: the keys and a click on a row are the actions.
 
 ## Retheming
 

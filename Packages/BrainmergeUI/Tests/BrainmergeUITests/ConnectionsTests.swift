@@ -42,6 +42,22 @@ import BrainmergeTestSupport
         AccountEdit(account: try #require(m.accounts.first { $0.id == slug }), memory: AppState.defaultBrainID)
     }
 
+    /// A pick the state could not take (its folder refuses the write) is never shown as saved: Save says so, and the
+    /// account keeps what was saved before.
+    @Test func aPickThatCouldNotBeSavedIsSaid() async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        var edit = try edit(m)
+        edit.browser = Self.work
+        let folder = e.home.paths.appSupport
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        let problem = await m.apply(edit, to: "client")
+        #expect(problem != nil)
+        #expect(m.accounts.first { $0.id == "client" }?.identity.browser == nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        #expect(try e.store.load().identity(slug: "client")?.browser == nil)
+    }
+
     /// Like every field of the sheet, the pick is kept on Save and dropped on Cancel.
     @Test func thePickIsSavedWithTheSheet() async throws {
         let (e, m, _) = try setUp(); defer { e.home.remove() }
@@ -168,6 +184,36 @@ import BrainmergeTestSupport
     }
 
     /// A short list of servers shows as it is; a long one folds, so the sheet stays short.
+    /// The edit sheet opens once its connections are read, like the apps made by hand: it opens at its full size, and
+    /// nothing moves under the pointer afterwards (the picker, the Open button, the servers).
+    @Test func connectionsAreReadBeforeTheSheetOpens() async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        #expect(m.installedBrowsers == nil)
+        _ = await m.prepareEdit("client")
+        #expect(m.installedBrowsers == [Self.chrome])
+        #expect(m.mcpServers("client") != nil)
+        let screens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens")
+        let section = try String(contentsOf: screens.appending(path: "ConnectionsSection.swift"), encoding: .utf8)
+        #expect(!section.contains(".task") && !section.contains(".onAppear"), "the section reads nothing once shown")
+        let accounts = try String(contentsOf: screens.appending(path: "AccountsView.swift"), encoding: .utf8)
+        #expect(accounts.contains(#/editingApps = await model\.prepareEdit\(account\.id\)\s*\n\s*editing = account/#))
+    }
+
+    /// No Chrome, Arc, Brave or Edge profile at all: one faint line says why there is no picker.
+    @Test func noBrowserProfileIsSaid() async throws {
+        let (e, m, _) = try setUp(); defer { e.home.remove() }
+        #expect(m.noBrowserNote == nil, "nothing before the browsers are read")
+        await m.loadConnections()
+        #expect(m.noBrowserNote == nil)
+        m.findBrowsers = { _ in [InstalledBrowser(browser: .arc, app: URL(fileURLWithPath: "/Applications/Arc.app"), profiles: [])] }
+        await m.loadConnections()
+        #expect(m.noBrowserNote == "No Chrome, Arc, Brave or Edge profile was found on this Mac.")
+        m.findBrowsers = { _ in [] }
+        await m.loadConnections()
+        #expect(m.noBrowserNote == "No Chrome, Arc, Brave or Edge profile was found on this Mac.")
+    }
+
     @Test func onlyALongServerListFolds() {
         #expect(!ConnectionsSection.folds(serverCount: 6))
         #expect(ConnectionsSection.folds(serverCount: 7))
@@ -187,7 +233,7 @@ import BrainmergeTestSupport
     }
 
     @Test func theGuidesReadAsWritten() {
-        let lines = [AppModel.browserGuide(account: "Work"), AppModel.connectorsGuide, AppModel.demoConnectionsSentence]
+        let lines = [AppModel.browserGuide(account: "Work"), AppModel.connectorsGuide, AppModel.demoConnectionsSentence, AppModel.noBrowserSentence]
         #expect(lines[0] == "Log the Claude extension of this profile into Work. Each account then has its own browser, with no logging out.")
         #expect(lines[1] == "Gmail, Calendar and Drive belong to each Claude account: connect the work Gmail in one account and the personal one in another.")
         for line in lines { #expect(!line.contains("\u{2014}") && !line.contains("\u{2013}")) }

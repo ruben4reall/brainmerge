@@ -2,7 +2,8 @@ import SwiftUI
 import BrainmergeCore
 
 /// The edit sheet's Connections: which browser profile goes with the account (saved with the sheet), a way to open it and
-/// the account's connectors page, and its MCP servers by name. Names only: no value of any file is shown or kept.
+/// the account's connectors page, and its MCP servers by name. Names only: no value of any file is shown or kept. All of
+/// it is read before the sheet opens (see AppModel.prepareEdit).
 struct ConnectionsSection: View {
     @Bindable var model: AppModel
     let account: Account
@@ -31,9 +32,9 @@ struct ConnectionsSection: View {
     /// Past this many servers the list folds.
     nonisolated static func folds(serverCount: Int) -> Bool { serverCount > 6 }
 
-    /// What is read after the sheet opens (the browsers, the servers) drops in as it comes, and picking a profile opens
-    /// its line: the sheet eases to each new height instead of jumping. With Reduce Motion the sheet takes its height at
-    /// once and what comes fades in where it lands.
+    /// The browsers and the servers are read before the sheet opens; read again while it is open, what changes drops in
+    /// instead of jumping, and picking a profile opens its line: the sheet eases to each new height. With Reduce Motion
+    /// the sheet takes its height at once and what comes fades in where it lands.
     var body: some View {
         let options = model.browserOptions(keeping: choice)
         let serversRead = model.mcpServers(account.id) != nil
@@ -44,6 +45,8 @@ struct ConnectionsSection: View {
                 }
                 .pickerStyle(.menu).fixedSize()
                 .transition(.fade(reduceMotion))
+            } else if let note = model.noBrowserNote {
+                faint(note).transition(.fade(reduceMotion))
             }
             if let label = model.openBrowserLabel(choice), let choice {
                 VStack(alignment: .leading, spacing: 8) {
@@ -68,7 +71,6 @@ struct ConnectionsSection: View {
         .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: options.isEmpty)
         .animation(Theme.Motion.layout(Theme.Motion.out(Self.roomTime), reduceMotion), value: choice)
         .animation(Theme.Motion.layout(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: serversRead)
-        .task { await model.loadConnections() }
         // What opens below the fold is brought into view once it has its room.
         .onChange(of: choice) { _, choice in
             guard model.openBrowserLabel(choice) != nil else { return }

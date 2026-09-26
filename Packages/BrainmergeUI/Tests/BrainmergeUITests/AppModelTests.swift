@@ -85,24 +85,37 @@ import BrainmergeTestSupport
         #expect(try e.store.load().autoRebuild == false)
     }
 
-    /// A save reaches the core queue at once, never behind whatever else waits for the main actor: with the whole suite
-    /// running, the main actor can stay busy longer than the lock test above waits.
-    @Test func aSaveBeginsWhileTheMainActorIsBusy() async throws {
+    /// A setting the state could not take (its folder refuses the write, or the command line held the lock past its
+    /// 10 s) is said, and the switch goes back to what is saved: never a value that moved on screen but not in the file.
+    @Test func aSettingThatCouldNotBeSavedIsSaidAndGoesBack() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let m = model(e)
+        m.reload()
+        #expect(m.autoRebuild)
+        let folder = e.home.paths.appSupport
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path) }
+        await m.setAutoRebuild(false).value
+        #expect(m.message != nil)
+        #expect(m.autoRebuild, "the switch shows what is saved")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        #expect(try e.store.load().autoRebuild)
+    }
+
+    /// A setting's save is queued on the core queue when it is made, not once the main actor is free again: a busy main
+    /// actor neither delays it nor lets a later save overtake it.
+    @Test func aSaveIsQueuedAtOnceWhileTheMainActorIsBusy() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
         m.reload()
         let begun = DispatchSemaphore(value: 0)
         m.saveBegins = { begun.signal() }
-        let (task, began) = Self.saveHoldingTheMainActor(m, begun: begun)
-        #expect(began)
+        // Waits without an await, so the main actor stays held: a save that waits for it to be free never begins here.
+        func beginsWhileHeld() -> Bool { begun.wait(timeout: .now() + 5) == .success }
+        let task = m.setAutoRebuild(false)
+        #expect(beginsWhileHeld())
         await task.value
         #expect(try e.store.load().autoRebuild == false)
-    }
-
-    /// Starts a save and waits for it to begin without ever letting go of the main actor.
-    static func saveHoldingTheMainActor(_ m: AppModel, begun: DispatchSemaphore) -> (Task<Void, Never>, Bool) {
-        let task = m.setAutoRebuild(false)
-        return (task, begun.wait(timeout: .now() + 2) == .success)
     }
 
     @Test func choosingAnUnsignedClaudeIsRefusedAndNothingIsSaved() async throws {
@@ -369,6 +382,17 @@ import BrainmergeTestSupport
     }
 
 
+    /// New memory shows a failure's own button, like the Memory screen: without git, "Install Apple's tools", a plain
+    /// glass button next to the sheet's one purple Create.
+    @Test func newMemoryWithoutGitOffersApplesTools() throws {
+        #expect(NewMemorySheet.offersAppleTools(AppModel.sentence(for: BrainmergeError.gitUnavailable).action))
+        #expect(!NewMemorySheet.offersAppleTools(AppModel.sentence(for: BrainmergeError.lockTimeout).action))
+        #expect(!NewMemorySheet.offersAppleTools(nil))
+        let sheet = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens/NewMemorySheet.swift"), encoding: .utf8)
+        #expect(sheet.contains(#"Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass)"#))
+    }
+
     @Test func errorsBecomeSentences() {
         #expect(AppModel.sentence(for: BrainmergeError.claudeAppNotFound("/Applications/Claude.app")).title == "Claude isn't installed")
         #expect(AppModel.sentence(for: BrainmergeError.claudeAppNotFound("/Applications/Claude.app")).action == .getClaude)
@@ -404,7 +428,7 @@ import BrainmergeTestSupport
         #expect(m.lastShownProcess == 900)
     }
 
-    @Test func addingAnAccountWhileAnotherIsOpenAsksToQuitFirst() async throws {
+    @Test func addingAnAccountWhileAnotherIsOpenLeadsToItsLogIn() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let exe = e.claude.executable.path
@@ -413,11 +437,18 @@ import BrainmergeTestSupport
         var form = AddAccountForm(); form.name = "Work"
         #expect(await m.add(form))
         #expect(m.accounts.map(\.identity.slug).contains("work"))
-        // The login link would open in the window that's already running: no launch, a sentence and a button.
+        // The login link would open in the window that's already running: no launch and no alert, but the Log in
+        // sheet once the add sheet has gone (two sheets never show at once). Nothing is closed before Start.
         #expect(m.opening.isEmpty)
-        #expect(m.message?.title == "Close your other Claude windows first")
-        #expect(m.message?.action == .quitOthersThenOpen(slug: "work"))
+        #expect(m.message == nil)
+        #expect(m.login == nil)
+        m.beginPendingLogin()
+        #expect(m.login?.title == "Log in to Work")
+        #expect(m.login?.step == .ready)
         #expect(m.working == nil)
+        m.cancelLogin()
+        m.beginPendingLogin()
+        #expect(m.login == nil)
     }
 
     @Test func addingWithoutOpeningJustAdds() async throws {
@@ -557,23 +588,23 @@ import BrainmergeTestSupport
     }
 
     /// Leaving the screen stops the walk: nothing half counted is kept, and the next visit walks again. Bounded: a walk
-    /// that is never told to stop gives up after two minutes and fails the test instead of hanging it (wide bounds: the
-    /// main actor is shared by the whole suite, so a step of this test can wait its turn for a long time).
+    /// that is never told to stop gives up at one deadline shared by every root, two minutes after the test began, and
+    /// fails the test instead of hanging it (wide bounds: the main actor is shared by the whole suite, so a step of this
+    /// test can wait its turn for a long time).
     @Test(.timeLimit(.minutes(5))) func leavingTheScreenCancelsTheWalk() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         let m = model(e)
         m.reload()
         let started = PSCounter(), stopped = PSCounter()
+        let deadline = Date().addingTimeInterval(120)
         m.diskMeasure = { _, cancelled in
             started.bump()
-            let deadline = Date().addingTimeInterval(120)
             while !cancelled(), Date() < deadline { usleep(1000) }
             if cancelled() { stopped.bump() }
             return DiskSize(bytes: 1, complete: false)
         }
         let visit = Task { await m.refreshDisk() }
-        let deadline = Date().addingTimeInterval(120)
         while started.value == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
         try #require(started.value > 0, "the walk never started")
         #expect(m.diskMeasuring)
@@ -1133,8 +1164,10 @@ import BrainmergeTestSupport
         let m = model(e)
         m.reload()
         #expect(m.knownOtherApps("work") == nil)
+        #expect(!m.connectionsKnown("work"))
         await m.prefetchOtherApps("work")
         #expect(m.knownOtherApps("work") != nil)
+        #expect(m.connectionsKnown("work"), "the sheet also needs its connections read to open at once")
         _ = try e.manager.add(IdentityManager.AddRequest(name: "Studio"))
         m.reload()
         #expect(m.knownOtherApps("work") == nil)

@@ -25,6 +25,12 @@ public struct BrainmergeScenes: Scene {
             .defaultLaunchBehavior(.presented)
             .restorationBehavior(.disabled)
             .commands { BrainmergeCommands(model: model) }
+            // A link or the Accounts menu needs the window (a screen, the Log in sheet, a message): opened again when
+            // closed, brought forward otherwise.
+            .onChange(of: model.windowRequests) {
+                openWindow(id: BrainmergeWindow.main)
+                NSApp.activate()
+            }
         MenuBarExtra(isInserted: Binding(get: { shown }, set: { inserted in
             // The person dragged the icon out of the menu bar: saved as off, and the window opens again if it was closed
             // (see AppModel.menuBarIconRemoved).

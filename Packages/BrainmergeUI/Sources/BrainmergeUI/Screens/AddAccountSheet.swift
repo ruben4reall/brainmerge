@@ -52,7 +52,9 @@ public struct AddAccountSheet: View {
             DisclosureGroup("Advanced", isExpanded: $advanced) {
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle("Share conversation history with your first account", isOn: $form.sharedHistory)
+                        .toggleStyle(.switch).tint(Theme.Colors.accent)
                     Toggle("Distinct icon in the Dock (a local tinted copy of Claude, rebuilt after each Claude update)", isOn: $form.distinctIcon)
+                        .toggleStyle(.switch).tint(Theme.Colors.accent)
                     HStack {
                         Text("Folders you already have for this account:").foregroundStyle(Theme.Colors.textMuted)
                         Button(form.adoptCLI.map { $0.lastPathComponent } ?? "Claude Code…") { if let u = pickFolder() { form.adoptCLI = u } }.buttonStyle(.glass).controlSize(.small)

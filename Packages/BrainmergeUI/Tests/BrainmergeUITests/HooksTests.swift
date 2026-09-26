@@ -111,10 +111,14 @@ import BrainmergeTestSupport
         let settings = e.primaryProfile.settingsFile
         try Data(oldHooks(e).utf8).write(to: settings)
         #expect(HookInstaller.health(settingsFile: settings, cliPath: e.cliPath, slug: "perso") == .outdated)
+        try Data(".DS_Store\n.brainmerge/lock\n".utf8).write(to: e.brain.gitignore)
 
         await model(e).launch(minimum: .zero)
         #expect(HookInstaller.health(settingsFile: settings, cliPath: e.cliPath, slug: "perso") == .current)
         #expect(try HookInstaller.isInstalled(settingsFile: settings, event: .sessionStart))
+        #expect(try HookInstaller.isInstalled(settingsFile: settings, event: .postToolUse))
+        // What each account notes it wrote stays out of an older memory's history from the first launch.
+        #expect(try String(contentsOf: e.brain.gitignore, encoding: .utf8).hasSuffix(".brainmerge/touched/\n"))
         #expect(try String(contentsOf: settings, encoding: .utf8).contains("say done"))
 
         let written = try Data(contentsOf: settings)

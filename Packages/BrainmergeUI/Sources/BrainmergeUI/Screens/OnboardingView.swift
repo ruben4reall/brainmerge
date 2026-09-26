@@ -344,8 +344,7 @@ public struct OnboardingView: View {
                     check(1, model.app.brain != nil, "Memory folder: \(model.app.brain.map { Self.tilde($0.root.path, home: model.app.paths.home.path) } ?? "not chosen") · \(Self.opensIn(target))\(model.app.brains.count > 1 ? " · \(model.app.brains.count) memories" : "")")
                     check(2, !model.app.accounts.isEmpty, "\(model.app.accounts.count) account\(model.app.accounts.count > 1 ? "s" : ""): \(model.app.accounts.map(\.identity.name).joined(separator: ", "))")
                     check(3, model.gitFound, model.gitFound ? "git: Found" : "git: Not found")
-                    check(4, model.claudeCodeFound, model.claudeCodeFound ? "Claude Code: Found"
-                          : "Claude Code: Not found: your accounts still work in the Claude app. Install Claude Code to use them in a terminal.")
+                    check(4, model.claudeCodeFound, OnboardingModel.claudeCodeRow(found: model.claudeCodeFound))
                     check(5, model.app.commandLineInstalled, model.app.commandLineInstalled ? "Command line linked at ~/.local/bin/brainmerge" : "Command line not linked (Settings)")
                 }
                 .padding(14)
@@ -362,7 +361,7 @@ public struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("GO FURTHER").font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
                 tip("Keep the memory tidy: one fact per note, a short index. Claude reads it at every start.")
-                tip("For big code bases, a local code graph or index saves tokens: Claude asks it where things are.")
+                tip("In a terminal, claude-work starts Claude Code on that account, with its memory: turn on A terminal command per account in Settings.")
                 tip("Give a work or client account its own memory: what it learns stays there.")
             }
             .frame(maxWidth: Self.allSetLists, alignment: .leading)
@@ -499,7 +498,7 @@ public struct OnboardingView: View {
     /// "Continue": the choice is remembered, nothing is written yet. Except when the brain has disappeared: it is recreated right away and accounts reattached.
     func create() {
         if model.missingBrainPath != nil { do { try model.createBrain() } catch { model.error = AppModel.sentence(for: error) } }
-        else { model.next() }
+        else { model.continueFromLocation() }
     }
     func finish() { Task { await model.finish() } }
 }

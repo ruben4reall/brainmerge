@@ -14,7 +14,7 @@ struct Context {
 
     var manager: IdentityManager {
         IdentityManager(paths: paths, store: store, launcherBinary: LauncherBuilder.siblingLauncher(),
-                        cliPath: cliLink.path, claudeAppURL: claudeAppURL)
+                        cliPath: cliLink.path, claudeAppURL: claudeAppURL, registerLaunchers: LauncherBuilder.registersApps())
     }
 
     var doctor: Doctor { Doctor(paths: paths, store: store, claudeAppURL: claudeAppURL, cliPath: cliLink.path) }
@@ -28,6 +28,22 @@ struct Context {
         }
         guard let url = state.brainURL else { throw BrainmergeError.brainNotConfigured }
         return Brain(root: url)
+    }
+
+    /// Attaches every account to its memory, each on its own: one that cannot be (its Claude Code folder is gone) is named
+    /// on the standard error and never stops the accounts after it. False when one failed.
+    func attachEachAccount(state: AppState, wired: (Identity) -> Void = { _ in }) -> Bool {
+        var allWired = true
+        for identity in state.identities {
+            do {
+                try manager.attachBrain(to: identity, state: state)
+                wired(identity)
+            } catch {
+                allWired = false
+                FileHandle.standardError.write(Data("Could not wire \(identity.name): \(error)\n".utf8))
+            }
+        }
+        return allWired
     }
 
     /// The hooks call ~/.local/bin/brainmerge: this link must exist before installing them.

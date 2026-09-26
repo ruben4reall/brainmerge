@@ -60,6 +60,11 @@ import BrainmergeTestSupport
         #expect(BrowserProfiles.command(app: URL(string: "relative.app")!, directory: "Default", url: nil) == nil)
         #expect(BrowserProfiles.defaultBrowserCommand(url: BrowserProfiles.connectorsURL)
                 == BrowserProfiles.Command(path: "/usr/bin/open", arguments: ["https://claude.ai/customize/connectors"]))
+        // The connectors page is the only address ever opened, in a profile or in the default browser.
+        for other in ["https://example.com", "https://claude.ai/customize/connectors/../../x", "file:///etc/hosts", ""] {
+            #expect(BrowserProfiles.command(app: app, directory: "Default", url: other) == nil, "\(other)")
+            #expect(BrowserProfiles.defaultBrowserCommand(url: other) == nil, "\(other)")
+        }
     }
 
     @Test func choiceIsSavedOnTheIdentity() throws {

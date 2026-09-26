@@ -34,7 +34,274 @@ public struct BrainGit: Sendable {
         return !(try shell.check("/usr/bin/git", ["status", "--porcelain"], cwd: brain.root)).isEmpty
     }
 
-    /// Adds everything and commits under the identity's name. Returns false if there was nothing to commit.
+    /// Who a commit is by: an account, or the person themselves (see OwnEdits).
+    public struct Author: Equatable, Sendable {
+        public let name: String
+        public let email: String
+        public init(name: String, email: String) { self.name = name; self.email = email }
+    }
+
+    /// The changed paths, relative to the memory, under `scope`: modified, added, deleted, and every file of a new folder.
+    /// What .gitignore leaves out never shows. Names are taken literally, never as patterns. `optionalLocks: false` for a
+    /// look that must change nothing (the Tidy tab): git then never refreshes its index, which a save may be taking.
+    public func status(scope: [String], optionalLocks: Bool = true) throws -> [String] {
+        try requireGit()
+        guard !scope.isEmpty else { return [] }
+        let lead = optionalLocks ? [] : ["--no-optional-locks"]
+        let out = try shell.check("/usr/bin/git", lead + ["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--"] + scope,
+                                  cwd: brain.root)
+        return Self.statusPaths(out)
+    }
+
+    /// Moves a saved note inside the memory the way git sees it (`git mv`), making the folders it goes into first. Only the
+    /// files and git's index change: the commit is the caller's.
+    public func move(_ from: String, to destination: String) throws {
+        try requireGit()
+        try FileManager.default.createDirectory(at: brain.root.appending(path: destination).deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try shell.check("/usr/bin/git", ["--literal-pathspecs", "mv", "--", from, destination], cwd: brain.root)
+    }
+
+    /// `XY path`, NUL separated; a rename or a copy is followed by its old path, which changed too.
+    static func statusPaths(_ out: String) -> [String] {
+        let fields = out.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+        var paths: [String] = []
+        var index = 0
+        while index < fields.count {
+            let entry = fields[index]
+            index += 1
+            guard entry.count > 3 else { continue }
+            paths.append(String(entry.dropFirst(3)))
+            let code = entry.prefix(2)
+            if code.contains("R") || code.contains("C"), index < fields.count { paths.append(fields[index]); index += 1 }
+        }
+        return paths
+    }
+
+    /// A save's paths once staged, in the save's own index: what `addedLines()` reads there is exactly what the commit
+    /// holds.
+    public struct Staged: Sendable {
+        /// The paths whose staged content differs from the commit the save is made on, sorted.
+        public let paths: [String]
+        let git: BrainGit
+        /// The save's own index and object store (see `commit(paths:author:hold:message:)`).
+        let environment: [String: String]
+        /// The commit the save is made on, nil before the first.
+        let base: String?
+        /// What staging these paths adds, and only that (see `diffCachedAdded`).
+        public func addedLines() throws -> String { try git.diffCachedAdded(paths: paths, environment: environment, base: base) }
+    }
+
+    /// Commits exactly these paths, those of them that changed, under `author`, and nothing else. The save works in an
+    /// index of its own, made from the last commit: what the person staged by hand stays staged, other files stay as
+    /// they are, and the commit holds what was staged, never what a session writes meanwhile (it waits for the next
+    /// save). Once the paths are staged, `hold` reads them and names those to leave out (the secret guard); a name that
+    /// is not one of them fails the save, since it cannot tell which note was meant. What the save writes goes to an
+    /// object store of its own first, and only what the commit holds is moved into the memory's git: a held note's text
+    /// never reaches it. Returns the paths committed, sorted; none when nothing changed or everything was held.
+    @discardableResult
+    public func commit(paths: [String], author: Author, hold: (Staged) throws -> Set<String> = { _ in [] },
+                       message: ([String]) -> String) throws -> [String] {
+        try requireGit()
+        let wanted = Set(paths)
+        guard !wanted.isEmpty else { return [] }
+        // A plain commit would finish the person's own merge or pick under this author: the save waits for them instead.
+        guard !(try operationUnfinished()) else { throw BrainmergeError.gitOperationUnfinished }
+        try? catchUpIndex()
+        let changed = Set(try status(scope: Array(wanted))).intersection(wanted).sorted()
+        guard !changed.isEmpty else { return [] }
+        // Another program may commit here meanwhile (the person's git, Obsidian Git): the branch only moves on from the
+        // commit the save was made on, else the save is made again on top of the new one. Each new try looks again: the
+        // person may have checked out a commit meanwhile, and a save never lands on no branch.
+        for attempt in 0..<3 {
+            if attempt > 0, try operationUnfinished() { throw BrainmergeError.gitOperationUnfinished }
+            if let saved = try commit(changed, author: author, hold: hold, message: message) { return saved }
+        }
+        throw BrainmergeError.gitOperationUnfinished
+    }
+
+    /// One try of `commit(paths:author:hold:message:)`: nil when the branch moved meanwhile, and nothing was changed.
+    private func commit(_ changed: [String], author: Author, hold: (Staged) throws -> Set<String>,
+                        message: ([String]) -> String) throws -> [String]? {
+        let fm = FileManager.default
+        let parent = head()
+        let objects = try objectsFolder()
+        let scratch = fm.temporaryDirectory.appending(path: "brainmerge-save-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let quarantine = scratch.appending(path: "objects", directoryHint: .isDirectory)
+        try fm.createDirectory(at: quarantine, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: scratch) }
+        let index = scratch.appending(path: "index")
+        // The save's own index, and its own object store, which reads the memory's (quoted: a folder's name may hold a
+        // colon, git's separator there).
+        let quoted = "\"" + objects.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        let env = ["GIT_INDEX_FILE": index.path, "GIT_OBJECT_DIRECTORY": quarantine.path, "GIT_ALTERNATE_OBJECT_DIRECTORIES": quoted]
+        if let parent {
+            // A copy of the real index keeps its file dates, so no note is read again; a reset by path takes it back to
+            // the parent without moving HEAD's history (a bare reset would log a move and set ORIG_HEAD).
+            let real = brain.gitDir.appending(path: "index")
+            if fm.fileExists(atPath: real.path) { try fm.copyItem(at: real, to: index) }
+            try shell.check("/usr/bin/git", ["reset", "-q", parent, "--", "."], cwd: brain.root, environment: env)
+        }
+        // Every note as one object of its own, never streamed into a pack past git's size for big files.
+        try shell.check("/usr/bin/git", ["-c", "core.bigFileThreshold=1024g", "--literal-pathspecs", "add", "-A", "--"] + changed,
+                        cwd: brain.root, environment: env)
+        let base = parent.map { [$0] } ?? []
+        let staged = try shell.check("/usr/bin/git", ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--no-renames"] + base
+                                     + ["--"] + changed, cwd: brain.root, environment: env)
+            .split(separator: "\0").map(String.init).sorted()
+        let held = try hold(Staged(paths: staged, git: self, environment: env, base: parent))
+        guard held.isSubset(of: staged) else { throw BrainmergeError.heldFileUnknown }
+        let kept = staged.filter { !held.contains($0) }
+        guard !kept.isEmpty else { return [] }
+        if !held.isEmpty {
+            let out = staged.filter(held.contains)
+            // Out of the save's index again, the index only: back to the parent, or gone before the first commit.
+            try shell.check("/usr/bin/git", ["--literal-pathspecs"] + (parent.map { ["reset", "-q", $0] } ?? ["rm", "--cached", "-q", "-r"])
+                            + ["--"] + out, cwd: brain.root, environment: env)
+        }
+        let text = message(kept)
+        let tree = try shell.check("/usr/bin/git", ["write-tree"], cwd: brain.root, environment: env)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let made = try shell.check("/usr/bin/git", ["-c", "user.name=\(author.name)", "-c", "user.email=\(author.email)", "commit-tree", tree]
+                                   + base.flatMap { ["-p", $0] } + ["-m", text], cwd: brain.root, environment: env)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // What the commit holds, and only that, goes into the memory's git.
+        let needed = try shell.check("/usr/bin/git", ["rev-list", "--objects", made] + base.map { "^" + $0 }, cwd: brain.root, environment: env)
+            .split(separator: "\n").compactMap { $0.split(separator: " ").first.map(String.init) }
+        try adopt(needed, from: quarantine, into: objects)
+        // The branch moves only from `parent` (none: it must not exist yet), the way `git commit` logs it.
+        let subject = text.split(separator: "\n").first.map(String.init) ?? ""
+        let move = ["update-ref", "-m", (parent == nil ? "commit (initial): " : "commit: ") + subject, "HEAD", made, parent ?? ""]
+        let moved = try shell.run("/usr/bin/git", move, cwd: brain.root)
+        guard moved.status == 0 else {
+            if head() != parent { return nil }
+            throw BrainmergeError.shellFailed(command: (["/usr/bin/git"] + move).joined(separator: " "), status: moved.status, stderr: moved.stderr)
+        }
+        followCommit(kept)
+        // Past git's own threshold, its loose objects are packed, as after a commit of yours: in the foreground, apart from
+        // your git setup and stopped after two minutes like every git call, and never failing a save that is made.
+        _ = try? shell.run("/usr/bin/git", ["-c", "gc.autoDetach=false", "gc", "--auto", "--quiet"], cwd: brain.root)
+        return kept
+    }
+
+    /// The memory's object store, asked of git: a worktree or a separate git folder keeps it elsewhere.
+    func objectsFolder() throws -> URL {
+        let path = try shell.check("/usr/bin/git", ["rev-parse", "--git-path", "objects"], cwd: brain.root)
+            .trimmingCharacters(in: .newlines)
+        return path.hasPrefix("/") ? URL(filePath: path, directoryHint: .isDirectory) : brain.root.appending(path: path, directoryHint: .isDirectory)
+    }
+
+    /// Moves these objects from a save's own store into the memory's, each file whole or not at all (copied beside its
+    /// place, then renamed). One already there, or not in the save's store, stays as it is.
+    func adopt(_ ids: [String], from quarantine: URL, into objects: URL) throws {
+        let fm = FileManager.default
+        for id in ids where id.count > 2 {
+            let name = "\(id.prefix(2))/\(id.dropFirst(2))"
+            let source = quarantine.appending(path: name), target = objects.appending(path: name)
+            guard fm.fileExists(atPath: source.path), !fm.fileExists(atPath: target.path) else { continue }
+            try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let partial = target.deletingLastPathComponent().appending(path: "tmp_obj_brainmerge_\(UUID().uuidString)")
+            try fm.copyItem(at: source, to: partial)
+            do { try fm.moveItem(at: partial, to: target) } catch {
+                try? fm.removeItem(at: partial)
+                if !fm.fileExists(atPath: target.path) { throw error }
+            }
+        }
+    }
+
+    /// A branch is checked out in this memory, rather than a commit on no branch (checked out to look at it).
+    public func branchCheckedOut() throws -> Bool {
+        try requireGit()
+        return try shell.run("/usr/bin/git", ["symbolic-ref", "-q", "HEAD"], cwd: brain.root).status == 0
+    }
+
+    /// The person's own git is stopped half way in this memory: a merge, a cherry-pick, a revert, a rebase or a bisect not
+    /// finished, or conflicts left in the index (a stash pop leaves no other trace). A commit then would record their
+    /// merge in an account's name, sign a save with the picked commit's author, or keep conflict markers. Or no branch is
+    /// checked out (a commit, to look at it): a save would be on no branch, and its notes would go at the next checkout.
+    public func operationUnfinished() throws -> Bool {
+        guard try branchCheckedOut() else { return true }
+        let markers = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "rebase-merge", "rebase-apply", "BISECT_LOG"]
+        // Asked of git, not guessed: a worktree or a separate git folder keeps these elsewhere.
+        let located = try shell.check("/usr/bin/git", ["rev-parse"] + markers.flatMap { ["--git-path", $0] }, cwd: brain.root)
+        let fm = FileManager.default
+        // Git answers relative to the memory's folder: appended to it, never resolved against a URL whose folder may
+        // lack its trailing slash (that would look in the parent folder and miss the merge).
+        let stopped = located.split(separator: "\n").contains { line in
+            let path = String(line)
+            return fm.fileExists(atPath: path.hasPrefix("/") ? path : brain.root.appending(path: path).path)
+        }
+        if stopped { return true }
+        return !(try shell.check("/usr/bin/git", ["ls-files", "-u"], cwd: brain.root)).isEmpty
+    }
+
+    /// Where the paths a save could not bring the real index up to are kept: in the git folder, never committed.
+    var indexBehindFile: URL { brain.gitDir.appending(path: "brainmerge-index-behind") }
+
+    /// The paths saved while another git held the real index: it still has their content from before the save, which a
+    /// plain `git commit` of the person's would put back. Caught up by the next save or the app's minute pass.
+    public var indexBehind: [String] {
+        guard let data = try? Data(contentsOf: indexBehindFile) else { return [] }
+        return String(decoding: data, as: UTF8.self).split(separator: "\0").map(String.init).sorted()
+    }
+
+    /// The real index follows a save's commit for these paths, so a note rewritten since shows as changed. Another git
+    /// (an editor's, Obsidian Git's status check) may hold the index for a moment: tried again for half a second, then
+    /// left to `catchUpIndex`, never failing a save whose commit is made.
+    func followCommit(_ paths: [String]) {
+        for attempt in 0..<10 {
+            let result = try? shell.run("/usr/bin/git", ["--literal-pathspecs", "reset", "-q", "--"] + paths, cwd: brain.root)
+            if result?.status == 0 { return }
+            // Git names the lock it could not take (in any language): the lock may be gone already, so ask its words.
+            guard attempt < 9, result?.stderr.contains("index.lock") == true else { break }
+            usleep(50_000)
+        }
+        let behind = Set(indexBehind).union(paths).sorted()
+        try? Data(behind.joined(separator: "\0").utf8).write(to: indexBehindFile, options: .atomic)
+    }
+
+    /// Brings the real index up to the last commit for the paths a save left behind, those still behind only: another
+    /// path you staged yourself stays staged. Waits while your own merge or pick is stopped, where a reset would drop
+    /// its conflicts.
+    public func catchUpIndex() throws {
+        let behind = indexBehind
+        guard !behind.isEmpty, !(try operationUnfinished()) else { return }
+        let stale = try shell.check("/usr/bin/git", ["--literal-pathspecs", "diff", "--cached", "--name-only", "-z", "--no-renames", "--"] + behind,
+                                    cwd: brain.root)
+            .split(separator: "\0").map(String.init)
+        if !stale.isEmpty { try shell.check("/usr/bin/git", ["--literal-pathspecs", "reset", "-q", "--"] + stale, cwd: brain.root) }
+        try FileManager.default.removeItem(at: indexBehindFile)
+    }
+
+    /// What staging these paths adds, and only that: no context line, no line saved before, no rename detection, and none
+    /// of the person's diff settings (an external diff, a text conversion, other prefixes). Always as text: a `-diff`
+    /// attribute or a NUL byte never hides a line. `environment`: a save's own index and object store instead of the real
+    /// ones; `base`: the commit to compare with instead of HEAD.
+    public func diffCachedAdded(paths: [String], environment: [String: String]? = nil, base: String? = nil) throws -> String {
+        try requireGit()
+        guard !paths.isEmpty else { return "" }
+        return try shell.check("/usr/bin/git", ["--literal-pathspecs", "-c", "core.quotePath=false", "diff", "--cached", "-U0", "--no-color", "--text",
+                                                "--no-ext-diff", "--no-textconv", "--no-renames", "--src-prefix=a/", "--dst-prefix=b/"]
+                               + (base.map { [$0] } ?? []) + ["--"] + paths,
+                               cwd: brain.root, environment: environment)
+    }
+
+    /// Takes these paths out of the index again, the index only: the notes on disk and the history do not move.
+    /// `index`: a save's own index instead of the real one.
+    public func unstage(_ paths: [String], index: URL? = nil) throws {
+        try requireGit()
+        guard !paths.isEmpty else { return }
+        let env = index.map { ["GIT_INDEX_FILE": $0.path] }
+        if head() != nil {
+            try shell.check("/usr/bin/git", ["--literal-pathspecs", "restore", "--staged", "--"] + paths, cwd: brain.root, environment: env)
+        } else {
+            // Before the first commit there is nothing to restore from: the paths leave the index, the files stay.
+            try shell.check("/usr/bin/git", ["--literal-pathspecs", "rm", "--cached", "-q", "-r", "--"] + paths, cwd: brain.root, environment: env)
+        }
+    }
+
+    /// Adds everything and commits under the identity's name. Returns false if there was nothing to commit. Never used for
+    /// a save: it would sign every account's pending notes and the person's own files (see `commit(paths:author:message:)`).
     @discardableResult
     public func commitAll(authorName: String, authorEmail: String, message: String) throws -> Bool {
         try requireGit()

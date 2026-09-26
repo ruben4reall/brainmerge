@@ -32,7 +32,7 @@ public struct ClaudeLocator: Sendable {
         return ClaudeLocator(paths: paths).locate(choice: choice) ?? ClaudeApp.defaultURL(environment: environment)
     }
 
-    /// The person's choice when it is still a valid Claude, else folder order, else the newest version found.
+    /// The person's choice when it is still a valid Claude, else Claude.app at its usual place, else the newest copy found.
     public func locate(choice: String?) -> URL? {
         if let choice, (try? validate(choice: URL(fileURLWithPath: choice, isDirectory: true))) != nil {
             return URL(fileURLWithPath: choice, isDirectory: true)
@@ -40,21 +40,28 @@ public struct ClaudeLocator: Sendable {
         return candidates().first?.url
     }
 
-    /// Valid Claude copies, in the order they are preferred.
+    /// Valid Claude copies, in the order they are preferred: `Claude.app` at its usual place (/Applications, then
+    /// ~/Applications), where Claude installs and updates itself, then any other copy, newest first. A copy under another
+    /// name (a Finder duplicate left behind, "Claude copy.app") is never picked while Claude itself is there.
     public func candidates() -> [ClaudeApp] {
         let fm = FileManager.default
-        var inFolders: [URL] = []
+        var usual: [URL] = [], copies: [URL] = []
         for folder in folders {
             let names = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".app") }.sorted()
-            inFolders += names.map { folder.appending(path: $0, directoryHint: .isDirectory) }
+            for name in names {
+                let url = folder.appending(path: name, directoryHint: .isDirectory)
+                if name == "Claude.app" { usual.append(url) } else { copies.append(url) }
+            }
         }
         var seen = Set<String>()
-        var ordered: [ClaudeApp] = []
-        for url in inFolders {
-            if let app = valid(url), seen.insert(app.url.standardizedFileURL.path).inserted { ordered.append(app) }
-        }
-        let others = launchServices().compactMap(valid).filter { seen.insert($0.url.standardizedFileURL.path).inserted }
-            .sorted { $0.version.compare($1.version, options: .numeric) == .orderedDescending }
+        let ordered = usual.compactMap(valid).filter { seen.insert($0.url.standardizedFileURL.path).inserted }
+        let others = (copies + launchServices()).compactMap(valid).filter { seen.insert($0.url.standardizedFileURL.path).inserted }
+            .enumerated()
+            .sorted { a, b in
+                let order = a.element.version.compare(b.element.version, options: .numeric)
+                return order == .orderedSame ? a.offset < b.offset : order == .orderedDescending
+            }
+            .map(\.element)
         return ordered + others
     }
 

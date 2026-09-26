@@ -210,7 +210,7 @@ public final class MemoryGraphModel {
             guard head != knownHead || head == nil && !knownAuthors.isEmpty else { return (result, head, knownAuthors, false, nil) }
             var history: [String: Author] = [:]
             for (path, entry) in (try? git.lastAuthors(limit: MemoryGraphModel.historyDepth)) ?? [:] {
-                let slug = entry.email.hasSuffix("@brainmerge.local") ? String(entry.email.dropLast("@brainmerge.local".count)) : nil
+                let slug = MemoryFeed.accountSlug(entry.email)
                 let id = MemoryGraph.nodeID(forFile: path)
                 if let known = history[id], known.date >= entry.date { continue }
                 history[id] = Author(slug: slug, name: entry.name, date: entry.date)

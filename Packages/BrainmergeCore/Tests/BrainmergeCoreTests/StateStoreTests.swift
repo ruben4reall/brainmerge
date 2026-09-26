@@ -13,6 +13,27 @@ import BrainmergeTestSupport
         #expect(!state.machineID.isEmpty)
     }
 
+    /// A browser that a newer Brainmerge knows and this one does not reads as none: the accounts and everything else
+    /// still load (an unreadable state would look like a fresh install). A known browser still reads.
+    @Test func aBrowserThisVersionDoesNotKnowReadsAsNone() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let store = StateStore(paths: home.paths)
+        var state = AppState()
+        var work = Identity(slug: "work", name: "Work")
+        work.browser = BrowserChoice(browser: .arc, directory: "Profile 2")
+        var client = Identity(slug: "client", name: "Client")
+        client.browser = BrowserChoice(browser: .brave, directory: "Default")
+        state.identities = [work, client]
+        try store.save(state)
+        let text = try String(contentsOf: home.paths.stateFile, encoding: .utf8)
+        #expect(text.contains("\"arc\""))
+        try Data(text.replacingOccurrences(of: "\"arc\"", with: "\"vivaldi\"").utf8).write(to: home.paths.stateFile)
+        let loaded = try store.load()
+        #expect(loaded.identities.map(\.slug) == ["work", "client"])
+        #expect(loaded.identities[0].browser == nil)
+        #expect(loaded.identities[1].browser == BrowserChoice(browser: .brave, directory: "Default"))
+    }
+
     @Test func roundTrip() throws {
         let home = try TempHome(); defer { home.remove() }
         let store = StateStore(paths: home.paths)

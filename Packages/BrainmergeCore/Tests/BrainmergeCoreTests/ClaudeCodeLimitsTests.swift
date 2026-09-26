@@ -109,8 +109,11 @@ import BrainmergeTestSupport
                                                      environment: ["HOME": home.url.path, "PATH": ClaudeCodeLimits.path], timeout: 10)
         let result = try ClaudeCodeLimits.shell(invocation)
         #expect(result.status == 0)
-        #expect(Set(result.stdout.split(separator: "\n").map(String.init))
-                == ["HOME=\(home.url.path)", "PATH=/usr/bin:/bin:/usr/sbin:/sbin"], "\(result.stdout)")
+        // Only names in a failure's message (a Bool, so the values are not printed): a value handed over by mistake
+        // could be a key.
+        let lines = Set(result.stdout.split(separator: "\n").map(String.init))
+        let exact = lines == ["HOME=\(home.url.path)", "PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
+        #expect(exact, "\(lines.map { $0.prefix { $0 != "=" } }.sorted())")
     }
 
     /// Stands in for Claude Code: records each run and answers from `answers`, by first argument.

@@ -4,7 +4,8 @@ import BrainmergeCore
 
 struct BrainCommand: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "brain", abstract: "The memories: one shared by default, more if some accounts get their own.",
-                                                    subcommands: [Init.self, List.self, Add.self, Forget.self, Rename.self, Status.self, Wire.self, Timeline.self])
+                                                    subcommands: [Init.self, List.self, Add.self, Forget.self, Rename.self, Relocate.self, Status.self, Wire.self,
+                                                                  Timeline.self, Health.self])
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Every memory, the default one first, with the accounts attached to it.")
@@ -51,8 +52,20 @@ struct BrainCommand: ParsableCommand {
         }
     }
 
+    struct Relocate: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Point a memory whose folder is gone at where it is now, or start it again in an empty folder. Its accounts follow; no note is moved.")
+        @Argument var id: String
+        @Argument(help: "The folder the memory is in now, or an empty one.") var path: String
+        func run() throws {
+            let context = Context()
+            let folder = try context.manager.relocateBrain(id: id, to: URL(fileURLWithPath: path, isDirectory: true),
+                                                           language: try context.store.load().brainLanguage)
+            print("Memory \(folder.name) (\(folder.id)) is at \(folder.path).")
+        }
+    }
+
     struct Init: ParsableCommand {
-        static let configuration = CommandConfiguration(abstract: "Create the brain folder (default ~/Brain) and attach every identity to it.")
+        static let configuration = CommandConfiguration(abstract: "Create the default memory (default ~/Brain) and attach every identity to it. Never moves one that is in place.")
         @Argument(help: "Folder to use; created if missing, kept as is if it exists.") var path: String?
         @Option(help: "Language of the BRAIN.md template: en or fr. Default: the language saved in the app settings.") var lang: String?
 
@@ -64,14 +77,21 @@ struct BrainCommand: ParsableCommand {
             let language: BrainLanguage
             if let lang { guard let parsed = BrainLanguage(rawValue: lang) else { throw ValidationError("--lang must be en or fr") }; language = parsed }
             else { language = state.brainLanguage }
-            let root = path.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? context.paths.defaultBrain
+            // A plain init keeps the default memory where it is. Another folder is refused while the memory's folder is
+            // there: its projects' links would keep writing into it, and nothing would save those notes any more.
+            let root = path.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? state.brainURL ?? context.paths.defaultBrain
+            if let current = state.defaultBrain, FileManager.default.fileExists(atPath: current.url.path),
+               current.url.resolvingSymlinksInPath().path != root.resolvingSymlinksInPath().path {
+                throw BrainmergeError.defaultMemoryInPlace(current.path)
+            }
             let brain = try Brain.initialize(at: root, language: language)
             state.brainPath = brain.root.path
             state.brainLanguage = language
             try context.store.save(state)
             try context.ensureCLILink()
-            for identity in state.identities { try context.manager.attachBrain(to: identity, state: state) }
+            let wired = context.attachEachAccount(state: state)
             print("Brain ready at \(brain.root.path)")
+            if !wired { throw ExitCode.failure }
         }
     }
 
@@ -113,10 +133,7 @@ struct BrainCommand: ParsableCommand {
             let context = Context()
             let state = try context.store.load()
             try context.ensureCLILink()
-            for identity in state.identities {
-                try context.manager.attachBrain(to: identity, state: state)
-                print("Wired \(identity.name)")
-            }
+            if !context.attachEachAccount(state: state, wired: { print("Wired \($0.name)") }) { throw ExitCode.failure }
         }
     }
 
@@ -135,10 +152,55 @@ struct BrainCommand: ParsableCommand {
     }
 }
 
+extension BrainCommand {
+    /// The Memory screen's Tidy tab, in the terminal: which notes Claude will not load, and what else wants a look. Only
+    /// reads; the tab's buttons are the way to change anything.
+    struct Health: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Notes Claude will not load, and what to tidy (the default memory unless --brain names another).")
+        @Flag var json = false
+        @Option(help: "The memory to read (its id, see brain list).") var brain: String?
+
+        static let tidy = "Nothing to tidy. Every note is where the next session will find it."
+
+        func run() throws {
+            let context = Context()
+            let state = try context.store.load()
+            let folder: MemoryFolder
+            if let brain {
+                guard let named = state.brain(id: brain) else { throw BrainmergeError.brainUnknown(brain) }
+                folder = named
+            } else {
+                guard let first = state.brains.first else { throw BrainmergeError.brainNotConfigured }
+                folder = first
+            }
+            let memory = Brain(root: folder.url)
+            guard memory.isInitialized else { throw BrainmergeError.brainNotFound(memory.root.path) }
+            let held = Set(HeldStore(paths: context.paths, memoryID: folder.id).load().held.map(\.path))
+            let report = MemoryHealth.analyze(MemoryHealth.read(brain: memory, git: BrainGit(brain: memory),
+                                                                accountSlugs: Set(state.identities.map(\.slug)), held: held))
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                print(String(decoding: try encoder.encode(report), as: UTF8.self))
+                return
+            }
+            if report.groups.isEmpty { print(Self.tidy) }
+            for (index, group) in report.groups.enumerated() {
+                if index > 0 { print("") }
+                print(group.title)
+                for item in group.items {
+                    print("  \(item.sentence)")
+                    if let detail = item.detail { print("    \(detail)") }
+                }
+            }
+        }
+    }
+}
+
 struct AdoptPrimary: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "adopt-primary",
                                                     abstract: "Register the existing Claude installation as the primary identity and attach it to the brain.")
-    @Option var name: String = "Perso"
+    @Option var name: String = "Me"
     func run() throws {
         let context = Context()
         try context.ensureCLILink()

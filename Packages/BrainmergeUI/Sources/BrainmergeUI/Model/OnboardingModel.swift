@@ -34,6 +34,8 @@ public final class OnboardingModel {
     public private(set) var addedSlug: String?
 
     let app: AppModel
+    /// Counts the projects Claude Code knows (its .claude.json can be large); called off the main thread, a fake in tests.
+    @ObservationIgnored var countProjects: @Sendable (URL) -> Int = { (try? CLIProfile(directory: $0).projects().count) ?? 0 }
 
     public init(app: AppModel) {
         self.app = app
@@ -90,25 +92,34 @@ public final class OnboardingModel {
     public private(set) var gitFound = false
     public private(set) var claudeCodeFound = false
 
-    /// What the setup shows as found. Git and Claude Code are looked for off the main thread: `xcode-select` is a process,
-    /// and Claude Code's signature check reads the whole program.
+    /// The All set row. Only the usual places are looked at (a Claude Code from npm under nvm lives elsewhere), so a miss
+    /// says where it looked rather than that there is none.
+    public static func claudeCodeRow(found: Bool) -> String {
+        found ? "Claude Code: Found"
+            : "Claude Code: Not found in the usual places. Your accounts still work in the Claude app. Install Claude Code to use them in a terminal."
+    }
+
+    /// What the setup shows as found. Git, Claude Code and the projects are looked for off the main thread: `xcode-select`
+    /// is a process, Claude Code's signature check reads the whole program, and .claude.json can be large.
     public func detect() async {
         let find = findNotesApps
-        let found = await Task.detached(priority: .userInitiated) { find() }.value
-        notesApps = found
-        if !notesAppChosen { notesApp = found.apps.first?.bundleIdentifier }
+        let notes = await Task.detached(priority: .userInitiated) { find() }.value
+        notesApps = notes
+        if !notesAppChosen { notesApp = notes.apps.first?.bundleIdentifier }
         claude = try? ClaudeApp.detect(at: app.claudeAppURL)
         gitFound = await app.checkGit()
-        let resolve = app.limitsBinary, home = app.paths.home
-        claudeCodeFound = await Task.detached(priority: .userInitiated) { () -> Bool in
+        let resolve = app.limitsBinary, home = app.paths.home, count = countProjects, profile = app.paths.primaryCLIProfile
+        let (found, projects) = await Task.detached(priority: .userInitiated) { () -> (Bool, Int) in
             // A Claude Code that is not Anthropic's build (a script from npm) is still there: never "install it".
+            let found: Bool
             switch resolve(home) {
-            case .found, .notSigned: return true
-            case .notFound: return false
+            case .found, .notSigned: found = true
+            case .notFound: found = false
             }
+            return (found, count(profile))
         }.value
-        let profile = CLIProfile(directory: app.paths.primaryCLIProfile)
-        projectCount = (try? profile.projects().count) ?? 0
+        claudeCodeFound = found
+        projectCount = projects
     }
 
     /// The saved memory folder that can't be found or is empty: onboarding says so and offers to choose another one.
@@ -122,6 +133,21 @@ public final class OnboardingModel {
     public private(set) var direction = 1
 
     public func next() { error = nil; move(by: 1) }
+
+    /// "Continue" on the memory's step: a folder inside another git repository is refused here, with the reason, before
+    /// anything is written.
+    public func continueFromLocation() {
+        let root: URL
+        switch choice {
+        case .newFolder: root = app.paths.defaultBrain
+        case .existing(let url): root = url
+        }
+        if let problem = app.folderProblem(root) {
+            error = UserMessage(title: "Choose another folder", detail: problem)
+            return
+        }
+        next()
+    }
     public func back() { error = nil; move(by: -1) }
 
     /// The steps shown: the git step only while Apple's tools are missing (as last checked, see `AppModel.checkGit`).

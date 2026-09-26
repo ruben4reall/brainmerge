@@ -78,7 +78,7 @@
           <a class="btn btn-primary" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg">Download for Mac</a>
           <a class="btn btn-ghost" href="https://github.com/ruben4reall/brainmerge">View on GitHub</a>
         </div>
-        <p class="fine hero-fine"><span class="nw">Version 0.5.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span> <span aria-hidden="true">·</span> <span class="nw">Free and open source</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Works with Claude.</span> <span class="nw">Not made by Anthropic.</span></p>
+        <p class="fine hero-fine"><span class="nw">Version 0.6.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span> <span aria-hidden="true">·</span> <span class="nw">Free and open source</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Works with Claude.</span> <span class="nw">Not made by Anthropic.</span></p>
       </div>
       <figure class="hero-shot">
         <!-- Phones get readable crops of each screen. The device-width test keeps desktop windows on the full screenshots, even when narrowed. -->
@@ -105,7 +105,7 @@
         <div class="reveal">
           <p class="eyebrow">Accounts</p>
           <h2 class="h2" id="accounts-title">Every account, in its own&nbsp;window.</h2>
-          <p class="lead">Each of your Claude accounts opens in its own window of the official Claude app. You log in once, and it stays logged in. <strong>No more logging out to&nbsp;switch.</strong></p>
+          <p class="lead">Each of your Claude accounts opens in its own window of the official Claude app. You log in once, and it stays logged in. The menu bar, a shortcut of your choice or a brainmerge:// link from Raycast or a note brings any of them up over any app, with no special permission. <strong>No more logging out to&nbsp;switch.</strong></p>
         </div>
         <p class="stat reveal"><span class="stat-pre">Up to</span> <span class="stat-fig">50</span> <span class="stat-label">accounts, side by&nbsp;side.</span></p>
       </div>
@@ -145,6 +145,7 @@
             <li>A note: Personal, Work, a client</li>
             <li>Its memory</li>
             <li>Its Dock icon</li>
+            <li>Its browser profile, connectors and MCP&nbsp;servers</li>
           </ul>
         </div>
         <figure class="edit-shot reveal">
@@ -360,7 +361,7 @@
     <section class="band graph" aria-labelledby="graph-title">
       <div class="wrap split split-head reveal">
         <h2 class="h2" id="graph-title">See what every account&nbsp;remembers.</h2>
-        <p class="lead">The Memory screen opens on a live graph of your notes. It only reads the folder, and nothing leaves your&nbsp;Mac.</p>
+        <p class="lead">The Memory screen opens on a live graph of your notes, and can draw your Obsidian vault the way Obsidian does. It only reads the folder, and nothing leaves your&nbsp;Mac.</p>
       </div>
       <figure class="graph-shot reveal">
         <picture>
@@ -403,7 +404,7 @@
               <p class="said-meta"><span>client-site · MEMORY.md</span><span>just now</span></p>
             </li>
           </ol>
-          <p class="timeline-foot">Each memory is a git repository, and each account signs its own&nbsp;saves.</p>
+          <p class="timeline-foot">Each memory is a git repository, saved apart from your own git setup. Each account signs only what it wrote, and your own edits are saved as&nbsp;You. A save that fails says when and&nbsp;why. The Tidy tab lists the notes no session will load, and files them where the next one looks, on your&nbsp;click.</p>
         </div>
       </div>
     </section>
@@ -433,7 +434,7 @@
             <p class="eyebrow">Usage</p>
             <h2 class="h2" id="usage-title">What each account&nbsp;spent.</h2>
           </div>
-          <p class="lead">Read from Claude Code’s own transcripts on your Mac: today, seven days and thirty days, by project and by&nbsp;model.</p>
+          <p class="lead">Read from Claude Code’s own transcripts on your Mac: today, seven days and thirty days, by project and by&nbsp;model. Above them, your Mac’s RAM, and the RAM and disk each account&nbsp;takes.</p>
         </div>
         <figure class="usage-shot reveal">
           <picture>
@@ -451,12 +452,12 @@
       <div class="wrap">
         <div class="setup-head reveal">
           <h2 class="h2" id="setup-title">A guided setup. No&nbsp;terminal.</h2>
-          <p class="lead">Six short steps, all inside the app. On a Mac without git, one step first offers Apple’s free Command Line&nbsp;Tools.</p>
+          <p class="lead">Six short steps, all inside the app. On a Mac without git, one more step offers Apple’s free Command Line Tools, and moves on by itself once they are in. Later, Settings opens on a health check, with one button for each thing to&nbsp;fix.</p>
         </div>
         <div class="setup-split reveal-group">
           <ol class="steps">
             <li>What Brainmerge is&nbsp;for.</li>
-            <li>How it works, in an animated&nbsp;diagram.</li>
+            <li>How it works: three account windows and one shared&nbsp;folder.</li>
             <li>Where the memory lives, and which app opens&nbsp;it.</li>
             <li>Your current Claude becomes your first&nbsp;account.</li>
             <li>An optional second account, with shared memory or its own. The login is&nbsp;guided.</li>
@@ -470,7 +471,7 @@
             <figcaption>Step 2, How it works.</figcaption>
           </figure>
         </div>
-        <p class="cli">For those who want one, the <code>brainmerge</code> command sets up accounts and memories, checks them and reads usage from a terminal. It is never&nbsp;required.</p>
+        <p class="cli">For those who want one, the <code>brainmerge</code> command sets up accounts and memories, checks them and reads usage from a terminal, and <code>brainmerge code work</code> starts Claude Code on that account with its memory. It is never&nbsp;required.</p>
       </div>
     </section>
 
@@ -480,13 +481,13 @@
         <div class="safety-head">
           <p class="eyebrow">Safety</p>
           <h2 class="h2" id="safety-title">Safe for<br class="br-split"> your accounts,<br class="br-split"> by&nbsp;design.</h2>
-          <p class="lead">Brainmerge only starts the official Claude app and the official Claude Code you already have, and, on your click, Apple's own installer for its Command Line Tools. Each account logs in by itself, inside&nbsp;Claude.</p>
+          <p class="lead">Of Anthropic's software, Brainmerge only starts the official Claude app and the official Claude Code you already have. On your click it can also start Apple's own installer for its Command Line Tools, or your browser (in the profile you picked, if any). Each account logs in by itself, inside&nbsp;Claude.</p>
           <a class="more" href="https://github.com/ruben4reall/brainmerge/blob/main/SECURITY.md">Read SECURITY.md</a>
         </div>
         <ul class="promises reveal-group">
           <li>
             <h3>No passwords, tokens or cookies.</h3>
-            <p>Brainmerge never reads, stores or sends a password, a token or a cookie. There is no code path for&nbsp;it. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it&nbsp;nowhere.</p>
+            <p>Brainmerge never stores or sends a password, a token or a cookie, and never goes looking for&nbsp;one. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it&nbsp;nowhere. A note that looks like it holds a key is kept out of the memory's history, and the key is never shown or&nbsp;kept.</p>
           </li>
           <li>
             <h3>No switching, no rotation.</h3>
@@ -494,11 +495,11 @@
           </li>
           <li>
             <h3>No network calls of its own.</h3>
-            <p>No server, no account of ours, no telemetry. “Check for updates” opens the releases page in your browser, “Check limits” asks your own Claude Code, and Connections opens your browser in the profile you picked, only when you&nbsp;click.</p>
+            <p>No server, no account of ours, no telemetry. Only when you click: “Check for updates” and “Star on GitHub” open a page in your browser, Connections opens your browser (in the profile you picked, if any), and “Check limits” asks your own Claude Code, which asks Anthropic as when you type /usage. Brainmerge itself connects to&nbsp;nothing.</p>
           </li>
           <li>
             <h3>Claude stays as it is.</h3>
-            <p>Claude itself is not modified. The optional Dock icon is a local copy, made after checking that Claude’s signature is intact, and it is never&nbsp;distributed.</p>
+            <p>Claude itself is not modified. The optional Dock icon is a local copy, made after checking that Claude’s signature is intact, then changed and re-signed on your Mac, so it no longer carries Anthropic’s signature. It is never&nbsp;distributed.</p>
           </li>
           <li>
             <h3>Promises that are tested.</h3>
@@ -506,7 +507,7 @@
           </li>
           <li>
             <h3>Leaves cleanly.</h3>
-            <p>Remove Brainmerge from Settings: its hooks, account apps, command-line link and settings go. Each project keeps a copy of its notes. Your memories and logins&nbsp;stay.</p>
+            <p>Remove Brainmerge from Settings: its hooks, account apps, terminal commands, command-line link and settings go. Each project keeps a copy of its notes. Your memories and logins&nbsp;stay.</p>
           </li>
         </ul>
       </div>
@@ -537,7 +538,7 @@
         <!-- install-note -->
         <p class="install-note">Signed with a Developer ID and notarized by Apple: the first time, macOS only asks you to confirm opening an app downloaded from the&nbsp;internet.</p>
         <!-- /install-note -->
-        <p class="fine"><span class="nw">Version 0.5.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Requires the Claude app</span></p>
+        <p class="fine"><span class="nw">Version 0.6.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Requires the Claude app</span></p>
       </div>
       <div class="wrap install reveal-group">
         <figure class="install-shot">
@@ -568,7 +569,7 @@
         </ul>
       </div>
       <p class="legal">Works with Claude. Not made by Anthropic. Not affiliated with Anthropic. Claude is a trademark of&nbsp;Anthropic.</p>
-      <p class="legal">MIT license <span aria-hidden="true">·</span> Version&nbsp;0.5.0</p>
+      <p class="legal">MIT license <span aria-hidden="true">·</span> Version&nbsp;0.6.0</p>
     </div>
   </footer>
 </body>

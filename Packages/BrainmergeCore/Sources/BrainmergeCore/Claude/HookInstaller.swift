@@ -63,11 +63,20 @@ public enum HookInstaller {
         guarded(cliPath: cliPath, "wire --identity \(slug) --hook")
     }
 
-    /// The hooks an account gets: saving the memory when a turn ends, and linking the project's memory when a session
-    /// starts. SessionStart runs before the session can go on, so it is bounded to 5 seconds.
+    public static func touchedCommand(cliPath: String, slug: String) -> String {
+        guarded(cliPath: cliPath, "touched --identity \(slug)")
+    }
+
+    /// The edit tools whose input names the file they wrote (`file_path`): what an account wrote is noted after each.
+    public static let editTools = "Write|Edit|MultiEdit"
+
+    /// The hooks an account gets: saving the memory when a turn ends, linking the project's memory when a session
+    /// starts, and noting each file an edit wrote (so a save commits exactly what this account wrote). SessionStart and
+    /// PostToolUse hold the session while they run, so they are bounded to 5 seconds.
     public static func expected(cliPath: String, slug: String) -> [Hook] {
         [Hook(event: .stop, command: syncCommand(cliPath: cliPath, slug: slug), matcher: nil, timeout: nil),
-         Hook(event: .sessionStart, command: wireCommand(cliPath: cliPath, slug: slug), matcher: nil, timeout: 5)]
+         Hook(event: .sessionStart, command: wireCommand(cliPath: cliPath, slug: slug), matcher: nil, timeout: 5),
+         Hook(event: .postToolUse, command: touchedCommand(cliPath: cliPath, slug: slug), matcher: editTools, timeout: 5)]
     }
 
     public static func installAll(settingsFile: URL, cliPath: String, slug: String) throws {

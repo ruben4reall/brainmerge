@@ -13,7 +13,9 @@ import BrainmergeTestSupport
         let missing = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
         let findings = Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath, git: missing).run()
         #expect(findings.contains(Doctor.Finding(level: .error, title: "git",
-                                                 detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install")))
+                                                 detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install",
+                                                 plain: "Apple's Command Line Tools are missing: the memory keeps its history with them.",
+                                                 fix: .installAppleTools)))
         #expect(doctor(e).run().contains { $0.title == "git" && $0.level == .ok })
     }
 
@@ -61,6 +63,45 @@ import BrainmergeTestSupport
         #expect(!doctor(e).run().contains { $0.title.hasSuffix(": hook") })
     }
 
+    /// A Claude Code folder that is gone says what to do about it, on the command line and in a sentence for a person.
+    @Test func aMissingClaudeCodeFolderSaysWhatToDo() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let work = e.home.paths.cliProfile(slug: "work", isPrimary: false)
+        try FileManager.default.removeItem(at: work)
+        try FileManager.default.removeItem(at: e.primaryProfile.directory)
+        let findings = doctor(e).run()
+        let secondary = try #require(findings.first { $0.title == "Work: profile" })
+        #expect(secondary.level == .error)
+        #expect(secondary.detail == "Missing \(work.path). Put the folder back and run: brainmerge brain wire, or remove the account: brainmerge identity remove work")
+        #expect(secondary.plain == "The Claude Code folder of Work is missing from ~/.claude-work. Put it back, or remove the account.")
+        let primary = try #require(findings.first { $0.title == "Perso: profile" })
+        #expect(primary.detail == "Missing \(e.primaryProfile.directory.path). Start Claude Code once to make it again, then run: brainmerge brain wire")
+        #expect(primary.plain == "The Claude Code folder of Perso is missing from ~/.claude. Start Claude Code once to make it again.")
+    }
+
+    /// A project whose link still points into a memory Brainmerge no longer knows (an older `brain init` moved the default
+    /// memory without its links): the notes written there are never saved, so it is said, with where and what to do.
+    @Test func aLinkIntoAMemoryBrainmergeNoLongerKnowsIsSaid() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let moved = try Brain.initialize(at: e.home.url.appending(path: "Brain2"), language: .en)
+        var state = try e.store.load(); state.brainPath = moved.root.path; try e.store.save(state)
+        let finding = try #require(doctor(e).run().first { $0.title == "Perso: memory atelier" })
+        #expect(finding.level == .warning)
+        #expect(finding.detail.contains(e.brain.root.path) && finding.detail.contains("Run: brainmerge brain add"), "\(finding.detail)")
+        #expect(finding.plain == "The notes of atelier for Perso go to ~/Brain, a memory Brainmerge no longer knows: they are not saved.")
+
+        // Any other folder a project keeps its notes in is still left as it is.
+        let own = e.home.url.appending(path: "elsewhere/notes")
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: own)
+        #expect(doctor(e).run().first { $0.title == "Perso: memory atelier" }?.level == .ok)
+    }
+
     @Test func reportsMissingClaudeAndBrain() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         try FileManager.default.removeItem(at: e.claude.url)
@@ -89,6 +130,72 @@ import BrainmergeTestSupport
         let missing = doctor(e).run().first { $0.title == "Perso: own app" }
         #expect(missing?.level == .error)
         #expect(missing?.detail == "Missing \(app.path). Run: brainmerge identity rebuild perso")
+    }
+
+    /// A launcher starts the Claude it was built for: once Claude moved (or another one was chosen), it starts the old
+    /// one, or nothing when that one is gone. That is never "in place".
+    @Test func aLauncherPinnedToAnotherClaudeIsNotInPlace() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let config = e.home.paths.launcherApp(name: "Client").appending(path: "Contents/Resources/brainmerge.json")
+        #expect(doctor(e).run().first { $0.title == "Client: launcher" }?.level == .ok)
+
+        let old = e.home.url.appending(path: "Old/Claude.app/Contents/MacOS/Claude").path
+        try JSONEncoder().encode(LauncherConfig(configDir: "/c", dataDir: "/d", claudeExecutable: old)).write(to: config, options: .atomic)
+        let moved = try #require(doctor(e).run().first { $0.title == "Client: launcher" })
+        #expect(moved.level == .warning)
+        #expect(moved.fix == .rebuild(slug: "client"))
+        #expect(moved.detail.contains(old) && moved.detail.contains("Run: brainmerge identity rebuild client"), "\(moved.detail)")
+        #expect(!moved.plain.contains("brainmerge"), "\(moved.plain)")
+
+        try Data("{}".utf8).write(to: config, options: .atomic)
+        #expect(doctor(e).run().first { $0.title == "Client: launcher" }?.fix == .rebuild(slug: "client"))
+    }
+
+    /// Saves that cannot go through are said, never "git ready": a lock file a stopped git left (a fresh one may be a git
+    /// at work), the person's own git stopped half way, and an account whose last save failed.
+    @Test func whatStopsSavesIsSaid() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        func memory() -> [Doctor.Finding] { doctor(e).run().filter { $0.title == "Memory: Shared" } }
+        #expect(memory().map(\.level) == [.ok])
+
+        let lock = e.brain.gitDir.appending(path: "refs/heads/main.lock")
+        try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: lock)
+        #expect(memory().map(\.level) == [.ok], "a fresh lock may be a git at work")
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: lock.path)
+        let stale = try #require(memory().first { $0.level == .warning })
+        #expect(stale.detail.contains(lock.path) && stale.plain.contains("main.lock"), "\(stale)")
+        try FileManager.default.removeItem(at: lock)
+
+        try Data("0123456789012345678901234567890123456789\n".utf8).write(to: e.brain.gitDir.appending(path: "MERGE_HEAD"))
+        let merge = try #require(memory().first { $0.level == .warning })
+        #expect(merge.plain.contains("merge"), "\(merge)")
+        try FileManager.default.removeItem(at: e.brain.gitDir.appending(path: "MERGE_HEAD"))
+        #expect(memory().map(\.level) == [.ok])
+
+        // No branch checked out (a commit, to look at it): saves wait too, and doctor says to check out a branch, not
+        // to finish a merge there is none of.
+        let head = e.brain.gitDir.appending(path: "HEAD")
+        let branch = try String(contentsOf: head, encoding: .utf8)
+        _ = try Shell().check("/usr/bin/git", ["-c", "user.name=Here", "-c", "user.email=here@example.com", "-c", "commit.gpgsign=false",
+                                               "commit", "-q", "--allow-empty", "--no-verify", "-m", "first"], cwd: e.brain.root)
+        let commit = try Shell().check("/usr/bin/git", ["rev-parse", "HEAD"], cwd: e.brain.root).trimmingCharacters(in: .whitespacesAndNewlines)
+        try Data("\(commit)\n".utf8).write(to: head)
+        let detached = try #require(memory().first { $0.level == .warning })
+        #expect(detached.plain.contains("no branch") && !detached.plain.contains("merge"), "\(detached)")
+        #expect(detached.detail.contains("Check out a branch") && detached.detail.contains(e.brain.root.path), "\(detached)")
+        try Data(branch.utf8).write(to: head)
+        #expect(memory().map(\.level) == [.ok])
+
+        #expect(!doctor(e).run().contains { $0.title == "Perso: saves" })
+        SaveStatusStore(paths: e.home.paths).write(SaveStatus(date: Date(), outcome: .failed, reason: .locked), slug: "perso")
+        let failed = try #require(doctor(e).run().first { $0.title == "Perso: saves" })
+        #expect(failed.level == .warning && failed.detail.contains("locked") && failed.detail.contains("sync.log"), "\(failed)")
+        SaveStatusStore(paths: e.home.paths).write(SaveStatus(date: Date(), outcome: .committed), slug: "perso")
+        #expect(!doctor(e).run().contains { $0.title == "Perso: saves" })
     }
 
     /// A copy of Claude made by hand that opens an account with an older Claude than the one installed (the owner's
@@ -125,6 +232,68 @@ import BrainmergeTestSupport
         }
     }
 
+    /// A setup with something wrong everywhere a button can mend it.
+    func brokenEverywhere(_ e: ManagerEnv) throws -> [Doctor.Finding] {
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.update(slug: "perso", name: nil, tint: nil, logo: nil, ownApp: true)
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        try FileManager.default.removeItem(at: work.url)
+        try FileManager.default.removeItem(at: e.home.paths.launcherApp(name: "Client"))
+        try FileManager.default.removeItem(at: e.home.paths.launcherApp(name: "Perso"))
+        try HookInstaller.remove(settingsFile: e.primaryProfile.settingsFile)
+        try Data("# sans bloc\n".utf8).write(to: CLIProfile(directory: client.cliProfile(in: e.home.paths)).claudeMD)
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        try FileManager.default.removeItem(at: link)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: e.home.url.appending(path: "gone"))
+        let missing = GitAvailability(shell: Shell { _, _, _, _ in ShellResult(status: 2, stdout: "", stderr: "") }, isExecutable: { _ in false })
+        return Doctor(paths: e.home.paths, store: e.store, claudeAppURL: e.claude.url, cliPath: e.cliPath, git: missing).run()
+    }
+
+    /// Each finding the app can mend names the one button that mends it; the others, and every finding that is fine, none.
+    @Test func eachFindingNamesItsFix() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let findings = try brokenEverywhere(e)
+        func fix(_ title: String) -> Doctor.Fix?? { findings.first { $0.title == title }.map(\.fix) }
+        #expect(fix("git") == .some(.installAppleTools))
+        #expect(fix("Command line") == .some(.installCLI))
+        #expect(fix("Perso: hooks") == .some(.repairHooks))
+        #expect(fix("Client: CLAUDE.md") == .some(.repairLinks(brainID: "shared")))
+        #expect(fix("Perso: memory atelier") == .some(.repairLinks(brainID: "shared")))
+        #expect(fix("Client: launcher") == .some(.rebuild(slug: "client")))
+        #expect(fix("Perso: own app") == .some(.rebuild(slug: "perso")))
+        #expect(fix("Memory: Work") == .some(.chooseMemory(brainID: "work")))
+        #expect(fix("Claude.app") == .some(nil))
+        #expect(fix("Client: login") == .some(nil))
+        #expect(findings.filter { $0.level == .ok }.allSatisfy { $0.fix == nil })
+
+        let current = findings.first { $0.title == "Client: hooks" }
+        #expect(current?.level == .ok && current?.fix == nil)
+
+        // No memory at all: choosing its folder is the fix.
+        let bare = try ManagerEnv.make(withBrain: false); defer { bare.home.remove() }
+        let none = doctor(bare).run().first { $0.title == "Memory" }
+        #expect(none?.fix == .chooseMemory(brainID: AppState.defaultBrainID))
+    }
+
+    /// The app shows `plain`: a sentence for a person, never a command to type. The command line keeps its "Run: …".
+    @Test func plainSentencesNeverNameACommand() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        var findings = try brokenEverywhere(e)
+        let bare = try ManagerEnv.make(withBrain: false); defer { bare.home.remove() }
+        findings += doctor(bare).run()
+        try FileManager.default.removeItem(at: bare.claude.url)
+        findings += doctor(bare).run()
+        #expect(findings.contains { $0.detail.contains("Run: brainmerge ") })
+        for finding in findings {
+            #expect(!finding.plain.isEmpty, "\(finding.title)")
+            #expect(!finding.plain.contains("brainmerge ") && !finding.plain.contains("Run:"), "\(finding.title): \(finding.plain)")
+            #expect(!finding.plain.contains("\u{2014}") && !finding.plain.contains("\u{2013}"), "\(finding.title)")
+        }
+        #expect(findings.first { $0.title == "Perso: hooks" }?.plain == "The hooks of Perso are missing: its memory is not saved when a turn ends.")
+        #expect(findings.first { $0.title == "Memory: Work" }?.plain == "The memory Work is missing from ~/Brain-work.")
+    }
+
     @Test func everyMemoryIsChecked() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")
@@ -141,6 +310,6 @@ import BrainmergeTestSupport
         #expect(finding?.level == .error)
         // Never "brain init" for a memory that is not the default one: that command moves the default memory.
         #expect(finding?.detail.contains("brain init") == false)
-        #expect(finding?.detail.contains("brain forget work") == true)
+        #expect(finding?.detail.contains("brain relocate work") == true)
     }
 }

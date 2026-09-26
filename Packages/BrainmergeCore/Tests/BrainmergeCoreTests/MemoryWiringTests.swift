@@ -161,6 +161,49 @@ import BrainmergeTestSupport
         #expect(try fm.destinationOfSymbolicLink(atPath: real.path) == target.path)
     }
 
+    /// A session start that adds its project to the memory's project list leaves that change to the account's own save,
+    /// never to "You edited". Already linked, nothing is added.
+    @Test func wireOneLeavesTheProjectListToTheAccountsSave() throws {
+        let e = try env(); defer { e.home.remove() }
+        _ = try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso")
+        let ledger = TouchedLedger(brain: e.brain, slug: "perso")
+        #expect(try ledger.take() == [".brainmerge/projects.json"])
+        try ledger.finish(keeping: [])
+        _ = try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso")
+        #expect(TouchedLedger.claimed(in: e.brain).isEmpty)
+    }
+
+    /// The app's pass over the projects `.claude.json` lists credits the list to the account whose projects they are, like
+    /// a session start, never to "You edited". Nothing changed, nothing is added.
+    @Test func theFullWiringLeavesTheProjectListToTheAccountsSave() throws {
+        let e = try env(); defer { e.home.remove() }
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        let ledger = TouchedLedger(brain: e.brain, slug: "perso")
+        #expect(try ledger.take() == [".brainmerge/projects.json"])
+        try ledger.finish(keeping: [])
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(TouchedLedger.claimed(in: e.brain).isEmpty)
+    }
+
+    /// Notes moved in from an account's own memory folder are that account's: its next save commits them, a renamed
+    /// duplicate and a subfolder's notes included, never "You edited".
+    @Test func adoptedNotesGoToTheAccountsSave() throws {
+        let e = try env(); defer { e.home.remove() }
+        let fm = FileManager.default
+        let real = e.link(e.atelier)
+        try fm.createDirectory(at: real.appending(path: "decisions"), withIntermediateDirectories: true)
+        try Data("local index\n".utf8).write(to: real.appending(path: "MEMORY.md"))
+        try Data("fact\n".utf8).write(to: real.appending(path: "user_role.md"))
+        try Data("why\n".utf8).write(to: real.appending(path: "decisions/prices.md"))
+        let target = e.brain.memoryDir(forProject: "atelier")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data("brain index\n".utf8).write(to: target.appending(path: "MEMORY.md"))
+
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(TouchedLedger.claimed(in: e.brain) == [".brainmerge/projects.json", "memory/atelier/MEMORY.perso.md",
+                                                       "memory/atelier/user_role.md", "memory/atelier/decisions/prices.md"])
+    }
+
     /// Every session start asks again: a project already linked into this memory, under whatever name, is left exactly
     /// as it is and nothing is written.
     @Test func wireOneIsIdempotentAndWritesNothingWhenLinked() throws {
@@ -238,5 +281,31 @@ import BrainmergeTestSupport
             #expect(try e.wiring.wireOne(projectPath: path, profile: e.profile, identitySlug: "perso") == MemoryWiring.Result())
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: e.profile.projectsDir.path) == [ProjectSlug.slug(forPath: e.atelier)])
+    }
+
+    /// Setting up again after an uninstall adopts real folders holding copies of the memory: a copy never becomes a second
+    /// note, and a conflict name already taken gets the next free one instead of failing.
+    @Test func adoptingCopiesOfTheMemoryNeverDuplicatesANote() throws {
+        let e = try env(); defer { e.home.remove() }
+        let fm = FileManager.default
+        let target = e.brain.memoryDir(forProject: "atelier")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data("index\n".utf8).write(to: target.appending(path: "MEMORY.md"))
+        try Data("brain deploy\n".utf8).write(to: target.appending(path: "deploy.md"))
+        try Data("old local\n".utf8).write(to: target.appending(path: "deploy.perso.md"))
+        let real = e.link(e.atelier)
+        try fm.createDirectory(at: real, withIntermediateDirectories: true)
+        try Data("index\n".utf8).write(to: real.appending(path: "MEMORY.md"))
+        try Data("new local\n".utf8).write(to: real.appending(path: "deploy.md"))
+        try Data("old local\n".utf8).write(to: real.appending(path: "deploy.perso.md"))
+
+        let result = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(result.conflicts == ["deploy.perso-2.md"])
+        #expect(try fm.contentsOfDirectory(atPath: target.path).sorted() == ["MEMORY.md", "deploy.md", "deploy.perso-2.md", "deploy.perso.md"])
+        #expect(try String(contentsOf: target.appending(path: "deploy.perso-2.md"), encoding: .utf8) == "new local\n")
+        #expect(try String(contentsOf: target.appending(path: "deploy.md"), encoding: .utf8) == "brain deploy\n")
+        #expect(try fm.destinationOfSymbolicLink(atPath: real.path) == target.path)
+        let ledger = try String(contentsOf: TouchedLedger(brain: e.brain, slug: "perso").file, encoding: .utf8)
+        #expect(ledger.contains("memory/atelier/deploy.perso-2.md") && !ledger.contains("MEMORY") && !ledger.contains("deploy.perso.md"))
     }
 }

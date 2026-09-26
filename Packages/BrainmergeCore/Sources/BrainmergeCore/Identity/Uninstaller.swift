@@ -35,6 +35,11 @@ public struct Uninstaller: Sendable {
         if Self.isOurCommandLineLink(paths.localBin.appending(path: "brainmerge")) {
             removed.append("The command line link \(paths.localBin.appending(path: "brainmerge").path)")
         }
+        let commands = state.identities.map(\.slug).filter { CLIInstaller.hasAccountLink(paths: paths, slug: $0) }
+        if !commands.isEmpty {
+            let names = commands.map { ClaudeCodeTerminal.linkPrefix + $0 }.joined(separator: ", ")
+            removed.append("The terminal command\(commands.count > 1 ? "s" : "") \(names) in \(paths.localBin.path)")
+        }
         removed.append("Brainmerge's settings, icons and usage cache in \(paths.appSupport.path)")
         var kept: [String] = []
         for folder in state.brains { kept.append("The memory \(folder.name) at \(folder.path)") }
@@ -73,6 +78,7 @@ public struct Uninstaller: Sendable {
         }
         let link = paths.localBin.appending(path: "brainmerge")
         if Self.isOurCommandLineLink(link) { try fm.removeItem(at: link) }
+        for identity in state.identities { CLIInstaller.unlinkAccount(paths: paths, slug: identity.slug) }
         for dir in [paths.appSupport, paths.logsDir] where fm.fileExists(atPath: dir.path) { try fm.removeItem(at: dir) }
         if let entries = try? fm.contentsOfDirectory(atPath: paths.launchersDir.path), entries.allSatisfy({ $0.hasPrefix(".") }) {
             try? fm.removeItem(at: paths.launchersDir)

@@ -7,16 +7,28 @@ import BrainmergeCore
     static let mib: Int64 = 1 << 20
     static let gib: Int64 = 1 << 30
 
-    /// Each test runs as is, then again with a French locale set explicitly, where C's "%.1f" prints "1,3".
-    static let locales: [String?] = [nil, "fr_FR.UTF-8"]
+    /// Each test runs as is, then again with a French C locale set explicitly, where C's "%.1f" prints "1,3".
+    static let locales: [String?] = [nil, "fr_FR.UTF-8", "fr_CH.UTF-8"]
+
+    /// One C locale per name, made once and never freed: a library may keep the thread's locale after the test put
+    /// the previous one back, and a freed one would then be read after it is gone.
+    nonisolated(unsafe) static var cLocales: [String: locale_t] = [:]
+    static let cLocalesLock = NSLock()
+    static func cLocale(_ name: String) -> locale_t? {
+        cLocalesLock.lock(); defer { cLocalesLock.unlock() }
+        if let made = cLocales[name] { return made }
+        let mask = LC_COLLATE_MASK | LC_CTYPE_MASK | LC_MESSAGES_MASK | LC_MONETARY_MASK | LC_NUMERIC_MASK | LC_TIME_MASK
+        let made = newlocale(mask, name, nil)
+        cLocales[name] = made
+        return made
+    }
 
     /// Sets the locale of this thread only (uselocale), so tests running meanwhile keep theirs, and checks it took.
     static func inLocale(_ name: String?, _ body: () -> Void) {
         guard let name else { body(); return }
-        let mask = LC_COLLATE_MASK | LC_CTYPE_MASK | LC_MESSAGES_MASK | LC_MONETARY_MASK | LC_NUMERIC_MASK | LC_TIME_MASK
-        guard let locale = newlocale(mask, name, nil) else { Issue.record("the \(name) locale is missing"); return }
+        guard let locale = cLocale(name) else { Issue.record("the \(name) locale is missing"); return }
         let previous = uselocale(locale)
-        defer { uselocale(previous); freelocale(locale) }
+        defer { uselocale(previous) }
         #expect(String(cString: localeconv().pointee.decimal_point) == ",", "the French locale must be in effect")
         body()
     }
@@ -50,6 +62,33 @@ import BrainmergeCore
             #expect(ByteFormat.disk(999_960_000_000) == "1.0 TB")
             #expect(ByteFormat.disk(1_200_000_000_000) == "1.2 TB")
         }
+    }
+
+    /// Pinned to en_US_POSIX, not merely safe from C's locale: Foundation formatting through the Mac's own locale would
+    /// follow it (fr_FR writes "1,3"). The numbers are written through exactly the locale handed in, and the app always
+    /// hands in POSIX.
+    @Test(arguments: ["fr_FR", "fr_CH"]) func sizesArePinnedToPOSIXWhateverTheMacsLocale(identifier: String) {
+        let mac = Locale(identifier: identifier)
+        let separator = mac.decimalSeparator ?? "."
+        #expect(ByteFormat.ram(1_395_864_371, locale: mac) == "1\(separator)3 GB")
+        #expect(ByteFormat.disk(1_300_000_000_000, locale: mac) == "1\(separator)3 TB")
+        #expect(ByteFormat.locale.identifier == "en_US_POSIX")
+        #expect(ByteFormat.ram(1_395_864_371) == ByteFormat.ram(1_395_864_371, locale: ByteFormat.locale))
+        #expect(ByteFormat.disk(1_300_000_000_000) == "1.3 TB")
+    }
+
+    /// Nothing in ByteFormat reads the Mac's locale: not Locale.current, not a formatter that defaults to it.
+    @Test func byteFormatNeverReadsTheMacsLocale() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Model/Resources.swift")
+        let source = try String(contentsOf: file, encoding: .utf8)
+        let start = try #require(source.range(of: "public enum ByteFormat {"))
+        let end = try #require(source.range(of: "\n}\n", range: start.upperBound..<source.endIndex))
+        let code = String(source[start.lowerBound..<end.upperBound])
+        for forbidden in ["Locale.current", "autoupdatingCurrent", ".current", "ByteCountFormatter", "NumberFormatter", ".formatted("] {
+            #expect(!code.contains(forbidden), "ByteFormat must not follow the Mac's locale: \(forbidden)")
+        }
+        #expect(code.contains("Locale(identifier: \"en_US_POSIX\")"))
     }
 
     @Test(arguments: locales) func capacityAndPercent(locale: String?) {

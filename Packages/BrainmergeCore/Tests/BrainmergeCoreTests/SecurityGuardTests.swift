@@ -46,8 +46,46 @@ import Testing
     }
 
     @Test func noNetworkCode() throws {
-        let hits = try offenders(["URLSession", "NWConnection", "import Network", "CFNetwork", "NSURLConnection", "URLProtocol", "WebSocket"])
+        let hits = try offenders(["URLSession", "NWConnection", "import Network", "CFNetwork", "NSURLConnection", "URLProtocol", "WebSocket",
+                                  "contentsOf: URL(string", "getaddrinfo", "getStreamsToHost", "socket(", "connect("])
         #expect(hits.isEmpty, "\(hits)")
+        // Git never talks to another machine: none of the subcommands that do is ever named.
+        let git = try offenders(["\"push\"", "\"fetch\"", "\"pull\"", "\"clone\"", "\"ls-remote\"", "\"remote\"", "\"submodule\""])
+        #expect(git.isEmpty, "\(git)")
+    }
+
+    /// Every web address in the code is a page opened in the browser on a click, from this list; nothing else can be
+    /// named for a program to fetch.
+    @Test func everyWebAddressIsAKnownPage() throws {
+        let pages: Set<String> = ["https://claude.ai/customize/connectors", "https://claude.ai/settings/usage", "https://claude.ai/download",
+                                  "https://github.com/ruben4reall/brainmerge", "https://github.com/ruben4reall/brainmerge/releases",
+                                  "https://obsidian.md", "https://logseq.com", "https://ia.net/writer", "https://typora.io",
+                                  "https://code.visualstudio.com", "https://cursor.com", "https://zed.dev"]
+        let literal = /"(https?:\/\/[^"]*)"/
+        for (url, text) in try Self.sources() {
+            for line in text.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                for match in line.matches(of: literal) {
+                    let address = String(match.1)
+                    // The secret guard only compares a value's start with the bare schemes.
+                    let prefix = url.lastPathComponent == "SecretShapes.swift" && ["http://", "https://"].contains(address)
+                    #expect(pages.contains(address) || prefix, "\(url.lastPathComponent): \(address)")
+                }
+            }
+        }
+    }
+
+    /// The programs Brainmerge starts by their system path are these, and only these (Claude Code and lsregister are
+    /// found elsewhere): no curl, no security, no ssh or any other that could reach the network or the keychain.
+    @Test func systemProgramsAreAKnownFew() throws {
+        let allowed: Set<String> = ["/bin/cp", "/bin/ps", "/usr/bin/codesign", "/usr/bin/git", "/usr/bin/iconutil", "/usr/bin/open", "/usr/bin/xcode-select"]
+        let literal = /"(\/(?:usr\/)?s?bin\/[^"]+)"/
+        for (url, text) in try Self.sources() {
+            for line in text.split(separator: "\n") where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") {
+                for match in line.matches(of: literal) {
+                    #expect(allowed.contains(String(match.1)), "\(url.lastPathComponent): \(match.1)")
+                }
+            }
+        }
     }
 
     @Test func noShellInterpreterAndOneProcessRunner() throws {
@@ -59,7 +97,8 @@ import Testing
 
     @Test func credentialStoresAreNamedNeverRead() throws {
         // Only DesktopSession may mention Claude's storage files, and it may only test their presence.
-        let mentions = try offenders(["\"Cookies\"", "Local Storage", "IndexedDB", "Session Storage", "SecItemCopyMatching", "SecKeychain", ".credentials.json", "sessionKey"], except: ["DesktopSession.swift"])
+        let mentions = try offenders(["\"Cookies\"", "Local Storage", "IndexedDB", "Session Storage", "SecItemCopyMatching", "SecKeychain", ".credentials.json", "sessionKey",
+                                     "/usr/bin/security", "find-generic-password", "find-internet-password", "dump-keychain"], except: ["DesktopSession.swift"])
         #expect(mentions.isEmpty, "\(mentions)")
         let session = try #require(try Self.sources().first { $0.0.lastPathComponent == "DesktopSession.swift" }).1
         for forbidden in ["Data(contentsOf", "String(contentsOf", "FileHandle", "contents(atPath", "InputStream"] {
@@ -133,12 +172,53 @@ import Testing
         let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
         #expect(code.matches(of: literals).isEmpty, "no key may be named by a string")
 
-        #expect(try offenders(["standardInput"], except: ["WireCommand.swift", "Shell.swift"]).isEmpty, "only the wire command reads its input")
+        #expect(try offenders(["standardInput"], except: ["WireCommand.swift", "TouchedCommand.swift", "Shell.swift"]).isEmpty,
+                "only the hooks' commands read their input")
         let wire = try #require(try Self.sources().first { $0.0.lastPathComponent == "WireCommand.swift" }).1
         #expect(wire.contains("SessionStartInput"))
         for forbidden in ["JSONSerialization", "JSONDecoder", "Decodable", "[String: Any]"] {
             #expect(!wire.contains(forbidden), "WireCommand.swift decodes through SessionStartInput only: \(forbidden)")
         }
+    }
+
+    /// The PostToolUse hook reads one field of what Claude Code sends after an edit, the file's path (SECURITY.md): never
+    /// the text written, the tool's answer, the session or anything else. Only the touched command reads it, through this type.
+    @Test func touchedInputIsTheFilePathOnly() throws {
+        #expect(TouchedInput.readFields == ["tool_input.file_path"])
+        let file = try #require(try Self.sources().first { $0.0.lastPathComponent == "TouchedInput.swift" })
+        let code = file.1.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        let lowered = code.lowercased()
+        for forbidden in ["jsonserialization", "[string: any]", "[string:any]", "session_id", "transcript_path", "tool_response", "content",
+                          "old_string", "new_string", "edits", "prompt", "decode([string", "decodeifpresent([string", "anycodable",
+                          "environment", "processinfo"] {
+            #expect(!lowered.contains(forbidden), "TouchedInput.swift must decode the file's path only: \(forbidden)")
+        }
+        let enums = try Regex(#"enum\s+\w+\s*:[^{]*CodingKey[^{]*\{([^}]*)\}"#)
+        let caseLine = try Regex(#"case\s+([^\n;]+)"#)
+        let keys = Set(code.matches(of: enums).flatMap { match in
+            String(match.output[1].substring ?? "").matches(of: caseLine).flatMap { String($0.output[1].substring ?? "").split(separator: ",") }
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+        })
+        #expect(keys == [#"tool = "tool_input""#, #"path = "file_path""#], "decodable keys: \(keys)")
+        let literals = try Regex(#""((?:[^"\\]|\\.)*)""#)
+        let strings = Set(code.matches(of: literals).map { String($0.output[1].substring ?? "") })
+        #expect(strings.isSubset(of: ["tool_input", "file_path", "tool_input.file_path"]), "string literals: \(strings)")
+
+        let touched = try #require(try Self.sources().first { $0.0.lastPathComponent == "TouchedCommand.swift" }).1
+        #expect(touched.contains("TouchedInput"))
+        for forbidden in ["JSONSerialization", "JSONDecoder", "Decodable", "[String: Any]"] {
+            #expect(!touched.contains(forbidden), "TouchedCommand.swift decodes through TouchedInput only: \(forbidden)")
+        }
+    }
+
+    /// A save commits exactly what an account wrote (README): no shipped code adds and commits the whole memory, which
+    /// would sign every account's pending notes and the person's own files.
+    @Test func noSaveCommitsTheWholeMemory() throws {
+        let hits = try offenders(["commitAll(", "\"add\", \"-A\"]", "\"add\", \".\""], except: ["BrainGit.swift"])
+        #expect(hits.isEmpty, "\(hits)")
+        let git = try #require(try Self.sources().first { $0.0.lastPathComponent == "BrainGit.swift" }).1
+        #expect(git.contains(#""--literal-pathspecs", "add", "-A", "--"] + changed"#), "a save adds its own paths only")
     }
 
     /// Connections read names only (SECURITY.md): a browser profile's folder id and display name, never the Google address
@@ -241,15 +321,18 @@ import Testing
                           "Data(contentsOf", "String(contentsOf", "FileHandle", "InputStream", "fopen", "mmap", "getxattr", "listxattr",
                           "fileExists", "attributesOfItem", "resourceValues", "realpath", "resolvingSymlinksInPath", "stat(",
                           "removeItem", "moveItem", "copyItem", "createFile", "createDirectory", "write(", "setAttributes",
-                          "unlink", "rename(", "Shell", "Process", "posix_spawn", "NSWorkspace", "O_RDONLY", "O_RDWR", "O_WRONLY"] {
+                          "unlink", "rename(", "Shell", "Process", "posix_spawn", "NSWorkspace", "O_RDONLY", "O_RDWR", "O_WRONLY",
+                          "subpaths(", "contents(atPath", "isReadableFile", "displayName(atPath", "FileManager()"] {
             #expect(!code.contains(forbidden), "DiskPlan.swift must only resolve links: \(forbidden)")
         }
         for call in [#"\bopen\("#, #"\bread\("#, #"\bopenat\("#] {
             #expect(code.firstMatch(of: try Regex(call)) == nil, "DiskPlan.swift must not open or read a file: \(call)")
         }
-        let members = try Regex(#"(?:FileManager\.default|\bfm)\s*\.\s*(\w+)"#)
-        let used = Set(code.matches(of: members).map { String($0.output[1].substring ?? "") })
-        #expect(used == ["destinationOfSymbolicLink"], "file manager calls: \(used)")
+        // Every file manager in the file is `FileManager.default` asked for a link's text, written in full each time: one
+        // kept under another name, or a new one, could be asked anything without the guard seeing the call.
+        let mentions = code.matches(of: try Regex(#"FileManager"#)).count
+        let resolutions = code.matches(of: try Regex(#"FileManager\.default\.destinationOfSymbolicLink\("#)).count
+        #expect(mentions > 0 && mentions == resolutions, "every FileManager must be FileManager.default.destinationOfSymbolicLink(")
     }
 
     /// The RAM of Claude's processes is asked of the kernel as one number per process. Nothing reads another process's
@@ -261,6 +344,11 @@ import Testing
         #expect(reads.isEmpty, "\(reads)")
         let rusage = try offenders(["proc_pid_rusage"], except: ["ProcessMonitor.swift"])
         #expect(rusage.isEmpty, "only ProcessMonitor.swift asks for a footprint: \(rusage)")
+        // One call site, with the smallest record that holds both the footprint and the start time.
+        let monitor = try #require(try Self.sources().first { $0.0.lastPathComponent == "ProcessMonitor.swift" }).1
+        #expect(monitor.components(separatedBy: "proc_pid_rusage(").count == 2, "one kernel call per process")
+        #expect(!monitor.contains("RUSAGE_INFO_V1") && !monitor.contains("RUSAGE_INFO_V2") && !monitor.contains("RUSAGE_INFO_V3")
+                && !monitor.contains("RUSAGE_INFO_V4") && !monitor.contains("RUSAGE_INFO_V5") && !monitor.contains("RUSAGE_INFO_V6"))
         // One ps call, with exactly these arguments: -E or an "e" keyword would print every environment.
         let calls = try Self.sources().flatMap { url, text in text.matches(of: try Regex(#""/bin/ps",\s*\[([^\]]*)\]"#)).map { (url.lastPathComponent, String($0.output[1].substring ?? "")) } }
         #expect(calls.count == 1 && calls.first?.0 == "ProcessMonitor.swift", "\(calls)")
@@ -312,6 +400,20 @@ import Testing
         #expect(!list.contains("JSONSerialization") && !list.contains("[String: Any]"), "obsidian.json is decoded for paths only")
     }
 
+    /// The Tidy tab's analysis only looks (SECURITY.md): it never writes, moves or commits, and its git status never
+    /// refreshes git's index, which a save may be holding. Its buttons live in MemoryTidy.swift, one click each.
+    @Test func memoryHealthOnlyReads() throws {
+        let text = try #require(try Self.sources().first { $0.0.lastPathComponent == "MemoryHealth.swift" }).1
+        let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        for forbidden in ["write(", "createFile", "createDirectory", "removeItem", "moveItem", "copyItem", "replaceItem", "trashItem",
+                          "setAttributes", "createSymbolicLink", "unlink", "rename(", "O_WRONLY", "O_RDWR", "O_CREAT", "commit(",
+                          "withLock", "catchUpIndex", "unstage(", "Shell(", ".check(", ".run(", "MemoryTidy(", "TouchedLedger("] {
+            #expect(!code.contains(forbidden), "MemoryHealth.swift must only read: \(forbidden)")
+        }
+        #expect(code.contains("optionalLocks: false"), "its git status leaves git's index alone")
+    }
+
     /// "Check limits" reads the text Claude Code prints and nothing else (SECURITY.md): the files that find Claude Code and
     /// ask it open no file, decode no JSON, look at no login or keychain, take nothing from Brainmerge's own environment,
     /// start nothing but through Shell, and ask exactly `--version` and `-p "/usage"`.
@@ -345,5 +447,34 @@ import Testing
     @Test func noTelemetryOrAnalytics() throws {
         let hits = try offenders(["Analytics", "Telemetry", "Sentry", "Crashlytics", "Firebase", "Mixpanel"])
         #expect(hits.isEmpty, "\(hits)")
+    }
+
+    /// Only the launcher and `brainmerge code` hand over to another program, and `code`'s own file reads only PATH from
+    /// the environment (the shared Context reads BRAINMERGE_HOME): never a key, a token or anything else a shell may hold.
+    @Test func execvOnlyInTheLauncherAndCode() throws {
+        let users = try Self.sources().filter { file in
+            file.1.split(separator: "\n").contains { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") && $0.contains("execv") }
+        }.map { $0.0.pathComponents.suffix(2).joined(separator: "/") }
+        #expect(Set(users) == ["launcher/main.swift", "brainmerge/CodeCommand.swift"])
+        let code = try #require(try Self.sources().first { $0.0.lastPathComponent == "CodeCommand.swift" }).1
+            .split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        let reads = code.matches(of: try Regex(#"getenv\("([^"]*)"\)"#)).map { String($0.output[1].substring ?? "") }
+        #expect(reads == ["PATH"])
+        for forbidden in ["ProcessInfo", "environ", "Shell("] { #expect(!code.contains(forbidden), "CodeCommand.swift: \(forbidden)") }
+    }
+
+    /// The quick opener hears its own shortcut through RegisterEventHotKey, which needs no permission. Nothing that
+    /// hears every key or drives other apps (an event tap, HID, a global monitor, Accessibility): those need Input
+    /// Monitoring or Accessibility and would read like a keylogger.
+    @Test func hotKeysNeedNoPermission() throws {
+        let hits = try offenders(["CGEvent.tapCreate", "CGEventTap", "tapCreate(", "IOHIDManager", "IOHIDDevice", "import IOKit.hid",
+                                  "addGlobalMonitorForEvents", "AXIsProcessTrusted", "AXUIElement", "kAXTrustedCheckOption"])
+        #expect(hits.isEmpty, "\(hits)")
+        let carbon = try Self.sources().filter { file in
+            file.1.split(separator: "\n").contains { line in
+                !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") && (line.contains("import Carbon") || line.contains("EventHotKey("))
+            }
+        }.map { $0.0.lastPathComponent }
+        #expect(carbon == ["HotKey.swift"], "\(carbon)")
     }
 }

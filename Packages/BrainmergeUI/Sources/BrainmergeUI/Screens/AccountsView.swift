@@ -34,6 +34,9 @@ public struct AccountsView: View {
                 if let banner = model.updateBanner {
                     updateBanner(banner).launchObstacle("accounts.updateBanner").modifier(ReducedFadeIn()).transition(.banner(reduceMotion))
                 }
+                if let note = model.healthNote {
+                    healthBanner(note).launchObstacle("accounts.healthBanner").modifier(ReducedFadeIn()).transition(.banner(reduceMotion))
+                }
                 ScreenHeader("Accounts", subtitle: subtitle, busy: model.working != nil, changeKey: subtitleWords) {
                     HStack(spacing: 10) {
                         searchField
@@ -63,9 +66,14 @@ public struct AccountsView: View {
             // With Reduce Motion the grid moves at once and the banner only fades (ReducedFadeIn).
             .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.memoryWarning)
             .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.updateBanner)
+            .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.healthNote)
         }
-        .sheet(isPresented: $showAdd) { AddAccountSheet(model: model, isPresented: $showAdd) }
+        .onChange(of: model.requestedAdd, initial: true) { _, asked in
+            if asked { showAdd = true; model.requestedAdd = false }
+        }
+        .sheet(isPresented: $showAdd, onDismiss: { model.beginPendingLogin() }) { AddAccountSheet(model: model, isPresented: $showAdd) }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory, attach: newMemoryFor) }
+        .sheet(isPresented: Binding(get: { model.login != nil }, set: { if !$0 { model.cancelLogin() } })) { LoginSheet(model: model) }
         .sheet(item: $editing) { account in
             EditAccountSheet(model: model, isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }), account: account, otherApps: editingApps)
         }
@@ -160,8 +168,33 @@ public struct AccountsView: View {
                         SwappingText(text: status, key: Self.status(of: account, memory: 0))
                             .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                     }
+                    // Its last save failed and it has not saved since: when, and why, quietly.
+                    if let failure = model.saveFailureSentence(of: account.id) {
+                        HStack(alignment: .firstTextBaseline, spacing: 5) {
+                            Image(systemName: "exclamationmark.circle").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.Colors.accentLight)
+                            Text(failure).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .help(failure)
+                    }
+                    if let version = model.staleVersion(of: account.id) {
+                        let waiting = model.restartingWhenIdle.contains(account.id)
+                        HStack(spacing: 6) {
+                            Text(Self.staleLine(version: version, waiting: waiting)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.accentLight)
+                                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            Button("Restart") { Task { await model.restart(account.id) } }.buttonStyle(.glass).controlSize(.mini)
+                                .disabled(waiting || model.restarting.contains(account.id))
+                                .help("Quits this window, waits for it to close, then opens it again on Claude \(version)")
+                        }
+                    }
                 }
                 Spacer(minLength: 8)
+                if Self.showsLogInButton(account, opening: opening) {
+                    Button("Log in") { model.beginLogin(account.id) }.buttonStyle(.glass).controlSize(.small)
+                        .disabled(model.accountsBusy.contains(account.id))
+                        .help("Closes your other Claude windows, opens \(account.identity.name) to log in, then reopens the others on your click")
+                        .transition(.fade(reduceMotion))
+                }
                 // One width for Open, Opening…, Show and Update: a new word never reflows the text beside it. The old word
                 // goes before the new one comes.
                 let button = Self.cardButton(for: account, action: action)
@@ -189,17 +222,17 @@ public struct AccountsView: View {
         .onHover { inside in if inside { Task { await model.prefetchOtherApps(account.id) } } }
     }
 
-    /// The sheet opens with the apps made by hand for the account already known (looked for as the pointer came over the
-    /// card): at once and at its full size, nothing moving under the pointer afterwards. Not known yet (the keyboard, the
-    /// edit screen at launch): found first, a few milliseconds.
+    /// The sheet opens once the apps made by hand for the account and its connections are known: at its full size, nothing
+    /// moving under the pointer afterwards. Both are looked for as the pointer comes over the card, so it opens at once;
+    /// not known yet (the keyboard, the edit screen at launch): found first, a few milliseconds.
     func startEditing(_ account: Account) {
-        if let known = model.knownOtherApps(account.id) {
+        if let known = model.knownOtherApps(account.id), model.connectionsKnown(account.id) {
             editingApps = known
             editing = account
             return
         }
         Task {
-            editingApps = await model.otherApps(opening: account.id)
+            editingApps = await model.prepareEdit(account.id)
             editing = account
         }
     }
@@ -214,7 +247,7 @@ public struct AccountsView: View {
         }
         let help = button.run == .update
             ? (account.isRunning ? "Quits this account, rebuilds its copy of Claude for the version installed, and opens it again" : "Rebuilds this account's copy of Claude for the version installed, then you can open it")
-            : action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id })
+            : action.help(for: account, othersOpen: model.openAccounts.contains { $0.id != account.id }, staleVersion: model.staleVersion(of: account.id))
         if button.isProminent {
             Button(button.label, action: run).buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
                 .disabled(!button.isEnabled).help(help)
@@ -251,6 +284,12 @@ public struct AccountsView: View {
 
     @ViewBuilder func actions(_ account: Account) -> some View {
         Button("Edit…") { startEditing(account) }
+        // brainmerge code <slug>, or claude-<slug> with the per-account commands on: never a hand-typed CLAUDE_CONFIG_DIR.
+        Button("Copy Terminal Command") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(model.terminalCommand(for: account.id), forType: .string)
+        }
+        if Self.offersLogIn(account) { Button("Log in…") { model.beginLogin(account.id) }.disabled(model.accountsBusy.contains(account.id)) }
         Menu("Memory") {
             let current = model.brainName(of: account.identity)
             ForEach(model.brains) { folder in
@@ -265,6 +304,11 @@ public struct AccountsView: View {
         if account.isOutdated { Button("Update for Claude") { Task { await model.updateAccount(account.id) } } }
         if !account.identity.isPrimary { Button(account.identity.iconMode == .tintedClone ? "Rebuild icon" : "Rebuild launcher") { Task { await model.rebuild(account.id) } } }
         else if account.identity.appURL(in: model.paths) != nil { Button("Rebuild app") { Task { await model.rebuild(account.id) } } }
+        if model.restartingWhenIdle.contains(account.id) {
+            Button("Cancel Restart When Idle") { model.cancelRestartWhenIdle(account.id) }
+        } else if model.staleVersion(of: account.id) != nil, !model.restarting.contains(account.id) {
+            Button("Restart When Idle") { model.restartWhenIdle(account.id) }
+        }
         if account.isRunning { Button("Quit") { model.quit(account.id) } }
         Divider()
         Button("Remove from Brainmerge…", role: .destructive) { pendingRemoval = account }
@@ -298,6 +342,17 @@ public struct AccountsView: View {
 
     /// The room for the card's button, as wide as its widest word ("Opening…").
     static let buttonSlot: CGFloat = 76
+
+    /// "Log in" on the card: an account that has not logged in, or whose session is gone.
+    nonisolated static func showsLogInButton(_ account: Account, opening: Bool) -> Bool { account.needsLogin && !opening }
+    /// "Log in…" in the card's menu: every account with a Claude window, since an expired session can keep the files
+    /// Brainmerge looks at, and then only the person knows.
+    nonisolated static func offersLogIn(_ account: Account) -> Bool { account.identity.surfaces.desktop }
+
+    /// Under the status of a window that started before Claude was updated.
+    nonisolated static func staleLine(version: String, waiting: Bool = false) -> String {
+        waiting ? "Runs the previous Claude. Restarts when its Claude Code sessions end." : "Runs the previous Claude. Restart to use \(version)."
+    }
 
     /// The card's main button.
     struct CardButton: Equatable {
@@ -360,6 +415,22 @@ public struct AccountsView: View {
             Text(text).font(Theme.Fonts.secondary)
             Spacer()
             Button("Update all") { Task { await model.updateAll() } }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.small)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    /// The line after the check a macOS or Claude update started: "Show" opens Settings, where Health lists what to fix.
+    func healthBanner(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.shield").foregroundStyle(Theme.Colors.textMuted)
+            Text(text).font(Theme.Fonts.secondary)
+            Spacer()
+            if model.healthProblems.isEmpty {
+                Button("OK") { model.dismissHealthNote() }.buttonStyle(.glass).controlSize(.small)
+            } else {
+                Button("Show") { model.dismissHealthNote(); model.requestedScreen = .settings }.buttonStyle(.glass).controlSize(.small)
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 10, style: .continuous))

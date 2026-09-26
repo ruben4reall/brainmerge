@@ -10,8 +10,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "0.5.0"
-    CURRENT_PROJECT_VERSION: "5"
+    MARKETING_VERSION: "0.6.0"
+    CURRENT_PROJECT_VERSION: "6"
     ENABLE_HARDENED_RUNTIME: YES
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
@@ -35,6 +35,10 @@ targets:
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: "Ruben Catalao. Works with Claude. Not made by Anthropic."
         LSApplicationCategoryType: public.app-category.developer-tools
+        # brainmerge:// links can only open or show (see BrainmergeLink).
+        CFBundleURLTypes:
+          - CFBundleURLName: ch.rubencatalao.brainmerge.link
+            CFBundleURLSchemes: [brainmerge]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ch.rubencatalao.brainmerge

@@ -83,13 +83,16 @@ import BrainmergeCore
         #expect(help(Case(what: "", account: account(desktop: false, session: false), expected: .none)) == "Claude Code only: this account has no Claude window")
         // Logging in while another account is open: the link would land in the other window. Never an offer to quit it.
         let login = help(Case(what: "", account: account(session: false), othersOpen: true, expected: .open))
-        #expect(login == "Opens Claude to log in. Quit your other Claude windows first, so the login lands in this one.")
+        #expect(login == "Opens Claude to log in. Use Log in on its card instead: it closes your other Claude windows first, so the login lands in this one.")
         #expect(help(Case(what: "", account: account(session: false), expected: .open)) == "Open Claude as Work")
         // An outdated copy still opens: the help says which Claude it was built for.
         let outdated = help(Case(what: "", account: account(version: Self.outdated), expected: .open))
         #expect(outdated.hasPrefix("Open Claude as Work"))
         #expect(outdated.contains("Built for Claude 2.7032.0, 2.8000.0 is installed"))
         #expect(help(Case(what: "", account: account(), appExists: false, expected: .rebuild)).contains("missing"))
+        // A window opened before Claude updated: the tooltip says so, like its card.
+        #expect(SidebarAccountAction.show.help(for: account(running: true), othersOpen: false, staleVersion: "9.0.0")
+                == "Show Work's Claude window. Runs the previous Claude. Restart to use 9.0.0.")
         // No dash in anything the sidebar shows or says.
         for c in cases {
             let a = action(c)

@@ -235,6 +235,24 @@ import BrainmergeTestSupport
         #expect(Set(ObsidianGraphFilter.apply(settings, to: more.graph).graph.nodes.map(\.id)) == ["Notes/B.md", "Notes/C.md", "Notes/D.md"])
     }
 
+    /// A file the vault shows again (its filter changed) is not a change: nothing moved on disk, and the graph never says
+    /// "Changed just now" for it. A file that did change, or a new one, still is.
+    @Test func aFileShownAgainIsNotAChange() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let root = home.url.appending(path: "Vault", directoryHint: .isDirectory)
+        try write(root, "Notes/A.md", "[[B]]\n")
+        try write(root, "Private/B.md", "[[A]]\n")
+        let builder = MemoryGraphBuilder(root: root, style: .vault)
+        _ = builder.build(showing: { path, _ in !path.hasPrefix("Private/") })
+        let shown = builder.build()
+        #expect(shown.graph.node("Private/B.md") != nil)
+        #expect(shown.changed.isEmpty, "\(shown.changed)")
+        try write(root, "Notes/A.md", "[[B]] again\n")
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: root.appending(path: "Notes/A.md").path)
+        try write(root, "Notes/C.md", "new\n")
+        #expect(builder.build().changed == ["Notes/A.md", "Notes/C.md"])
+    }
+
     /// A vault that cannot be opened (macOS asked and was refused, or its permissions say no) is said so, never drawn
     /// as an empty vault; a locked folder inside it is only left out.
     @Test func aVaultThatCannotBeReadIsSaidSo() throws {
