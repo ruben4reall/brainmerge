@@ -336,6 +336,30 @@ import BrainmergeTestSupport
         #expect(try edits.save(now: now.addingTimeInterval(7200), sessionRunning: false) == .nothing)
     }
 
+    /// A list no turn will save (a turn stopped with Esc, notes adopted for an account used only in the chat): once it
+    /// has been quiet as long as your own edits and no session runs, the minute pass saves it under that account's name.
+    @Test func aQuietAccountsListIsSavedUnderItsName() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        let git = BrainGit(brain: brain)
+        try git.commitAll(authorName: "Setup", authorEmail: "setup@brainmerge.local", message: "Start")
+        let work = Identity(slug: "work", name: "Work", tint: .blue)
+        try write("# claude\n", "memory/acme/claude.md", in: brain)
+        let ledger = TouchedLedger(brain: brain, slug: "work")
+        try ledger.append("memory/acme/claude.md")
+        let edits = OwnEdits(brain: brain, git: git, held: HeldStore(paths: home.paths, memoryID: "shared"))
+        let now = Date()
+
+        #expect(try edits.save(now: now, sessionRunning: false, accounts: [work]) == .nothing, "too recent: it waits")
+        #expect(try edits.save(now: now.addingTimeInterval(3600), sessionRunning: true, accounts: [work]) == .sessionRunning)
+        #expect(try git.log(limit: 1).first?.authorName == "Setup")
+
+        _ = try edits.save(now: now.addingTimeInterval(OwnEdits.quietPeriod + 60), sessionRunning: false, accounts: [work])
+        let last = try #require(try git.log(limit: 1).first)
+        #expect(last.authorName == "Work" && last.files == ["memory/acme/claude.md"])
+        #expect(TouchedLedger.claimed(in: brain).isEmpty)
+    }
+
     /// A deletion counts from when its folder last changed.
     @Test func aDeletionIsDatedByItsFolder() throws {
         let home = try TempHome(); defer { home.remove() }
@@ -362,4 +386,19 @@ final class FirstTime: @unchecked Sendable {
         defer { asked = true }
         return !asked
     }
+
+    /// Claude names a note in another letter case than the disk keeps it (Deploy.md for deploy.md, on a Mac's usual
+    /// disk one file): the list holds the name on disk, so the account's save commits it, not a later "You edited".
+    @Test func aNoteNamedInAnotherCaseIsListedUnderItsNameOnDisk() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try Brain.initialize(at: home.paths.defaultBrain, language: .en)
+        let folder = brain.memoryDir.appending(path: "acme", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("# deploy\n".utf8).write(to: folder.appending(path: "deploy.md"))
+        let written = brain.memoryDir.path + "/Acme/Deploy.md"
+        #expect(TouchedLedger.locate(written, in: [brain])?.path == "memory/acme/deploy.md")
+        // A note not written yet keeps the name it was given.
+        #expect(TouchedLedger.locate(brain.memoryDir.path + "/acme/New.md", in: [brain])?.path == "memory/acme/New.md")
+    }
+
 }

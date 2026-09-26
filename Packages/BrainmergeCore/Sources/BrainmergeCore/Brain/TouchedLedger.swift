@@ -58,9 +58,27 @@ public struct TouchedLedger: Sendable {
             let notes = brain.memoryDir.standardizedFileURL.resolvingSymlinksInPath().path
             guard folder == notes || folder.hasPrefix(notes + "/") else { continue }
             let inside = String(folder.dropFirst(notes.count)).split(separator: "/").map(String.init) + [name]
-            return (brain, (["memory"] + inside).joined(separator: "/"))
+            return (brain, (["memory"] + onDisk(inside, under: notes)).joined(separator: "/"))
         }
         return nil
+    }
+
+    /// The names as the disk keeps them: on a Mac's usual disk, Deploy.md written over deploy.md is one file, and git
+    /// knows it only as deploy.md. A name with no match (a note not written yet) stays as given.
+    static func onDisk(_ parts: [String], under root: String) -> [String] {
+        var folder = root
+        return parts.map { part in
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []
+            let found = names.contains(part) ? part : names.first { $0.caseInsensitiveCompare(part) == .orderedSame } ?? part
+            folder += "/" + found
+            return found
+        }
+    }
+
+    /// The paths one account wrote and has not saved yet, both of its lists.
+    static func claimed(in brain: Brain, slug: String) -> Set<String> {
+        let ledger = TouchedLedger(brain: brain, slug: slug)
+        return Set([ledger.file, ledger.sending].flatMap { (try? readLocked($0)) ?? [] })
     }
 
     /// Every path some account wrote and has not saved yet: the person's own edits never include them.

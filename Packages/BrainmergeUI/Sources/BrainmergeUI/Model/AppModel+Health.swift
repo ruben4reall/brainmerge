@@ -191,6 +191,8 @@ public enum HealthText {
         case .diskFull: "the disk is full."
         case .notARepository: "the memory folder is missing or is not a git repository."
         case .heldBack: "a note looks like it holds a key."
+        case .gitStopped: "a merge or rebase is still open in the memory. Finish it, and saves go on."
+        case .noAccess: "Brainmerge cannot write in the memory folder. Check its permissions."
         case .unknown: "something unexpected stopped it."
         }
     }

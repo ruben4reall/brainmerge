@@ -12,6 +12,13 @@
 - **File under keeps what sessions write.** A line a session added to an index while File under moved notes is no longer overwritten, and an index that is a link is refused instead of copied into the memory.
 - **Removing an account removes all of it.** Its notes held by the secret guard become your own edits, its last save status goes (an account added again under the name starts clean), a save still running cannot bring its list back, and with its data deleted, notes in a memory folder Claude Code had not linked yet move into the memory first.
 - **Swap names never leaves two accounts with one name.** The accounts of one memory are renamed under one hold of its lock, and if they cannot be put back after a failure, Brainmerge says which.
+- **The sync log keeps every line.** Hooks writing at the same moment no longer write over each other's line, and past 1 MB the log moves to `sync.log.1` instead of growing for good.
+- **A failed save says why.** A merge or rebase you left open in the memory, or a memory folder Brainmerge cannot write in, is now said as such on the account's card, no longer as "locked by another program".
+- **Every account name can sign a save.** A name made only of characters git drops (";" or quotes) is refused, where every save of that account used to fail.
+- **A note named in another letter case is saved by its account.** When Claude wrote Deploy.md over deploy.md, the account's save committed nothing and the note was later saved as You.
+- **A save cut short is caught up.** A save stopped right after its commit (a terminal tab closed, a shutdown) no longer leaves git's index behind for good, where a plain commit of yours could have put the old text back.
+- **Notes no turn will save are saved under their account's name.** A turn stopped with Esc skips Claude Code's Stop hook, and an account used only in the chat never runs it: their notes waited for good. Once quiet for ten minutes with no session running, the minute pass saves them under that account's name.
+- **One Claude Code folder, one account.** Adding an account on a folder another account already uses (the first account's `~/.claude`, or another account's folder) is refused: its hooks would have signed the other's notes.
 
 ## 0.6.0 (2026-09-26)
 

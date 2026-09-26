@@ -172,12 +172,18 @@ public struct BrainGit: Sendable {
         // The branch moves only from `parent` (none: it must not exist yet), the way `git commit` logs it.
         let subject = text.split(separator: "\n").first.map(String.init) ?? ""
         let move = ["update-ref", "-m", (parent == nil ? "commit (initial): " : "commit: ") + subject, "HEAD", made, parent ?? ""]
-        let moved = try shell.run("/usr/bin/git", move, cwd: brain.root)
+        // Recorded before the branch moves, cleared once the real index follows: a save killed in between (a closed
+        // terminal tab, a shutdown) leaves the record, and the next save or the minute pass catches up.
+        let behindBefore = indexBehind
+        recordBehind(Set(behindBefore).union(kept))
+        let moved: ShellResult
+        do { moved = try shell.run("/usr/bin/git", move, cwd: brain.root) } catch { recordBehind(Set(behindBefore)); throw error }
         guard moved.status == 0 else {
+            recordBehind(Set(behindBefore))
             if head() != parent { return nil }
             throw BrainmergeError.shellFailed(command: (["/usr/bin/git"] + move).joined(separator: " "), status: moved.status, stderr: moved.stderr)
         }
-        followCommit(kept)
+        if followCommit(kept) { recordBehind(Set(behindBefore)) }
         // Past git's own threshold, its loose objects are packed, as after a commit of yours: in the foreground, apart from
         // your git setup and stopped after two minutes like every git call, and never failing a save that is made.
         _ = try? shell.run("/usr/bin/git", ["-c", "gc.autoDetach=false", "gc", "--auto", "--quiet"], cwd: brain.root)
@@ -248,16 +254,23 @@ public struct BrainGit: Sendable {
     /// The real index follows a save's commit for these paths, so a note rewritten since shows as changed. Another git
     /// (an editor's, Obsidian Git's status check) may hold the index for a moment: tried again for half a second, then
     /// left to `catchUpIndex`, never failing a save whose commit is made.
-    func followCommit(_ paths: [String]) {
+    /// True once the index followed; otherwise the paths stay in the record the save wrote before its commit.
+    @discardableResult
+    func followCommit(_ paths: [String]) -> Bool {
         for attempt in 0..<10 {
             let result = try? shell.run("/usr/bin/git", ["--literal-pathspecs", "reset", "-q", "--"] + paths, cwd: brain.root)
-            if result?.status == 0 { return }
+            if result?.status == 0 { return true }
             // Git names the lock it could not take (in any language): the lock may be gone already, so ask its words.
             guard attempt < 9, result?.stderr.contains("index.lock") == true else { break }
             usleep(50_000)
         }
-        let behind = Set(indexBehind).union(paths).sorted()
-        try? Data(behind.joined(separator: "\0").utf8).write(to: indexBehindFile, options: .atomic)
+        return false
+    }
+
+    /// Writes the record of paths the real index is behind on; an empty one goes.
+    func recordBehind(_ paths: Set<String>) {
+        guard !paths.isEmpty else { try? FileManager.default.removeItem(at: indexBehindFile); return }
+        try? Data(paths.sorted().joined(separator: "\0").utf8).write(to: indexBehindFile, options: .atomic)
     }
 
     /// Brings the real index up to the last commit for the paths a save left behind, those still behind only: another
@@ -351,7 +364,8 @@ public struct BrainGit: Sendable {
     public func withLock<T>(timeout: TimeInterval, _ body: () throws -> T) throws -> T {
         try FileManager.default.createDirectory(at: brain.metaDir, withIntermediateDirectories: true)
         let fd = open(brain.lockFile.path, O_CREAT | O_RDWR, 0o644)
-        guard fd >= 0 else { throw BrainmergeError.lockTimeout }
+        // Permissions or a read-only folder: waiting would not help.
+        guard fd >= 0 else { throw BrainmergeError.lockUnavailable(brain.lockFile.path) }
         defer { close(fd) }
         let deadline = Date().addingTimeInterval(timeout)
         while flock(fd, LOCK_EX | LOCK_NB) != 0 {

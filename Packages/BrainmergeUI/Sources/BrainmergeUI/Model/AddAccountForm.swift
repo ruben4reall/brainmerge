@@ -20,6 +20,7 @@ public struct AddAccountForm: Equatable, Sendable {
 
     public func validate(existing: [Identity]) -> String? {
         if trimmedName.isEmpty { return "Give this account a name." }
+        if !NameRules.isUsableForAccount(trimmedName) { return "Use at least one letter or digit in the name." }
         let candidate = Identity(slug: "x", name: trimmedName).bundleDisplayName
         if existing.contains(where: { $0.bundleDisplayName.caseInsensitiveCompare(candidate) == .orderedSame }) {
             return "There is already an account called \(trimmedName). Pick another name."

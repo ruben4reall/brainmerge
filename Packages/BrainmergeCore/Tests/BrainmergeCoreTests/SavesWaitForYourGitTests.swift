@@ -203,6 +203,20 @@ import BrainmergeTestSupport
         #expect(BrainmergeError.gitOperationUnfinished.description
                 == "Git is in the middle of a merge, rebase or cherry-pick in this memory, or no branch is checked out. Saves wait until you finish it.")
     }
+
+    /// While your own merge is stopped on a note the record names, catching up waits: resetting it would drop the
+    /// merge's conflict stages. The record stays for later.
+    @Test func catchingUpWaitsForAStoppedMerge() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, repo) = try diverged(home)
+        try Data("memory/acme/old.md".utf8).write(to: repo.indexBehindFile)
+        #expect(try git(["merge", "-q", "other"], in: brain).status != 0)
+        try repo.catchUpIndex()
+        let stages = try Shell().check("/usr/bin/git", ["ls-files", "-u", "--", "memory/acme/old.md"], cwd: brain.root)
+        #expect(stages.split(separator: "\n").count == 3)
+        #expect(repo.indexBehind == ["memory/acme/old.md"])
+        #expect(try git(["merge", "--abort"], in: brain).status == 0)
+    }
 }
 
 /// Another git (an editor's, Obsidian Git's status check) may hold the real index right when a save ends. The save is
@@ -336,4 +350,47 @@ import BrainmergeTestSupport
         try BrainGit(brain: brain).catchUpIndex()
         #expect(try yourNextCommit(brain) == "Journal.md\n")
     }
+
+    /// The paths a save commits are recorded as behind before the branch moves, and cleared once the real index follows:
+    /// a save killed in between (a closed terminal tab, a shutdown) leaves the record, and the next save catches up.
+    @Test func theIndexRecordIsWrittenBeforeTheBranchMoves() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        let seen = Recorded()
+        let git = BrainGit(brain: brain, shell: Shell { executable, arguments, cwd, environment in
+            if arguments.first == "update-ref" { seen.value = BrainGit(brain: brain).indexBehind }
+            return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+        })
+        try accountWrote("memory/acme/old.md", in: brain)
+        #expect(try AccountSave(brain: brain, git: git, held: held(home)).run(for: work).saved == ["memory/acme/old.md"])
+        #expect(seen.value == ["memory/acme/old.md"])
+        #expect(git.indexBehind.isEmpty)
+        #expect(try yourNextCommit(brain).isEmpty)
+    }
+
+    /// A save killed after its commit left the real index behind: the next save, even with nothing to commit, puts it
+    /// right, so a plain `git commit` of yours never records the old text again.
+    @Test func aSaveKilledAfterItsCommitIsCaughtUp() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        try write("# new text\n", "memory/acme/old.md", in: brain)
+        // What the killed save left: the commit made through its own index, the real index untouched, the record.
+        try Shell().check("/usr/bin/git", ["-c", "user.name=Work", "-c", "user.email=work@brainmerge.local", "-c", "commit.gpgsign=false",
+                                           "commit", "-q", "--only", "-m", "Work remembered", "--", "memory/acme/old.md"], cwd: brain.root)
+        try Shell().check("/usr/bin/git", ["update-index", "--cacheinfo",
+                                           "100644," + (try Shell().check("/usr/bin/git", ["rev-parse", "HEAD~1:memory/acme/old.md"], cwd: brain.root)
+                                           .trimmingCharacters(in: .whitespacesAndNewlines)) + ",memory/acme/old.md"], cwd: brain.root)
+        #expect(try !yourNextCommit(brain).isEmpty)
+        let git = BrainGit(brain: brain)
+        try Data("memory/acme/old.md".utf8).write(to: git.indexBehindFile)
+        try accountWrote("memory/acme/old.md", in: brain)
+        try write("# new text\n", "memory/acme/old.md", in: brain)
+        _ = try AccountSave(brain: brain, git: git, held: held(home)).run(for: work)
+        #expect(try yourNextCommit(brain).isEmpty)
+        #expect(git.indexBehind.isEmpty)
+    }
+
 }
+
+/// A value a shell closure records, read once the save is done.
+final class Recorded: @unchecked Sendable { var value: [String] = [] }

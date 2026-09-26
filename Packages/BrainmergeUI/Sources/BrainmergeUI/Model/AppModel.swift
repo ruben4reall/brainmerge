@@ -1733,7 +1733,9 @@ public final class AppModel {
                     let edits = OwnEdits(brain: brain, git: repo, held: HeldStore(paths: paths, memoryID: folder.id))
                     let outcome = try? repo.withLock(timeout: 0) { () throws -> OwnEdits.Outcome in
                         guard state.saveOwnEdits else { try? repo.catchUpIndex(); return .nothing }
-                        return try edits.save(now: now, sessionRunning: running)
+                        // Every account, since one may write in a memory other than its own: a list no turn will
+                        // save goes under its account's name.
+                        return try edits.save(now: now, sessionRunning: running, accounts: state.identities)
                     }
                     if case .saved = outcome { any = true }
                 }
@@ -2025,7 +2027,7 @@ public final class AppModel {
             return UserMessage(title: "That memory is gone", detail: "It is no longer in the list. Pick another one.")
         case .brainNameTaken(let name):
             return UserMessage(title: "Name already used", detail: "There is already a memory called \(name). Pick another name.")
-        case .memoryInsideRepository:
+        case .memoryInsideRepository, .folderUsedByAccount:
             // The sentence stands alone: the sheets show the detail only.
             return UserMessage(title: "Choose another folder", detail: e.description)
         case .nameInvalid:

@@ -6,10 +6,13 @@ import BrainmergeTestSupport
 /// How an account's last save went, written by the Stop hook for the app: codes only, from a closed list.
 @Suite struct SaveStatusTests {
     /// Each error a save can meet becomes one reason of the closed list; anything else is "unknown".
-    @Test func errorsMapToTheirReason() {
+    @Test func errorsMapToTheirReason() throws {
         let cases: [(Error, SaveStatus.Reason)] = [
             (BrainmergeError.lockTimeout, .locked),
-            (BrainmergeError.gitOperationUnfinished, .locked),
+            // Your own merge or rebase left open: finishing it is what helps, not waiting.
+            (BrainmergeError.gitOperationUnfinished, .gitStopped),
+            // The lock file cannot even be opened: permissions, not another program.
+            (BrainmergeError.lockUnavailable("/Users/x/Brain/.brainmerge/lock"), .noAccess),
             (BrainmergeError.shellFailed(command: "/usr/bin/git commit", status: 128,
                                          stderr: "fatal: Unable to create '/Users/x/Brain/.git/index.lock': File exists."), .locked),
             // A save commits through its own index: the lock it meets is the branch's.
@@ -31,7 +34,7 @@ import BrainmergeTestSupport
             (BrainmergeError.brainNotConfigured, .notARepository),
             (BrainmergeError.shellFailed(command: "/usr/bin/git commit", status: 1, stderr: "error: something else"), .unknown),
             (BrainmergeError.stateDamaged, .unknown),
-            (CocoaError(.fileWriteNoPermission), .unknown),
+            (CocoaError(.fileWriteNoPermission), .noAccess),
         ]
         for (error, reason) in cases {
             #expect(SaveStatus.Reason(error) == reason, "\(error)")
@@ -87,6 +90,6 @@ import BrainmergeTestSupport
         let json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(status)) as? [String: Any])
         #expect(Set(json.keys) == ["date", "outcome", "reason"])
         #expect(SaveStatus.Outcome.allCases.map(\.rawValue) == ["committed", "nothing", "failed", "held"])
-        #expect(SaveStatus.Reason.allCases.map(\.rawValue) == ["locked", "gitMissing", "diskFull", "notARepository", "heldBack", "unknown"])
+        #expect(SaveStatus.Reason.allCases.map(\.rawValue) == ["locked", "gitMissing", "diskFull", "notARepository", "heldBack", "gitStopped", "noAccess", "unknown"])
     }
 }

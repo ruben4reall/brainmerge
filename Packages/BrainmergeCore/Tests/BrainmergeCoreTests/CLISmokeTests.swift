@@ -377,7 +377,8 @@ import BrainmergeTestSupport
         #expect(log.contains("perso: committed 1 file"), "\(log)")
         // One memory that waits is enough for the app to say the account's saves are stuck.
         #expect(SaveStatusStore(paths: e.home.paths).read(slug: "perso")?.outcome == .failed)
-        #expect(SaveStatusStore(paths: e.home.paths).read(slug: "perso")?.reason == .locked)
+        // Your merge left open: said as such, since finishing it is what helps.
+        #expect(SaveStatusStore(paths: e.home.paths).read(slug: "perso")?.reason == .gitStopped)
     }
 
     /// A note that looks like it holds a key is not committed, and nothing that could carry the key is written anywhere:
