@@ -253,6 +253,7 @@ public final class IdentityManager: @unchecked Sendable {
         }
         state.identities.removeAll { $0.slug == slug }
         try store.save(state)
+        CLIInstaller.unlinkAccount(paths: paths, slug: slug)
     }
 
     /// Rebuilds a secondary's app for the installed Claude (the account must be closed), or the primary's own app when it

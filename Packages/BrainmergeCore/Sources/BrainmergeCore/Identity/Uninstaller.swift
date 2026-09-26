@@ -73,6 +73,7 @@ public struct Uninstaller: Sendable {
         }
         let link = paths.localBin.appending(path: "brainmerge")
         if Self.isOurCommandLineLink(link) { try fm.removeItem(at: link) }
+        for identity in state.identities { CLIInstaller.unlinkAccount(paths: paths, slug: identity.slug) }
         for dir in [paths.appSupport, paths.logsDir] where fm.fileExists(atPath: dir.path) { try fm.removeItem(at: dir) }
         if let entries = try? fm.contentsOfDirectory(atPath: paths.launchersDir.path), entries.allSatisfy({ $0.hasPrefix(".") }) {
             try? fm.removeItem(at: paths.launchersDir)

@@ -387,4 +387,18 @@ import Testing
         let hits = try offenders(["Analytics", "Telemetry", "Sentry", "Crashlytics", "Firebase", "Mixpanel"])
         #expect(hits.isEmpty, "\(hits)")
     }
+
+    /// Only the launcher and `brainmerge code` hand over to another program, and `code` reads PATH alone from the
+    /// environment: never a key, a token or anything else a shell may hold.
+    @Test func execvOnlyInTheLauncherAndCode() throws {
+        let users = try Self.sources().filter { file in
+            file.1.split(separator: "\n").contains { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") && $0.contains("execv") }
+        }.map { $0.0.pathComponents.suffix(2).joined(separator: "/") }
+        #expect(Set(users) == ["launcher/main.swift", "brainmerge/CodeCommand.swift"])
+        let code = try #require(try Self.sources().first { $0.0.lastPathComponent == "CodeCommand.swift" }).1
+            .split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        let reads = code.matches(of: try Regex(#"getenv\("([^"]*)"\)"#)).map { String($0.output[1].substring ?? "") }
+        #expect(reads == ["PATH"])
+        for forbidden in ["ProcessInfo", "environ", "Shell("] { #expect(!code.contains(forbidden), "CodeCommand.swift: \(forbidden)") }
+    }
 }

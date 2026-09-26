@@ -163,9 +163,13 @@ brainmerge usage [--identity SLUG] [--json] [--timing]
 brainmerge sync --identity SLUG                 save what the account wrote in the memory (called by a Claude Code hook)
 brainmerge touched --identity SLUG              note a file the account wrote (called by a Claude Code hook)
 brainmerge wire --identity SLUG [--hook]        link the current folder's memory (--hook: the session's, called by a Claude Code hook)
+brainmerge code SLUG [args...]                  start Claude Code on that account, with its memory
+brainmerge env SLUG                             print the export line for that account (eval "$(brainmerge env work)")
 brainmerge doctor [--json]                      check that everything is in place
 brainmerge uninstall [--yes]                    undo everything, keep every note and login
 ```
+
+With Settings, Command line, "A terminal command per account" on, `claude-work`, `claude-personal` and so on sit next to `brainmerge` in `~/.local/bin` and do the same as `brainmerge code work`. The terminal tab's title becomes "Claude: Work". Each card's menu has Copy Terminal Command.
 
 ## Links
 

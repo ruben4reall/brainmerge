@@ -79,4 +79,31 @@ public enum CLIInstaller {
         }
         try fm.createSymbolicLink(at: link, withDestinationURL: resolved)
     }
+
+    // MARK: One command per account
+
+    /// `~/.local/bin/claude-<slug>`, a link to the command line, which runs `brainmerge code <slug>`.
+    public static func accountLink(in paths: Paths, slug: String) -> URL {
+        paths.localBin.appending(path: ClaudeCodeTerminal.linkPrefix + slug)
+    }
+
+    /// Made only where nothing exists: never over a file or someone else's link. True when the link is there and ours.
+    @discardableResult
+    public static func linkAccount(paths: Paths, slug: String, target: URL) throws -> Bool {
+        let fm = FileManager.default
+        let link = accountLink(in: paths, slug: slug)
+        if let existing = try? fm.destinationOfSymbolicLink(atPath: link.path) { return madeByBrainmerge(destination: existing) }
+        if fm.fileExists(atPath: link.path) { return false }
+        try fm.createDirectory(at: paths.localBin, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: link, withDestinationURL: target.resolvingSymlinksInPath())
+        return true
+    }
+
+    /// Removed only after checking that the link points at Brainmerge's command line.
+    public static func unlinkAccount(paths: Paths, slug: String) {
+        let fm = FileManager.default
+        let link = accountLink(in: paths, slug: slug)
+        guard let existing = try? fm.destinationOfSymbolicLink(atPath: link.path), madeByBrainmerge(destination: existing) else { return }
+        try? fm.removeItem(at: link)
+    }
 }
