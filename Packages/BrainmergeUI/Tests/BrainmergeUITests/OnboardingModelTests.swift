@@ -216,13 +216,32 @@ import BrainmergeTestSupport
         onboarding.back(); #expect(onboarding.step == .welcome && onboarding.direction == -1)
     }
 
-    /// The progress dots: the steps behind in the accent, the current one a capsule, the ones ahead faint.
+    /// The progress dots: the steps behind in the accent, the current one a capsule, the ones ahead faint. One dot per step
+    /// shown: with git there, no dot for the git step.
     @Test func dotsShowWhereTheGuideIs() throws {
         let (e, _, onboarding) = try setup(); defer { e.home.remove() }
         onboarding.next(); onboarding.next()
-        #expect(OnboardingModel.Step.allCases.map(onboarding.dot(for:)) == [.passed, .passed, .current, .future, .future, .future])
+        #expect(onboarding.steps.map(onboarding.dot(for:)) == [.passed, .passed, .current, .future, .future, .future])
+        #expect(onboarding.progressLabel == "Step 3 of 6")
         #expect(OnboardingModel.Dot.current.width == 18 && OnboardingModel.Dot.passed.width == 6 && OnboardingModel.Dot.future.width == 6)
         #expect(OnboardingModel.Dot.allCases.allSatisfy { $0.height == 6 })
+    }
+
+    /// Without Apple's tools the git step is the third dot, before the memory: the dots and VoiceOver follow the order
+    /// shown, never the steps' numbering (git is numbered last so BRAINMERGE_ONBOARDING_STEP keeps its values).
+    @Test func theGitStepIsADotInItsPlace() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        app.git = Tools(false).availability
+        await onboarding.detect()
+        onboarding.step = .howItWorks
+        onboarding.next()
+        #expect(onboarding.step == .git)
+        #expect(onboarding.steps.map(onboarding.dot(for:)) == [.passed, .passed, .current, .future, .future, .future, .future])
+        #expect(onboarding.progressLabel == "Step 3 of 7")
+        // A later step (opened there, say): the git step is behind it.
+        onboarding.step = .brainLocation
+        #expect(onboarding.dot(for: .git) == .passed && onboarding.dot(for: .adopt) == .future)
+        #expect(onboarding.progressLabel == "Step 4 of 7")
     }
 
     // MARK: After the launch splash

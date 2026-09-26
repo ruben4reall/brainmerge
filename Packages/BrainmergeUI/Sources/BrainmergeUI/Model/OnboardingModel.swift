@@ -118,7 +118,16 @@ public final class OnboardingModel {
         public var width: CGFloat { self == .current ? 18 : 6 }
         public var height: CGFloat { 6 }
     }
-    public func dot(for s: Step) -> Dot { s == step ? .current : (s.rawValue < step.rawValue ? .passed : .future) }
+    /// Behind or ahead in the order shown, never by the steps' numbering: git is numbered last but comes third.
+    public func dot(for s: Step) -> Dot {
+        guard let at = Step.order.firstIndex(of: s), let now = Step.order.firstIndex(of: step) else { return .future }
+        return at == now ? .current : (at < now ? .passed : .future)
+    }
+    /// What VoiceOver reads for the dots: the place among the steps shown.
+    public var progressLabel: String {
+        let shown = steps
+        return "Step \((shown.firstIndex(of: step) ?? 0) + 1) of \(shown.count)"
+    }
 
     /// "Check again", and every few seconds while the step shows: once the tools are in, the setup moves on.
     public func checkGit() async {

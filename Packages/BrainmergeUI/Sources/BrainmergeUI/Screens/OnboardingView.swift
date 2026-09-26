@@ -326,7 +326,7 @@ public struct OnboardingView: View {
         }
         .animation(reduceMotion ? nil : Self.dotSpring, value: model.step)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Step \(model.step.rawValue + 1) of \(OnboardingModel.Step.allCases.count)")
+        .accessibilityLabel(model.progressLabel)
     }
 
     /// The error banner rises into place and sinks away a little faster; a new message over an old one crossfades.
