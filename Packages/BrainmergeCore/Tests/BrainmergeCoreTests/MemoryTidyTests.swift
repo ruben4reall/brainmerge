@@ -174,11 +174,14 @@ import BrainmergeTestSupport
     /// When the commit fails, every note and line goes back where it was.
     @Test func aFailedCommitPutsEverythingBack() throws {
         let home = try TempHome(); defer { home.remove() }
-        let (brain, git, tidy) = try memory(home)
-        let hook = brain.gitDir.appending(path: "hooks/pre-commit")
-        try FileManager.default.createDirectory(at: hook.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("#!/bin/sh\nexit 1\n".utf8).write(to: hook)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        let (brain, git, _) = try memory(home)
+        // Git refuses the commit (a full disk, say). A hook cannot stand for it: none runs in a save.
+        let tidy = MemoryTidy(brain: brain, git: BrainGit(brain: brain, shell: Shell { executable, arguments, cwd, environment in
+            guard arguments.contains("commit") || arguments.contains("commit-tree") else {
+                return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+            }
+            return ShellResult(status: 128, stdout: "", stderr: "fatal: unable to write commit")
+        }))
         let plan = try tidy.plan(filing: Self.scratch, under: "beehive")
         #expect(throws: (any Error).self) { try tidy.file(plan) }
         #expect(exists("memory/\(Self.scratch)/beehive-gear.md", in: brain) && !exists("memory/beehive/beehive-gear.md", in: brain))
