@@ -590,6 +590,6 @@ import BrainmergeTestSupport
     @Test func versionMatchesTheApp() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         #expect(try run(e, ["--version"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines) == BrainmergeInfo.version)
-        #expect(BrainmergeInfo.version == "0.5.0")
+        #expect(BrainmergeInfo.version == "0.6.0")
     }
 }
