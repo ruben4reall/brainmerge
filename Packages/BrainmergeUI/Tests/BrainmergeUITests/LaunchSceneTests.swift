@@ -27,6 +27,14 @@ import Testing
         return numbers.allSatisfy(\.isFinite)
     }
 
+    /// The gather's pixels, equal to floating-point noise (a time read back from a sum is not exact).
+    static func same(_ a: [PixelState]?, _ b: [PixelState]?) -> Bool {
+        guard let a, let b else { return a == nil && b == nil }
+        return a.count == b.count && zip(a, b).allSatisfy {
+            abs($0.dx - $1.dx) < 1e-6 && abs($0.dy - $1.dy) < 1e-6 && abs($0.scale - $1.scale) < 1e-6 && abs($0.opacity - $1.opacity) < 1e-6
+        }
+    }
+
     /// Eye heights are whole steps: open, half, the blink's slit, or the asleep dash on its own row.
     static func eyesInSteps(_ pose: Creature.Pose) -> Bool {
         if pose.eyeHeight == Creature.Pose.asleep.eyeHeight { return pose.eyeBottom == Creature.Pose.asleep.eyeBottom }
@@ -200,7 +208,8 @@ import Testing
     }
 
     @Test func aLeapFromTheAirNeverFallsUpward() {
-        // Mid-hop the leap keeps the height and, when it can, the vertical speed; it never needs gravity pointing up.
+        // Mid-hop the leap keeps the height and the vertical speed, and never needs gravity pointing up. When the speed it
+        // has cannot carry it there under a natural gravity (a higher target), it does not leap from the air at all.
         let start = CGPoint(x: 480, y: 320)
         for v0 in [-220.0, -80, 0.5, 80, 220] as [CGFloat] {
             for target in [sidebar, welcome] {
@@ -208,11 +217,43 @@ import Testing
                 #expect(leap.ballistics.g > 0, "v0 \(v0) target \(target.feet)")
                 #expect(leap.frame(at: 0).feet == start)
                 #expect(leap.frame(at: leap.touchdown).feet == target.feet)
+                if leap.keepsItsSpeed { #expect(leap.ballistics.vy == v0) }
             }
+            #expect(!Leap(start: .rest, feet: start, unit: Theme.Launch.unit, startVelocityY: v0, target: welcome).keepsItsSpeed)
         }
         // Going down to the sidebar, the arc keeps the speed it had: no kink.
         let keep = Leap(start: .rest, feet: start, unit: Theme.Launch.unit, startVelocityY: 80, target: sidebar)
-        #expect(keep.takeoff == 0 && keep.ballistics.vy == 80)
+        #expect(keep.takeoff == 0 && keep.keepsItsSpeed && keep.ballistics.vy == 80)
+    }
+
+    /// A hand-off mid-hop never kicks the creature up again in the air: it keeps the hop's vertical speed, either on the
+    /// leap's own arc or, when no natural arc starts from there (a higher target, the end of the hop), by finishing its hop
+    /// and leaping from the landing, the landing's squash for a crouch.
+    @Test func aHandOffMidHopKeepsTheHopsVerticalSpeed() throws {
+        let ground = AssembleScene.splashFeet(in: size).y
+        let dt = 1.0 / 240
+        for target in [sidebar, welcome] {
+            for ready in stride(from: 0.83, through: 1.11, by: 0.02) {
+                let inp = input(ready, target: target)
+                let hs = try #require(LaunchDirector.handoffStart(readyAt: ready, skippedAt: nil))
+                let finish = try #require(LaunchDirector.finishTime(inp))
+                let touchdown = finish - 0.50
+                var t = hs - 3 * dt
+                while t + dt < touchdown {
+                    let y0 = AssembleScene.frame(at: t - dt, inp).feet.y, y1 = AssembleScene.frame(at: t, inp).feet.y
+                    let y2 = AssembleScene.frame(at: t + dt, inp).feet.y
+                    if max(y0, y1, y2) < ground - 0.5 {
+                        // In the air, gravity only ever pulls down: the speed never jumps upward.
+                        #expect(y2 - 2 * y1 + y0 > -0.05, "\(target.feet) ready \(ready) t \(t): \(y0) \(y1) \(y2)")
+                    }
+                    t += dt
+                }
+                // Right after the hand-off, the path is the hop's own: same height, same speed.
+                let hop0 = AssembleScene.beat(at: hs, size: size).feet.y, hop1 = AssembleScene.beat(at: hs + dt, size: size).feet.y
+                let leap0 = AssembleScene.frame(at: hs, inp).feet.y, leap1 = AssembleScene.frame(at: hs + dt, inp).feet.y
+                #expect(abs(leap0 - hop0) < 1e-9 && abs((leap1 - leap0) - (hop1 - hop0)) < 0.1, "\(target.feet) ready \(ready)")
+            }
+        }
     }
 
     @Test func everyFrameIsFinite() {
@@ -269,30 +310,54 @@ import Testing
         #expect(AssembleScene.frame(at: 0.48 + 1.03, inp).pose.eyeHeight == 1)
     }
 
-    @Test func aSkipDuringTheGatherFinishesItInsideTheCrouch() {
-        // Ready at once, a click at 0.1 s: the gather runs three times faster from the hand-off and is done within the crouch.
-        let inp = input(0.05, skip: 0.1)
-        #expect(LaunchDirector.handoffStart(readyAt: 0.05, skippedAt: 0.1) == 0.1)
-        #expect(AssembleScene.frame(at: 0.12, inp).pose.pixels != nil)
-        #expect(AssembleScene.frame(at: 0.1 + (AssembleScene.assembled - 0.1) / 3 + 0.001, inp).pose.pixels == nil)
+    @Test func aSkipDuringTheGatherFinishesItAtThreeTimesItsSpeedInsideTheCrouch() throws {
+        // Ready at once, a click at 0.1 s: the gather runs three times faster from the hand-off, and the crouch lasts until
+        // it is whole (0.48 s of gather left: 0.16 s). No flight on a cloud of pixels.
+        let feet = AssembleScene.splashFeet(in: size)
+        for (ready, skip, crouch) in [(0.05, 0.1, 0.16), (0.02, 0.0, (0.58 - 0.02) / 3), (0.3, 0.35, 0.08)] {
+            let inp = input(ready, skip: skip)
+            let hs = try #require(LaunchDirector.handoffStart(readyAt: ready, skippedAt: skip))
+            #expect(hs == max(ready, skip))
+            for i in 0..<Int(crouch * 240) {
+                let tau = Double(i) / 240
+                let f = AssembleScene.frame(at: hs + tau, inp)
+                #expect(Self.same(f.pose.pixels, AssembleScene.pixelStates(at: hs + 3 * tau)), "skip \(skip) tau \(tau)")
+                #expect(f.feet == feet && !f.pose.legsTucked, "skip \(skip) tau \(tau): no takeoff inside the crouch")
+                // No eyes on a cloud: they come with the click (0.44 s of gather), as in the beat.
+                #expect((f.pose.eyeHeight == 0) == (hs + 3 * tau < 0.44 - 1e-9), "skip \(skip) tau \(tau): eyes \(f.pose.eyeHeight)")
+            }
+            let takeoff = AssembleScene.frame(at: hs + crouch + 1e-6, inp)
+            #expect(takeoff.pose.pixels == nil && takeoff.pose.eyeHeight > 0, "skip \(skip)")
+            #expect(AssembleScene.frame(at: hs + crouch + 0.05, inp).feet != feet, "skip \(skip): the leap takes off once whole")
+            #expect(LaunchDirector.finishTime(inp).map { abs($0 - (hs + crouch + 0.50 + 0.50)) < 1e-9 } == true, "skip \(skip)")
+        }
     }
 
     @Test func withNoTargetTheCreatureHopsInPlaceAndFades() {
+        // Nowhere to go: the splash's own hop (2.4 cells, 0.30 s in the air: the same gravity), then a 0.2 s fade.
         let inp = input(0.2, target: .some(nil))
         let feet = AssembleScene.splashFeet(in: size)
-        var rose = false
+        var highest = feet.y, air = 0
         for i in 0...240 {
             let f = AssembleScene.frame(at: 0.48 + Double(i) / 240, inp)
             #expect(f.feet.x == feet.x && f.unit == Theme.Launch.unit && f.pose.rotation == 0 && f.pose.look == 0)
-            rose = rose || f.feet.y < feet.y - 5
+            highest = min(highest, f.feet.y)
+            if f.feet.y < feet.y { air += 1 }
         }
-        #expect(rose)
-        let touchdown = 0.48 + 0.58
+        #expect(abs(highest - (feet.y - 2.4 * Theme.Launch.unit)) < 0.3, "apex \(feet.y - highest) pt")
+        #expect(abs(Double(air) / 240 - 0.30) < 0.01, "\(Double(air) / 240) s in the air")
+        let touchdown = 0.48 + 0.08 + 0.30
         #expect(AssembleScene.frame(at: touchdown - 0.001, inp).pose.opacity == 1)
         #expect(AssembleScene.frame(at: touchdown + 0.1, inp).pose.opacity < 1)
-        let gone = AssembleScene.frame(at: touchdown + 0.2, inp)
+        let gone = AssembleScene.frame(at: touchdown + 0.2 + 1e-9, inp)
         #expect(gone.pose.opacity == 0 && gone.finished && gone.screensOpacity == 1)
         #expect(LaunchDirector.finishTime(inp).map { abs($0 - (touchdown + 0.2)) < 1e-9 } == true)
+        // Already hopping at the hand-off: that hop is the one, it lands at 1.12 s and the creature fades from there.
+        let midHop = input(0.95, target: .some(nil))
+        for t in stride(from: 0.95, to: AssembleScene.hopLand, by: 1.0 / 240) {
+            #expect(AssembleScene.frame(at: t, midHop).feet == AssembleScene.beat(at: t, size: size).feet, "t \(t)")
+        }
+        #expect(LaunchDirector.finishTime(midHop).map { abs($0 - (AssembleScene.hopLand + 0.2)) < 1e-9 } == true)
     }
 
     @Test func theSplashShadowSitsOnWholePointsUnderTheFeet() {
@@ -356,8 +421,12 @@ import Testing
     }
 
     @Test func theGuideExitWithNoTargetHopsInPlace() {
+        // The splash's hop at its own size: 2.4 cells of 3 pt, 0.30 s in the air, then the fade.
         let end = GuideExit.finishTime(from: allSet, to: nil, reduceMotion: false)
+        #expect(abs(end - (0.08 + 0.30 + 0.2)) < 1e-9)
         let gone = GuideExit.frame(at: end, from: allSet, to: nil, reduceMotion: false)
         #expect(gone.finished && gone.pose.opacity == 0 && gone.feet == allSet.feet && gone.unit == allSet.unit)
+        let highest = (0...240).map { GuideExit.frame(at: Double($0) / 240, from: allSet, to: nil, reduceMotion: false).feet.y }.min()!
+        #expect(abs(highest - (allSet.feet.y - 2.4 * 3)) < 0.3)
     }
 }

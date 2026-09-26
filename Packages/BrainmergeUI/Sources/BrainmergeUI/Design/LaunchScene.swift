@@ -217,7 +217,7 @@ public enum LaunchDirector {
     public static let screensDelay = 0.04, screensFade = Theme.Launch.fade
     /// The splash's words go in 0.16 s, the shadow from half the crouch over 0.16 s.
     public static let textOut = 0.16, shadowAway = 0.16
-    /// A skip during the gather finishes it this many times faster, inside the crouch.
+    /// A skip during the gather finishes it this many times faster, inside the crouch (which lasts until it is whole).
     static let catchUp = 3.0
     /// With nowhere to land, the creature hops in place and fades out.
     static let fadeWithoutTarget = 0.2
@@ -245,36 +245,81 @@ public enum LaunchDirector {
         return f
     }
 
-    /// The leap from the splash's pose at the hand-off (and its vertical speed: it may be mid-hop) to the target, or back to
-    /// the ground where it stands when there is none.
-    static func leap(_ input: LaunchInput, from hs: Double) -> Leap {
-        let start = AssembleScene.beat(at: hs, size: input.size)
-        let before = AssembleScene.beat(at: hs - 1.0 / 240, size: input.size)
+    /// How a hand-off plays. The screens come in from `start`; the creature leaps from `leapStart`: the hand-off itself, or,
+    /// when it is mid-hop and no natural arc starts from there (a higher target, the hop's own fall), the hop's landing,
+    /// whose squash is its crouch. It never kicks up again in the air.
+    struct Handoff {
+        let start: Double
+        let leapStart: Double
+        /// Nil when there is nowhere to go and the creature is already hopping: that hop is its hop in place.
+        let leap: Leap?
+        /// With nowhere to go: when it starts fading out (its touchdown).
+        let fadeFrom: Double?
+        var finish: Double { fadeFrom.map { $0 + fadeWithoutTarget } ?? leapStart + (leap?.end ?? 0) }
+    }
+
+    static func handoff(_ input: LaunchInput) -> Handoff? {
+        guard let hs = handoffStart(readyAt: input.readyAt, skippedAt: input.skippedAt) else { return nil }
+        let airborne = hs >= AssembleScene.hopTakeoff && hs < AssembleScene.hopLand
+        if airborne {
+            if let target = input.target {
+                let fromTheAir = leap(input, from: hs, to: target)
+                if fromTheAir.keepsItsSpeed { return Handoff(start: hs, leapStart: hs, leap: fromTheAir, fadeFrom: nil) }
+                let land = AssembleScene.hopLand
+                return Handoff(start: hs, leapStart: land, leap: leap(input, from: land, to: target, landed: true), fadeFrom: nil)
+            }
+            return Handoff(start: hs, leapStart: hs, leap: nil, fadeFrom: AssembleScene.hopLand)
+        }
+        // A skip during the gather: it runs 3 times faster from the hand-off, and the crouch holds until it is whole.
+        let crouch = max(Leap.anticipation, (AssembleScene.assembled - hs) / catchUp)
+        guard let target = input.target else {
+            let hop = Leap.hopInPlace(from: leap(input, from: hs, to: nil).start, feet: AssembleScene.splashFeet(in: input.size),
+                                      unit: AssembleScene.unit, crouch: crouch)
+            return Handoff(start: hs, leapStart: hs, leap: hop, fadeFrom: hs + hop.touchdown)
+        }
+        return Handoff(start: hs, leapStart: hs, leap: leap(input, from: hs, to: target, crouch: crouch), fadeFrom: nil)
+    }
+
+    /// The leap from the splash's pose at `t` (and its vertical speed: it may be mid-hop, unless it just `landed`) to the
+    /// target, or back to the ground where it stands when there is none.
+    static func leap(_ input: LaunchInput, from t: Double, to target: LaunchTarget?, crouch: Double = Leap.anticipation,
+                     landed: Bool = false) -> Leap {
+        let start = AssembleScene.beat(at: t, size: input.size)
+        let before = AssembleScene.beat(at: t - 1.0 / 240, size: input.size)
         var pose = start.pose
         pose.pixels = nil
         let ground = LaunchTarget(feet: AssembleScene.splashFeet(in: input.size), unit: AssembleScene.unit, asleep: false)
-        return Leap(start: pose, feet: start.feet, unit: start.unit, startVelocityY: (start.feet.y - before.feet.y) * 240,
-                    target: input.target ?? ground)
+        return Leap(start: pose, feet: start.feet, unit: start.unit, startVelocityY: landed ? 0 : (start.feet.y - before.feet.y) * 240,
+                    target: target ?? ground, crouch: crouch)
     }
 
     public static func frame(at t: Double, _ input: LaunchInput) -> LaunchFrame {
         if input.reduceMotion { return reducedFrame(at: t, input) }
-        guard let hs = handoffStart(readyAt: input.readyAt, skippedAt: input.skippedAt), t >= hs else {
-            return splash(at: t, size: input.size)
+        guard let plan = handoff(input), t >= plan.start else { return splash(at: t, size: input.size) }
+        let hs = plan.start, tau = t - hs
+        var f: LaunchFrame
+        if let leap = plan.leap, t >= plan.leapStart {
+            let (pose, feet, unit) = leap.frame(at: t - plan.leapStart)
+            f = LaunchFrame(feet: feet, unit: unit)
+            f.pose = pose
+            // The shadow thins out and goes as the creature lifts off.
+            let base = AssembleScene.beat(at: plan.leapStart, size: input.size)
+            let away = Ease.out(Ease.progress(t - plan.leapStart, from: leap.takeoff / 2, over: shadowAway))
+            f.shadowOpacity = base.shadowOpacity * (1 - away)
+            f.shadowInset = base.shadowInset + 3 * CGFloat(away)
+        } else {
+            // Finishing the hop it was in, its shadow under it.
+            f = AssembleScene.beat(at: t, size: input.size)
         }
-        let tau = t - hs
-        let leap = leap(input, from: hs)
-        let (pose, feet, unit) = leap.frame(at: tau)
-        var f = LaunchFrame(feet: feet, unit: unit)
-        f.pose = pose
         f.pose.pixels = AssembleScene.pixelStates(at: hs + tau * catchUp)
+        if hs + tau * catchUp < AssembleScene.clickAt {   // no eyes on a cloud of pixels: they come with the click, as in the beat
+            f.pose.eyeHeight = 0
+            f.pose.eyeBottom = Creature.Pose.rest.eyeBottom
+        }
         f.handingOff = true
 
-        // The shadow thins out and goes as the creature lifts off; the words go at once, from wherever they were.
+        // The words go at once, from wherever they were.
         let before = splash(at: hs, size: input.size)
-        let away = Ease.out(Ease.progress(tau, from: leap.takeoff / 2, over: shadowAway))
-        f.shadowOpacity = before.shadowOpacity * (1 - away)
-        f.shadowInset = before.shadowInset + 3 * CGFloat(away)
         let out = Ease.out(Ease.progress(tau, from: 0, over: textOut))
         f.wordmarkOpacity = before.wordmarkOpacity * (1 - out)
         f.wordmarkRise = before.wordmarkRise
@@ -282,12 +327,8 @@ public enum LaunchDirector {
         f.captionOpacity = before.captionOpacity * (1 - out)
         screens(&f, tau: tau)
 
-        if input.target == nil {
-            f.pose.opacity = 1 - Ease.out(Ease.progress(tau, from: leap.touchdown, over: fadeWithoutTarget))
-            f.finished = tau >= leap.touchdown + fadeWithoutTarget
-        } else {
-            f.finished = tau >= leap.end
-        }
+        if let fade = plan.fadeFrom { f.pose.opacity = 1 - Ease.out(Ease.progress(t, from: fade, over: fadeWithoutTarget)) }
+        f.finished = t >= plan.finish
         if f.finished { f.screensOpacity = 1; f.screensScale = 1 }
         return f
     }
@@ -302,9 +343,7 @@ public enum LaunchDirector {
     /// When the overlay goes, on the splash's clock; nil until the app is ready.
     public static func finishTime(_ input: LaunchInput) -> Double? {
         if input.reduceMotion { return input.readyAt.map { max($0, AssembleScene.minimumVisible) + Theme.Launch.reducedFade } }
-        guard let hs = handoffStart(readyAt: input.readyAt, skippedAt: input.skippedAt) else { return nil }
-        let leap = leap(input, from: hs)
-        return hs + (input.target == nil ? leap.touchdown + fadeWithoutTarget : leap.end)
+        return handoff(input)?.finish
     }
 
     /// Reduce Motion: the creature is simply there (a 0.15 s fade in), still, eyes open, with its shadow and the wordmark;
@@ -355,32 +394,57 @@ public struct Leap: Sendable {
     /// Points per second, negative is up (the splash may be mid-hop).
     public let startVelocityY: CGFloat
     public let target: LaunchTarget
+    /// The crouch before it (from the ground): 0.08 s, longer while a skipped gather finishes.
+    public let crouch: Double
+    /// Takeoff to touchdown, and the apex above the higher end: the leap's 0.50 s and 12 pt, or the splash hop's own.
+    public let flightTime: Double
+    public let apexHeight: CGFloat
 
-    public init(start: Creature.Pose, feet: CGPoint, unit: CGFloat, startVelocityY: CGFloat, target: LaunchTarget) {
+    public init(start: Creature.Pose, feet: CGPoint, unit: CGFloat, startVelocityY: CGFloat, target: LaunchTarget,
+                crouch: Double = Leap.anticipation, flight: Double = Leap.flight, apex: CGFloat = Leap.apex) {
         self.start = start; self.feet = feet; self.unit = unit; self.startVelocityY = startVelocityY; self.target = target
+        self.crouch = max(crouch, Self.anticipation); self.flightTime = flight; self.apexHeight = apex
+    }
+
+    /// Nowhere to go: the splash's own hop where it stands (2.4 cells, 0.30 s in the air), so the same gravity, never a
+    /// slow float.
+    public static func hopInPlace(from start: Creature.Pose, feet: CGPoint, unit: CGFloat, crouch: Double = Leap.anticipation) -> Leap {
+        Leap(start: start, feet: feet, unit: unit, startVelocityY: 0, target: LaunchTarget(feet: feet, unit: unit, asleep: false),
+             crouch: crouch, flight: AssembleScene.hopLand - AssembleScene.hopTakeoff, apex: AssembleScene.hopHeight * unit)
     }
 
     /// On the ground: still, legs down. In the air (mid-hop) the crouch is skipped.
     var grounded: Bool { abs(startVelocityY) < 1 && !start.legsTucked }
-    public var takeoff: Double { grounded ? Self.anticipation : 0 }
-    public var touchdown: Double { takeoff + Self.flight }
+    public var takeoff: Double { grounded ? crouch : 0 }
+    public var touchdown: Double { takeoff + flightTime }
     public var end: Double { touchdown + (target.asleep ? 0.86 : 0.50) }
     /// Toward the target: -1 left, 1 right, 0 straight up (a hop in place).
     var direction: Int { abs(target.feet.x - feet.x) < 1 ? 0 : target.feet.x < feet.x ? -1 : 1 }
 
     /// The arc's initial vertical speed and gravity (pt/s, pt/s²), landing on the target after `flight`. From the ground the
     /// apex is `apex` above the higher end: H = apex + max(0, start - target), s = (√(2H) + √(2H + 2D)) / T, g = s²,
-    /// vy = -√(2gH); the root is never negative. From the air the arc keeps the speed it had, unless that needs less than
-    /// half that gravity (a higher target): then it kicks off again from where it is.
+    /// vy = -√(2gH); the root is never negative. From the air the arc keeps the speed it had (`keepsItsSpeed`); when that
+    /// would need less than half the ground arc's gravity, the launch does not leap from the air (it lands first).
     public var ballistics: (vy: CGFloat, g: CGFloat) {
-        let T = CGFloat(Self.flight), D = target.feet.y - feet.y
-        let H = Self.apex + max(0, -D)
-        let s = ((2 * H).squareRoot() + (2 * H + 2 * D).squareRoot()) / T
-        let arc = (vy: -s * (2 * H).squareRoot(), g: s * s)
+        let arc = groundArc
         guard !grounded else { return arc }
-        let g = 2 * (D - startVelocityY * T) / (T * T)
-        return g >= arc.g / 2 ? (startVelocityY, g) : arc
+        let kept = keptArc
+        return kept.g >= arc.g / 2 ? kept : arc
     }
+    /// From the ground: the arc with its apex `apex` above the higher end.
+    var groundArc: (vy: CGFloat, g: CGFloat) {
+        let T = CGFloat(flightTime), D = target.feet.y - feet.y
+        let H = apexHeight + max(0, -D)
+        let s = ((2 * H).squareRoot() + (2 * H + 2 * D).squareRoot()) / T
+        return (vy: -s * (2 * H).squareRoot(), g: s * s)
+    }
+    /// From the air: the arc that keeps the speed the creature has.
+    var keptArc: (vy: CGFloat, g: CGFloat) {
+        let T = CGFloat(flightTime), D = target.feet.y - feet.y
+        return (startVelocityY, 2 * (D - startVelocityY * T) / (T * T))
+    }
+    /// From the air, the speed it has carries it to the target under a natural gravity (at least half the ground arc's).
+    public var keepsItsSpeed: Bool { !grounded && keptArc.g >= groundArc.g / 2 }
 
     /// The blink after a landing: half, slit, half, open.
     static func blink(at start: Double) -> [(Double, Double)] {
@@ -404,7 +468,7 @@ public struct Leap: Sendable {
         pose.liftedLegs = Creature.Pose.rest.liftedLegs
         pose.eyeBottom = Creature.Pose.rest.eyeBottom
         if tau < touchdown {
-            let u = (tau - takeoff) / Self.flight, tf = CGFloat(tau - takeoff)
+            let u = (tau - takeoff) / flightTime, tf = CGFloat(tau - takeoff)
             let (vy, g) = ballistics
             let at = CGPoint(x: feet.x + (target.feet.x - feet.x) * CGFloat(Ease.travel(u)), y: feet.y + vy * tf + g * tf * tf / 2)
             let cell = unit + (target.unit - unit) * CGFloat(Ease.shrink(u))
@@ -464,8 +528,7 @@ public enum GuideExit {
 
     public static func frame(at tau: Double, from source: LaunchTarget?, to target: LaunchTarget?, reduceMotion: Bool) -> LaunchFrame {
         guard let source, !reduceMotion else { return dissolve(at: tau, reduceMotion: reduceMotion) }
-        let leap = Leap(start: .rest, feet: source.feet, unit: source.unit, startVelocityY: 0,
-                        target: target ?? LaunchTarget(feet: source.feet, unit: source.unit, asleep: false))
+        let leap = leap(from: source, to: target)
         let (pose, feet, unit) = leap.frame(at: tau)
         var f = LaunchFrame(feet: feet, unit: unit)
         f.pose = pose
@@ -501,8 +564,13 @@ public enum GuideExit {
     public static func finishTime(from source: LaunchTarget?, to target: LaunchTarget?, reduceMotion: Bool) -> Double {
         if reduceMotion { return Theme.Launch.reducedFade }
         guard let source else { return LaunchDirector.screensDelay + LaunchDirector.screensFade }
-        let leap = Leap(start: .rest, feet: source.feet, unit: source.unit, startVelocityY: 0,
-                        target: target ?? LaunchTarget(feet: source.feet, unit: source.unit, asleep: false))
+        let leap = leap(from: source, to: target)
         return target == nil ? leap.touchdown + LaunchDirector.fadeWithoutTarget : leap.end
+    }
+
+    /// The All set creature's leap into the sidebar, or, with nowhere to go, the splash's hop where it stands.
+    static func leap(from source: LaunchTarget, to target: LaunchTarget?) -> Leap {
+        guard let target else { return Leap.hopInPlace(from: .rest, feet: source.feet, unit: source.unit) }
+        return Leap(start: .rest, feet: source.feet, unit: source.unit, startVelocityY: 0, target: target)
     }
 }
