@@ -74,7 +74,7 @@ import BrainmergeTestSupport
         try git(["reset", "-q", "--hard", "HEAD~1"], in: brain)
         #expect(try git(["merge", "-q", "--no-commit", "--no-ff", "other"], in: brain).status == 0)
         #expect(exists("MERGE_HEAD", in: brain))
-        let bare = Brain(root: URL(filePath: brain.root.path.hasSuffix("/") ? String(brain.root.path.dropLast()) : brain.root.path))
+        let bare = Brain(root: URL(filePath: brain.root.path.hasSuffix("/") ? String(brain.root.path.dropLast()) : brain.root.path, directoryHint: .notDirectory))
         #expect(!bare.root.hasDirectoryPath, "the case under test: a folder URL with no trailing slash")
         #expect(try BrainGit(brain: bare).operationUnfinished())
         #expect(try BrainGit(brain: brain).operationUnfinished())
