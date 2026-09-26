@@ -159,7 +159,7 @@ import BrainmergeTestSupport
     }
 
     /// Each save leaves its objects loose, one file each, as a commit of yours does. Past the memory's own `gc.auto`, git
-    /// packs them after the save, as after a commit of yours: a memory never piles up thousands of loose files.
+    /// packs them after the save, as after a commit of yours: loose objects no longer pile up without end.
     @Test func gitPacksAMemoryAfterSaves() throws {
         let home = try TempHome(); defer { home.remove() }
         let (brain, git) = try memory(home)
