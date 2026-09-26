@@ -37,4 +37,15 @@ import BrainmergeTestSupport
         #expect(throws: BrainmergeError.nameInvalid) { try e.manager.update(slug: "perso", name: "\"", tint: nil, logo: nil) }
     }
 
+
+    /// "Work (Claude)" would share its app with Work's tinted copy: refused, like the same name.
+    @Test func aNameWhoseAppIsAnotherAccountsCopyIsTaken() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        #expect(throws: BrainmergeError.identityNameTaken("Work (Claude)")) { try e.manager.add(IdentityManager.AddRequest(name: "Work (Claude)")) }
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Studio (Claude)"))
+        #expect(throws: BrainmergeError.identityNameTaken("Studio")) { try e.manager.add(IdentityManager.AddRequest(name: "Studio")) }
+    }
+
 }

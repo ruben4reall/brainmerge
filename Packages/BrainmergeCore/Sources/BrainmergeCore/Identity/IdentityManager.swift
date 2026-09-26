@@ -640,8 +640,15 @@ public final class IdentityManager: @unchecked Sendable {
     /// Two identities never share a name: the name forms the launcher app's path.
     func ensureNameAvailable(_ name: String, excluding slug: String?, in state: AppState) throws {
         let candidate = Identity(slug: "candidate", name: name).bundleDisplayName
+        // Both kinds of app of each account: "Work (Claude)" would be the app path of Work's tinted copy, and removing
+        // one account would delete the other's app.
+        func appNames(_ display: String) -> Set<String> {
+            [paths.launcherApp(name: display), paths.tintedClone(name: display)].map { $0.lastPathComponent.lowercased() }.reduce(into: []) { $0.insert($1) }
+        }
+        let mine = appNames(candidate)
         let taken = state.identities.contains {
-            $0.slug != slug && $0.bundleDisplayName.caseInsensitiveCompare(candidate) == .orderedSame
+            $0.slug != slug && ($0.bundleDisplayName.caseInsensitiveCompare(candidate) == .orderedSame
+                                || !appNames($0.bundleDisplayName).isDisjoint(with: mine))
         }
         if taken { throw BrainmergeError.identityNameTaken(name) }
     }
