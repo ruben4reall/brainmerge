@@ -113,6 +113,14 @@ public final class AppModel {
     var linkGate = BrainmergeLink.Gate()
     /// The Accounts menu's Add Account…: the Accounts screen opens its add sheet.
     public var requestedAdd = false
+    /// The quick opener's shortcut setting, per Mac: set by the app delegate, which owns it (nil in tests and previews).
+    public var quickOpener: QuickOpener?
+    /// The quick opener's Cmd-U: the Usage screen brings this account's card into view, then clears it.
+    public var requestedUsage: String?
+    /// Opens a memory folder with the notes app setting; a fake in tests, which never start an app.
+    @ObservationIgnored var openInNotes: @MainActor (URL, String?) -> Void = { url, setting in
+        NotesApps.open(url, with: NotesApps.target(for: setting, installed: NotesApps.installed()))
+    }
     /// Goes up each time a link or the Accounts menu needs the window (a screen, the Log in sheet, a message): the
     /// scenes open it, or bring it forward, even when a link arrives with it closed (Brainmerge kept in the menu bar).
     public internal(set) var windowRequests = 0
@@ -1285,6 +1293,8 @@ public final class AppModel {
         stopWatching()
         let report: Uninstaller.Report? = await perform("Removing Brainmerge…") { try uninstaller.run() }
         if report == nil { watchingSuspended = false; updateWatching() }
+        // The quick opener's shortcut is a setting of this Mac, outside the state: it goes too.
+        else { quickOpener?.forget() }
         return report
     }
 

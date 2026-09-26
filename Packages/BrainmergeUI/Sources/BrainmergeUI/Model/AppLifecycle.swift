@@ -16,8 +16,8 @@ public enum AppLifecycle {
     }
 
     /// With the icon, Brainmerge stays in the menu bar once its window is closed; without it, nothing would be left to
-    /// click but the Dock, so it quits.
-    public static func quitsWhenLastWindowCloses(iconShown: Bool) -> Bool { !iconShown }
+    /// click but the Dock, so it quits. A registered quick opener shortcut is something to press: it stays for it too.
+    public static func quitsWhenLastWindowCloses(iconShown: Bool, openerActive: Bool) -> Bool { !iconShown && !openerActive }
 
     /// The icon dragged out of the menu bar with the window closed would leave Brainmerge running with nothing to click
     /// but the Dock: the window opens again.

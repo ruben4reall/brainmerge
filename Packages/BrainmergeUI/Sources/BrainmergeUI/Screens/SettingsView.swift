@@ -74,6 +74,10 @@ public struct SettingsView: View {
                             Text(MenuBarMenu.settingFootnote)
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
+                        // Per Mac, set by the app delegate: absent in previews and tests.
+                        if let opener = model.quickOpener {
+                            section(QuickOpener.sectionTitle) { QuickOpenerSetting(opener: opener) }
+                        }
                         section("Distinct icons") {
                             Toggle("Rebuild tinted copies after each Claude update", isOn: Binding(get: { model.autoRebuild }, set: { model.setAutoRebuild($0) })).toggleStyle(.switch).tint(Theme.Colors.accent)
                             Text("Only accounts that chose a distinct Dock icon are affected. Accounts that are open are rebuilt the next time they are closed.")
@@ -179,5 +183,62 @@ public struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20).padding(.vertical, 16)
         .overlay(alignment: .bottom) { if !last { Divider().overlay(Theme.Colors.surfaceLine).padding(.horizontal, 20) } }
+    }
+}
+
+/// Settings, Quick opener: the switch, the shortcut (click it, then type the new one), and what went wrong, if anything.
+struct QuickOpenerSetting: View {
+    @Bindable var opener: QuickOpener
+    @State private var recorder = KeyRecorder()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Toggle(QuickOpener.settingTitle, isOn: Binding(get: { opener.isOn }, set: { opener.setOn($0) }))
+                    .toggleStyle(.switch).tint(Theme.Colors.accent)
+                Button(opener.isRecording ? QuickOpener.recordingLabel : opener.shortcut.display) {
+                    if opener.isRecording { stop() } else { recorder.start(opener) }
+                }
+                .buttonStyle(.glass).controlSize(.small)
+                .help(opener.isRecording ? "Esc keeps the current shortcut" : "Click, then type a new shortcut")
+                .accessibilityLabel(opener.isRecording ? QuickOpener.recordingLabel : "Shortcut \(opener.shortcut.display)")
+            }
+            if let problem = opener.problem {
+                Text(problem).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.accentLight)
+            }
+            Text(QuickOpener.caption).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+        }
+        .onDisappear { stop() }
+    }
+
+    func stop() {
+        if opener.isRecording { opener.cancelRecording() }
+        recorder.stop()
+    }
+}
+
+/// While a shortcut is recorded, the keys typed in Brainmerge's own window go to the recorder and nowhere else. A local
+/// monitor: it hears this app's keys only, and needs no permission.
+@MainActor final class KeyRecorder {
+    private var monitor: Any?
+
+    func start(_ opener: QuickOpener) {
+        opener.beginRecording()
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let code = event.keyCode, characters = event.charactersIgnoringModifiers, modifiers = event.modifierFlags
+            let taken = MainActor.assumeIsolated { () -> Bool in
+                guard opener.isRecording else { return false }
+                // Removed on the next turn, not from inside its own callback.
+                if opener.record(keyCode: code, characters: characters, modifiers: modifiers) { Task { @MainActor in self?.stop() } }
+                return true
+            }
+            return taken ? nil : event
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
     }
 }

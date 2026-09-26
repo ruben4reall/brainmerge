@@ -24,10 +24,13 @@ import Testing
         #expect(!AppLifecycle.isCaptureOrDemo(environment: [:]))
     }
 
-    /// With the icon, closing the window keeps Brainmerge in the menu bar; without it, closing the window quits.
-    @Test func windowCloseKeepsRunningOnlyWithTheIcon() {
-        #expect(AppLifecycle.quitsWhenLastWindowCloses(iconShown: true) == false)
-        #expect(AppLifecycle.quitsWhenLastWindowCloses(iconShown: false) == true)
+    /// With the icon, closing the window keeps Brainmerge in the menu bar; without it, closing the window quits,
+    /// unless the quick opener's shortcut is registered: it works with the window closed.
+    @Test func windowCloseKeepsRunningOnlyWithTheIconOrTheOpener() {
+        #expect(AppLifecycle.quitsWhenLastWindowCloses(iconShown: true, openerActive: false) == false)
+        #expect(AppLifecycle.quitsWhenLastWindowCloses(iconShown: false, openerActive: false) == true)
+        #expect(AppLifecycle.quitsWhenLastWindowCloses(iconShown: false, openerActive: true) == false)
+        #expect(AppLifecycle.quitsWhenLastWindowCloses(iconShown: true, openerActive: true) == false)
     }
 
     /// The icon dragged out of the menu bar with the window closed would leave Brainmerge with nothing to click but

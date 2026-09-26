@@ -10,6 +10,16 @@ public struct UsageView: View {
     public init(model: AppModel) { self.model = model }
 
     public var body: some View {
+        ScrollViewReader { proxy in content
+            .onChange(of: model.requestedUsage, initial: true) { focusRequested(proxy) }
+            .onChange(of: model.usage) { focusRequested(proxy) }
+            .onChange(of: model.usageRefreshing) { focusRequested(proxy) }
+        }
+        // A request left over when the screen goes (no card to show) never scrolls a later visit.
+        .onDisappear { model.requestedUsage = nil }
+    }
+
+    var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 ScreenHeader("Usage", subtitle: "What your accounts use on this Mac and spent in Claude Code. Brainmerge never reads limits by itself: Check limits asks that account's Claude Code.") {
@@ -25,7 +35,7 @@ public struct UsageView: View {
                     }
                     .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
                 }
-                ForEach(model.usage) { entry in card(entry).frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading) }
+                ForEach(model.usage) { entry in card(entry).frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading).id(entry.id) }
                 HStack(spacing: 6) {
                     if let date = model.usageUpdatedAt { Text("Updated \(date.formatted(date: .omitted, time: .shortened)).") }
                     Text("Estimates: output tokens are what Claude wrote, context is what it read (cache included). Brainmerge never switches accounts for you.")
@@ -48,6 +58,25 @@ public struct UsageView: View {
                 await model.refreshDisk()
                 try? await Task.sleep(for: .seconds(5))
             }
+        }
+    }
+
+    /// The quick opener's Cmd-U: scroll to the card holding the account (a shared history's card too), or let go once
+    /// a read is done without one, so no later read scrolls on its own. Nil waits.
+    enum Focus: Equatable { case scroll(String), drop }
+    static func focus(requested: String?, usage: [AccountUsage], refreshing: Bool, updated: Date?) -> Focus? {
+        guard let requested else { return nil }
+        if let entry = usage.first(where: { $0.slugs.contains(requested) }) { return .scroll(entry.id) }
+        return !refreshing && updated != nil ? .drop : nil
+    }
+
+    func focusRequested(_ proxy: ScrollViewProxy) {
+        switch Self.focus(requested: model.requestedUsage, usage: model.usage, refreshing: model.usageRefreshing, updated: model.usageUpdatedAt) {
+        case .scroll(let id):
+            proxy.scrollTo(id, anchor: .top)
+            model.requestedUsage = nil
+        case .drop: model.requestedUsage = nil
+        case nil: break
         }
     }
 

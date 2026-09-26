@@ -27,7 +27,7 @@ public enum MenuBarMenu {
     public static let fixedItems = [openTitle, settingsTitle, starTitle, quitTitle]
 
     public static let settingTitle = "Show in the menu bar"
-    public static let settingFootnote = "Open or show any account from the top right of your screen. With it on, closing this window keeps Brainmerge running there. With it off, closing the window quits Brainmerge."
+    public static let settingFootnote = "Open or show any account from the top right of your screen. With it on, closing this window keeps Brainmerge running there. With it off, closing the window quits Brainmerge, unless the quick opener is on."
 
     /// The sidebar's rows, in its order. Accounts without a Claude window are left out: the menu opens windows.
     /// `busy` is every account whose app is being worked on (AppModel.accountsBusy), as for the sidebar.

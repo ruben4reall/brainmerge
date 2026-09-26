@@ -51,6 +51,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Layout.rowRadius` | 10 | sidebar rows: their selection, hover and press fills |
 | `Layout.readingWidth` / `formWidth` | 880 / 720 | the widest a Memory or Usage card gets / the settings form |
 | `Layout.meterRadius` | 3 | the thin RAM and limit bars of the Usage screen |
+| `Layout.panelRadius` | 16 | the quick opener's glass panel |
 
 The menu bar icon (`Design/MenuBarIcon.swift`) is the creature drawn from the same grid as a template image: macOS paints it in the menu bar's own color, so it carries no token. Cells are 1.5 pt on a Retina display (1 pt at 1x, to stay on whole pixels) in a 24 by 18 pt canvas, so the creature is 16.5 pt tall; its eyes are cut out, open while an account is open or opening, a thin line one row lower otherwise. No badge, no count, no animation. The accounts in its menu carry a 10 pt dot in their tint (`Theme.color(for:)`).
 
@@ -71,10 +72,13 @@ Aura colors, in order: `#A06BE0`, `#C58FD9`, `#7FB5E8`, `#8FC7A6`, `#E9A45C`, `#
 | Secondary | system sans, 12.5 |
 | Section label | system sans, 11.5, semibold, uppercase |
 | Caption | system sans, 11 |
+| Quick opener field | system sans, 18 |
 
 Every screen starts with `ScreenHeader`: the serif title, an optional subtitle capped at 560 points, and the screen's actions on the right, aligned with the title line. The default font of the window is `Fonts.body`, so an unstyled text never falls back to the system size.
 
 The Memory screen switches between three tabs with one segmented control: Graph, Timeline and Tidy, whose name carries its count ("Tidy (4)", no number when there is nothing to tidy). Tidy's rows sit in glass cards under section labels, one per group: a sentence, a quiet second line (`textMuted`), and at most one glass button (File under…, Hide, Compare or Open).
+
+The quick opener is a 560 point panel over whatever app is in front, dark whatever that app is: regular glass tinted with `background` at 55%, `panelRadius` corners, no shadow of its own and no animation beyond the system's panel appearance (none with Reduce Motion). A search field in `Fonts.search`, a `surfaceLine` divider, then rows of 44 points: a 28 point orb (the photo or the tint), the name in `cardName`, the note in `secondary` `textMuted`, and the sidebar's word in `caption` on the right (`textFaint` when it does nothing). The picked row takes `selection` with `rowRadius` corners. A `caption` line at the bottom names the keys. No button at all: the keys and a click on a row are the actions.
 
 ## Retheming
 

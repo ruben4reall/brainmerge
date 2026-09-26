@@ -423,4 +423,19 @@ import Testing
         #expect(reads == ["PATH"])
         for forbidden in ["ProcessInfo", "environ", "Shell("] { #expect(!code.contains(forbidden), "CodeCommand.swift: \(forbidden)") }
     }
+
+    /// The quick opener hears its own shortcut through RegisterEventHotKey, which needs no permission. Nothing that
+    /// hears every key or drives other apps (an event tap, HID, a global monitor, Accessibility): those need Input
+    /// Monitoring or Accessibility and would read like a keylogger.
+    @Test func hotKeysNeedNoPermission() throws {
+        let hits = try offenders(["CGEvent.tapCreate", "CGEventTap", "tapCreate(", "IOHIDManager", "IOHIDDevice", "import IOKit.hid",
+                                  "addGlobalMonitorForEvents", "AXIsProcessTrusted", "AXUIElement", "kAXTrustedCheckOption"])
+        #expect(hits.isEmpty, "\(hits)")
+        let carbon = try Self.sources().filter { file in
+            file.1.split(separator: "\n").contains { line in
+                !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") && (line.contains("import Carbon") || line.contains("EventHotKey("))
+            }
+        }.map { $0.0.lastPathComponent }
+        #expect(carbon == ["HotKey.swift"], "\(carbon)")
+    }
 }
