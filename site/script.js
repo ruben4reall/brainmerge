@@ -376,17 +376,44 @@
       { name: 'Client', note: 'Client work', word: 'Open' }
     ];
 
+    // Where a value of `ease` (increasing, 0 to 1) is reached: the progress at which it equals y.
+    function crossing(ease, y) {
+      var lo = 0, hi = 1;
+      for (var i = 0; i < 40; i++) { var mid = (lo + hi) / 2; if (ease(mid) < y) lo = mid; else hi = mid; }
+      return (lo + hi) / 2;
+    }
+
+    // The menu bar's pointer (styles.css, .mb-cursor): it rests on the icon, presses it, and at `moveAt` travels 86 px down
+    // in 460 ms on the move curve, its tip going from the icon, 13 px above the menu, to Open Work. In the menu's own
+    // pixels (from its top edge) the account rows start at 25.3, 47.3 and 69.3 px, 22 px each, as the page lays them out. A macOS menu lights a row the moment the pointer
+    // enters it: each row's beat is the time the tip crosses 1 px into it.
+    var MENU = { press: 200, open: 220, moveAt: 560, move: 460, from: -13, travel: 86, rows: [25.3, 47.3, 69.3], rowHeight: 22 };
+    function menuTip(ms) {
+      var u = clamp01((ms - MENU.moveAt) / MENU.move);
+      return MENU.from + MENU.travel * easeMove(u);
+    }
+    function menuBeats() {
+      var beats = [[MENU.press, 'b-press'], [MENU.open, 'b-open'], [MENU.moveAt, 'b-move']];
+      MENU.rows.forEach(function (top, i) {
+        var u = crossing(easeMove, (top + 1 - MENU.from) / MENU.travel);
+        beats.push([Math.round(MENU.moveAt + u * MENU.move), 'b-h' + (i + 1)]);
+      });
+      return beats;
+    }
+
     // The small scenes that illustrate a feature: each beat adds one class at its time (ms after the scene is in view).
     // A scene plays once. Its last beat is its still, which is also what Reduce Motion and a page without script show.
     var SCENES = {
-      // The menu bar: the icon is clicked, its menu drops, the pointer goes down to Open Work.
-      menu: [[0, 'b-press'], [120, 'b-open'], [480, 'b-move'], [700, 'b-h1'], [800, 'b-h2'], [900, 'b-h3']],
-      // The quick opener: the shortcut, the panel, "w" then "o", Return: the panel closes and Work's window opens.
-      opener: [[0, 'b-keys'], [160, 'b-open'], [760, 'b-w'], [920, 'b-wo'], [1500, 'b-return'], [1640, 'b-closed'], [1760, 'b-window']],
-      // RAM and disk: the Mac's meter fills account by account, then the rows come in.
-      ram: [[0, 'b-meter'], [420, 'b-rows']],
-      // Check limits: the click, Claude Code is asked, its two limits come in as bars, and when.
-      limits: [[0, 'b-press'], [180, 'b-asking'], [980, 'b-bars'], [1580, 'b-checked']],
+      // The menu bar: the pointer rests on the icon, clicks it, the menu shows, the pointer goes down to Open Work.
+      menu: menuBeats(),
+      // The quick opener: the shortcut (Control and Option, then Space), the panel, "w" then "o", Return. Each key goes
+      // down 40 ms before what it does. The story ends on the panel with Work picked, as the still shows it.
+      opener: [[0, 'b-keys'], [120, 'b-space'], [160, 'b-open'], [720, 'b-kw'], [760, 'b-w'], [880, 'b-ko'], [920, 'b-wo'], [1460, 'b-return']],
+      // RAM and disk: the Mac's meter fills, then the rows come in, each with its bar.
+      ram: [[0, 'b-meter'], [300, 'b-rows']],
+      // Check limits: the click, Claude Code is asked, its two limits come in as bars, and "Checked at" takes the header
+      // 60 ms after "Asking" starts to leave.
+      limits: [[0, 'b-press'], [180, 'b-asking'], [980, 'b-bars'], [1040, 'b-checked']],
       // All set: six checks pop in 60 ms apart from 0.4 s (AllSetBeat), the creature hops once they are in, then Health.
       allset: [[0, 'b-in'], [2000, 'b-health'], [2900, 'b-healthy']],
       // Connections: the account and its browser profile are paired by a thread, then its buttons show.
@@ -395,6 +422,17 @@
       tidy: [[0, 'b-press'], [260, 'b-fly'], [1320, 'b-filed']]
     };
     var ALLSET = { checksFrom: 0.4, stagger: 0.06, hop: 0.4 + 6 * 0.06 + 0.15, hopHeight: 2.25 };
+
+    // Scenes side by side come on screen together: the second waits for the first to finish, so the eye follows one story
+    // at a time. A scene waits only for one that is still playing and at least 30% on screen.
+    var CHAIN = { gap: 150, share: 0.3 };
+    function sceneLength(name) {
+      var beats = SCENES[name] || [];
+      return beats.length ? beats[beats.length - 1][0] : 0;
+    }
+    function chainWait(now, busyUntil, busyShare) {
+      return busyUntil > now && busyShare >= CHAIN.share ? busyUntil - now : 0;
+    }
 
     // Blocks that come on screen together rise in reading order, 60 ms apart; a long batch (a fast scroll, a tall
     // screen) never keeps the last one waiting more than 300 ms after the first.
@@ -410,7 +448,8 @@
       GRID: GRID, bodyPixels: bodyPixels, ARMS: ARMS, restPose: restPose, poseCells: poseCells, cellsPath: cellsPath,
       springDisp: springDisp, springValue: springValue, hash01: hash01, ASSEMBLE: ASSEMBLE, gatherPixels: gatherPixels,
       assembleFrame: assembleFrame, SPARKLES: SPARKLES, spritePath: spritePath, SAVED: SAVED, savedFrame: savedFrame,
-      gaze: gaze, openerFilter: openerFilter, DEMO: DEMO, SCENES: SCENES, ALLSET: ALLSET, batchDelays: batchDelays
+      gaze: gaze, openerFilter: openerFilter, DEMO: DEMO, SCENES: SCENES, ALLSET: ALLSET, batchDelays: batchDelays,
+      crossing: crossing, MENU: MENU, menuTip: menuTip, CHAIN: CHAIN, sceneLength: sceneLength, chainWait: chainWait
     };
   })();
 
@@ -510,6 +549,11 @@
     if (!pending.length && !scenes.length) window.removeEventListener('scroll', onScroll);
   }
   function onScroll() { if (!queued) { queued = true; requestAnimationFrame(showAbove); } }
+  // On paper, everything is its still (styles.css shows the reveals; here, each scene's last beat).
+  window.addEventListener('beforeprint', function () {
+    pending.forEach(function (el) { el.classList.add('is-in'); });
+    scenes.forEach(finishScene);
+  });
   window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('load', showAbove);
 
@@ -530,12 +574,24 @@
     setTimeout(function () { el.classList.add('is-done'); }, beats.length ? beats[beats.length - 1][0] + 1000 : 0);
     if (sceneHooks[name]) sceneHooks[name](el);
   }
+  // The scene playing now, and when it ends (with its gap): a scene arriving meanwhile waits for it, if it is in view.
+  var busy = null;
+  function onScreen(el) {
+    var r = el.getBoundingClientRect(), h = window.innerHeight || root.clientHeight;
+    return r.height > 0 ? Math.max(0, Math.min(r.bottom, h) - Math.max(r.top, 0)) / r.height : 0;
+  }
+  function queueScene(el) {
+    var now = performance.now();
+    var wait = busy ? Motion.chainWait(now, busy.until, onScreen(busy.el)) : 0;
+    busy = { el: el, until: now + wait + Motion.sceneLength(el.getAttribute('data-scene')) + Motion.CHAIN.gap };
+    setTimeout(function () { playScene(el); }, wait);
+  }
   var sceneSeen = new IntersectionObserver(function (entries) {
     entries.forEach(function (entry) {
       if (entry.intersectionRatio < 0.5) return;
       sceneSeen.unobserve(entry.target);
       scenes = scenes.filter(function (el) { return el !== entry.target; });
-      setTimeout(function () { playScene(entry.target); }, 220);
+      setTimeout(function () { queueScene(entry.target); }, 220);
     });
   }, { threshold: [0.5] });
   scenes.forEach(function (el) { sceneSeen.observe(el); });
@@ -645,17 +701,39 @@
     finaleDraw.lookDown = 0;
     finaleDraw(Motion.assembleFrame(0).pose, Motion.assembleFrame(0).shadow);
     var landed = false, assembled = false;
-    var goFinale = new IntersectionObserver(function (entries) {
-      if (!entries.some(function (e) { return e.isIntersecting; })) return;
+    var ring = finale.querySelector('.btn-ring');
+    var startFinale = function () {
+      if (finale.classList.contains('b-go')) return;
       goFinale.disconnect();
       finale.classList.add('b-go');
       run(Motion.ASSEMBLE.end, function (t) {
         var f = Motion.assembleFrame(t);
-        if (!landed && t >= Motion.ASSEMBLE.hopLand) { landed = true; finale.classList.add('b-land'); }
+        if (!landed && t >= Motion.ASSEMBLE.hopLand) {
+          landed = true;
+          // The ring grows 8 px on every side, whatever the button's size.
+          if (ring && ring.offsetWidth) {
+            ring.style.setProperty('--ring-x', r3(1 + 16 / ring.offsetWidth));
+            ring.style.setProperty('--ring-y', r3(1 + 16 / ring.offsetHeight));
+          }
+          finale.classList.add('b-land');
+        }
         finaleDraw(f.pose, f.shadow);
       }, function () { assembled = true; finale.classList.add('is-done'); });
+    };
+    var goFinale = new IntersectionObserver(function (entries) {
+      if (entries.some(function (e) { return e.isIntersecting; })) startFinale();
     }, { rootMargin: '0px 0px -30% 0px', threshold: 0 });
     goFinale.observe(finaleSvg);
+    // On paper, the creature stands whole even if the finale was never reached.
+    window.addEventListener('beforeprint', function () {
+      if (!finale.classList.contains('b-go')) finaleDraw(Motion.restPose(), { opacity: 1, inset: 0 });
+    });
+    // A keyboard reaching the finale first: what has the focus shows within a frame, and the creature assembles anyway.
+    finale.addEventListener('focusin', function () {
+      if (finale.classList.contains('b-go')) return;
+      finale.classList.add('b-now');
+      startFinale();
+    });
     var finaleHop = saver(finaleDraw, Motion.ALLSET.hopHeight, true);
     var finaleBtn = finale.querySelector('.btn-primary');
     var restLook = function (down) {
@@ -875,6 +953,9 @@
     function tick() {
       // performance.now(), not the frame's timestamp: both clocks then agree (pause, resume, captures).
       var t = (performance.now() - t0) / 1000;
+      // Before the story restarts (a mode change), the last frame stays while it fades out (styles.css, is-switching).
+      if (t < 0) { raf = requestAnimationFrame(tick); return; }
+      fig.classList.remove('is-switching');
       if (t >= story.end) { paint(Motion.storyFrame(story.end, mode)); state = 'done'; raf = 0; label(); return; }
       paint(Motion.storyFrame(t, mode));
       raf = requestAnimationFrame(tick);
@@ -899,6 +980,7 @@
       if (reduce || !hasIO) { paint(Motion.storyFrame(reduce ? story.hero[m] : story.end, m)); return; }
       // The boxes move for 420 ms; the story starts over once they have settled.
       if (state === 'idle') { paint(Motion.storyFrame(-1, m)); return; }
+      fig.classList.add('is-switching');
       play(-0.45);
     }
     opts.forEach(function (b) { b.addEventListener('click', function () { setMode(b.getAttribute('data-mode')); }); });
@@ -910,12 +992,14 @@
 
     if (reduce || !hasIO) { paint(Motion.storyFrame(reduce ? story.hero[mode] : story.end, mode)); label(); return; }
     paint(Motion.storyFrame(-1, mode));
-    // It plays once, when 40% of it is on screen, and waits (paused) while it is scrolled away.
-    var autoPaused = false;
+    // It plays once, when 40% of it is on screen and a beat after its reveal (220 ms, as the scenes), and waits (paused)
+    // while it is scrolled away.
+    var autoPaused = false, starting = false;
     new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
-        if (entry.intersectionRatio >= 0.4 && state === 'idle') play(0);
-        else if (!entry.isIntersecting && state === 'playing') { pause(); autoPaused = true; }
+        if (entry.intersectionRatio >= 0.4 && state === 'idle') {
+          if (!starting) { starting = true; setTimeout(function () { if (state === 'idle') play(0); }, 220); }
+        } else if (!entry.isIntersecting && state === 'playing') { pause(); autoPaused = true; }
         else if (entry.intersectionRatio >= 0.4 && state === 'paused' && autoPaused) { autoPaused = false; play(offset); }
       });
     }, { threshold: [0, 0.4] }).observe(fig);

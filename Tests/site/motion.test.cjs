@@ -444,13 +444,105 @@ test('the pages hold no inline style or script: the CSP forbids them', () => {
 });
 
 test('the illustrations\' numbers add up', () => {
-  const css = read('styles.css');
-  const scale = cls => Number(new RegExp(`\\.${cls} \\{[^}]*scaleX\\(([\\d.]+)\\)`).exec(css)[1]);
+  const css = read('styles.css'), html = read('index.html');
+  const scale = sel => Number(new RegExp(sel.replace(/\./g, '\\.') + ' \\{ transform: scaleX\\(([\\d.]+)\\)').exec(css)[1]);
   // RAM of a 16 GB Mac: Personal 1.9, Studio 1.2, a terminal session 0.6, other apps 7.5 (11.2 in all, 70%).
-  close(scale('seg-p'), 1.9 / 16); close(scale('seg-s'), 3.1 / 16); close(scale('seg-t'), 3.7 / 16); close(scale('seg-o'), 11.2 / 16);
-  const html = read('index.html');
+  const ram = { 'acc-p': 1.9, 'acc-s': 1.2, term: 0.6, other: 7.5 };
+  close(scale('.meter i'), 11.2 / 16);
+  close(Object.values(ram).reduce((a, b) => a + b, 0), 11.2);
+  for (const [row, gb] of Object.entries(ram)) close(scale(`.ram-rows .${row} .rbar i`), gb / 16, 1e-3);
+  // Each row's share, as the app words it: "12% of this Mac".
+  const rows = [...html.matchAll(/<li class="([\w-]+)">.*?<span class="ram[^"]*">([^<]*)(?:<small>(\d+)% of this Mac)?/g)];
+  assert.strictEqual(rows.length, 6);
+  rows.forEach(([, cls, fig, pct]) => {
+    if (!(cls in ram)) return assert.strictEqual(fig, 'Closed', cls);
+    assert.strictEqual(fig, ram[cls] + ' GB', cls);
+    assert.strictEqual(Number(pct), Math.round(ram[cls] / 16 * 100), cls);
+  });
+  // Disk: every account, closed ones included.
+  const disk = [...html.matchAll(/<span class="disk">([\d.]+) GB<\/span>/g)].reduce((a, m) => a + Number(m[1]), 0);
+  close(disk, 5.2);
   assert.ok(html.includes('RAM: 11.2 GB of 16 GB used (70%)'));
-  assert.ok(html.includes('Claude uses 3.7 GB of RAM, 23%. Your accounts take 4.4 GB on&nbsp;disk.'));
+  assert.ok(html.includes('Claude uses 3.7 GB of RAM, 23%. Your accounts take 5.2 GB on&nbsp;disk.'));
+  assert.ok(html.includes('<small>1 session, all accounts together</small>'), 'the terminal row as the app words it');
   close(Number(/\.lim-a \.bar i \{ transform: scaleX\(([\d.]+)\)/.exec(css)[1]), 0.17);
   close(Number(/\.lim-b \.bar i \{ transform: scaleX\(([\d.]+)\)/.exec(css)[1]), 0.42);
+});
+
+test('the menu bar lights each row the moment the pointer enters it', () => {
+  const css = read('styles.css');
+  const hs = M.SCENES.menu.filter(([, b]) => /^b-h\d$/.test(b));
+  assert.strictEqual(hs.length, 3);
+  hs.forEach(([t], i) => {
+    const top = M.MENU.rows[i];
+    const y = M.menuTip(t);
+    assert.ok(y >= top && y < top + M.MENU.rowHeight, `row ${i + 1}: the tip at ${y.toFixed(1)} px, the row from ${top}`);
+    assert.ok(M.menuTip(t - 16) < top + 1, `row ${i + 1} lights no later than a frame after the tip enters`);
+  });
+  close(M.menuTip(M.MENU.moveAt + M.MENU.move), 73);        // on Open Work (68 to 90), as the still shows it
+  assert.ok(M.menuTip(M.MENU.moveAt) < 0);                   // above the menu: on the icon
+  // The pointer's curve and travel in styles.css are the ones the beats are computed from.
+  assert.ok(new RegExp(`\\.mb-cursor \\{ transition: transform ${M.MENU.move}ms var\\(--ease-move\\)`).test(css));
+  assert.ok(css.includes(`translate(var(--mb-x), -${M.MENU.travel}px)`));
+  // It rests on the icon before it presses it, and the menu opens on the press.
+  const at = Object.fromEntries(M.SCENES.menu.map(([t, b]) => [b, t]));
+  assert.ok(at['b-press'] >= 150 && at['b-open'] - at['b-press'] <= 40 && at['b-move'] > at['b-open']);
+});
+
+test('scenes side by side play one after the other', () => {
+  assert.strictEqual(M.sceneLength('opener'), M.SCENES.opener[M.SCENES.opener.length - 1][0]);
+  assert.strictEqual(M.chainWait(1000, 1600, 0.8), 600);   // the other is playing, in view: wait for it
+  assert.strictEqual(M.chainWait(1000, 1600, 0.2), 0);     // mostly scrolled away: no wait
+  assert.strictEqual(M.chainWait(2000, 1600, 1), 0);       // already done
+});
+
+// Every rule of a scene that still applies once all its beats are in (the played scene's last frame) hides only what the
+// still hides, and shows only what the still shows: the played scene ends on the still.
+test('every played scene ends on its still', () => {
+  const css = read('styles.css');
+  const topLevel = sel => { const out = []; let depth = 0, cur = '';
+    for (const ch of sel) { if (ch === '(') depth++; if (ch === ')') depth--; if (ch === ',' && !depth) { out.push(cur.trim()); cur = ''; } else cur += ch; }
+    return out.concat(cur.trim()); };
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(m => ({ sels: topLevel(m[1].trim()), body: m[2] }));
+  const plain = cls => rules.filter(r => r.sels.some(s => s === '.' + cls || s.endsWith(' .' + cls) && !s.startsWith('.js')));
+  const hides = body => /(^|;)\s*(opacity:\s*0\s*(;|$)|visibility:\s*hidden|display:\s*none)/.test(body);
+  const shows = body => /(^|;)\s*(opacity:\s*1\s*(;|$)|visibility:\s*visible|display:\s*(block|inline|flex))/.test(body);
+  const hiddenInStill = cls => plain(cls).some(r => hides(r.body));
+  let checked = 0;
+  for (const [name, beats] of Object.entries(M.SCENES)) {
+    const all = new Set(beats.map(b => b[1]));
+    for (const r of rules) for (const sel of r.sels) {
+      const m = new RegExp(`\\.scene-${name}((?:\\.[\\w-]+|:not\\([^)]*\\))*)`).exec(sel);
+      if (!m) continue;
+      const pos = [...m[1].replace(/:not\([^)]*\)/g, '').matchAll(/\.(b-[\w-]+)/g)].map(x => x[1]);
+      const neg = [...m[1].matchAll(/:not\(\.(b-[\w-]+)\)/g)].map(x => x[1]);
+      if (!pos.every(b => all.has(b)) || neg.some(b => all.has(b))) continue;
+      const target = /\.([\w-]+)\s*$/.exec(sel);
+      if (!target || target[1].startsWith('b-') || target[1].startsWith('scene-')) continue;
+      checked++;
+      if (hides(r.body)) assert.ok(hiddenInStill(target[1]), `${sel}: hides .${target[1]}, which the still shows`);
+      if (shows(r.body)) assert.ok(!hiddenInStill(target[1]), `${sel}: shows .${target[1]}, which the still hides`);
+    }
+  }
+  assert.ok(checked > 5, 'the final rules are found: ' + checked);
+});
+
+test('the quick opener\'s caret follows the typed letters, in the still too', () => {
+  const html = read('index.html'), css = read('styles.css');
+  assert.ok(/<span class="qo-field"><span class="qo-typed">.*?<\/span><\/span><i class="qo-caret"><\/i><span class="qo-ph">Open an account<\/span><\/span>/.test(html),
+    'one row: typed letters, caret, placeholder');
+  assert.ok(/\.qo-field \{ display: inline-flex;/.test(css));
+  assert.ok(/\.qo-ph \{ display: none;/.test(css), 'with letters typed, the placeholder takes no room');
+  assert.ok(!/qo-win/.test(html), 'the story ends on the panel, as the still shows it');
+});
+
+test('visible text uses curly apostrophes', () => {
+  for (const name of ['index.html', '404.html']) assert.ok(!/[A-Za-z]'[A-Za-z]/.test(read(name)), name);
+});
+
+test('every file in site/assets is used by the site', () => {
+  const used = ['index.html', '404.html', 'styles.css', 'script.js'].map(read).join('\n');
+  const walk = dir => fs.readdirSync(path.join(SITE, dir), { withFileTypes: true })
+    .flatMap(e => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  for (const file of walk('assets')) assert.ok(used.includes(file.split(path.sep).join('/')), file + ' is not used');
 });

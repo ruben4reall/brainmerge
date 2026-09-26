@@ -35,7 +35,7 @@
   --ease-fall: cubic-bezier(0.55, 0, 1, 0.45);
   --ease-pop: cubic-bezier(0.34, 1.4, 0.64, 1);
   /* Durations. hover 120 and press 160: answers to the hand. quick 150, base 220: small state changes. page 320: a
-     panel. fade 420 and rise 640: a block arriving (readable before it stops moving). pop 600: the spring's length.
+     panel. fade 420 and rise 640: a block arriving (readable before it stops moving). pop 600: the spring's length. shot 900: the hero's screenshot, the one large arrival.
      stagger 60: siblings arriving in reading order. */
   --t-hover: 120ms;
   --t-press: 160ms;
@@ -45,6 +45,7 @@
   --t-fade: 420ms;
   --t-rise: 640ms;
   --t-pop: 600ms;
+  --t-shot: 900ms;
   --stagger: 60ms;
   --rise: 16px;
 }
@@ -272,13 +273,12 @@ code {
   bottom: -5px;
   height: 1px;
   background: currentColor;
-  transform: scaleX(0);
   transform-origin: left center;
   opacity: 0;
-  transition: transform var(--t-base) var(--ease-out), opacity var(--t-quick) var(--ease-color);
+  transition: opacity var(--t-quick) var(--ease-color);
 }
 .nav-links a.is-here { color: var(--text); }
-.nav-links a.is-here::after { transform: none; opacity: 0.7; }
+.nav-links a.is-here::after { opacity: 0.7; }
 .nav-links a:hover,
 .nav-gh:hover { color: var(--text); }
 .nav-cta {
@@ -614,7 +614,6 @@ code {
   white-space: nowrap;
 }
 .dock-item .tip { opacity: 0; }
-.dock-item.acc-s .tip { opacity: 1; }
 @media (hover: hover) and (pointer: fine) {
   .dock-stage .dock:hover .dock-item:not(:hover) .tip { opacity: 0; }
   .dock-stage .dock .dock-item:hover .tip { opacity: 1; }
@@ -765,7 +764,8 @@ code {
   box-shadow: inset 0 0 0 1px rgba(244, 239, 230, 0.2);
   transition: color var(--t-hover) var(--ease-color), box-shadow var(--t-hover) var(--ease-color), transform var(--t-press) var(--ease-out);
 }
-.flow-play[hidden] { display: none; }
+/* Hidden, its slot stays: showing it never moves the toggle. */
+.flow-play[hidden] { display: inline-block; visibility: hidden; }
 @media (hover: hover) and (pointer: fine) {
   .flow-opt[aria-pressed="false"]:hover,
   .flow-play:hover { color: var(--text); }
@@ -1320,10 +1320,13 @@ code {
   border: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
+/* The pointer, on Open Work (the menu's top plus 72 px). Before the story it rests on the icon: --mb-x to the right
+   and 86 px up. */
+.scene-menu { --mb-x: 87px; }
 .mb-cursor {
   position: absolute;
-  top: 72px;
-  right: 104px;
+  top: 102px;
+  right: 162px;
   width: 13px;
   height: 19px;
 }
@@ -1353,61 +1356,6 @@ code {
 .mb-app i:nth-child(2) { width: 70%; }
 .qo-app i:nth-child(3),
 .mb-app i:nth-child(3) { width: 45%; }
-.qo-win {
-  position: absolute;
-  right: 22px;
-  bottom: 22px;
-  width: 62%;
-  height: 58%;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #2B2633, #1B191E);
-  border: 1.5px solid var(--c);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-  opacity: 0;
-}
-.qo-win-bar {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 9px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.qo-win-bar > i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
-}
-.qo-win-bar span {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 auto;
-  padding-right: 30px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.qo-win-body { padding: 16px 14px; }
-.qo-win-body i {
-  display: block;
-  height: 6px;
-  margin-bottom: 10px;
-  border-radius: 3px;
-  background: rgba(244, 239, 230, 0.1);
-}
-.qo-win-body i:nth-child(1) { width: 55%; background: var(--c); opacity: 0.7; }
-.qo-win-body i:nth-child(3) { width: 72%; }
-.qo-win-body b {
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 14px;
-  height: 26px;
-  border-radius: 8px;
-  border: 1px solid rgba(244, 239, 230, 0.14);
-  background: rgba(244, 239, 230, 0.04);
-}
 .qo-panel {
   position: absolute;
   top: 34px;
@@ -1429,13 +1377,11 @@ code {
   color: var(--text-2);
 }
 .qo-search svg { width: 15px; height: 15px; flex: none; }
-.qo-field { display: grid; grid-template-columns: auto auto; justify-content: start; align-items: center; }
-.qo-ph,
-.qo-typed { grid-area: 1 / 1; }
-.qo-ph { color: var(--text-3); visibility: hidden; }
+.qo-field { display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; }
+.qo-ph { display: none; margin-left: 1px; color: var(--text-3); }
 .qo-typed { color: var(--text); }
 .qo-caret {
-  grid-area: 1 / 2;
+  flex: none;
   width: 1.5px;
   height: 17px;
   margin-left: 1px;
@@ -1505,38 +1451,51 @@ code {
 }
 .ram-mac b { color: var(--text); font-weight: 600; }
 .meter {
-  position: relative;
-  height: 8px;
+  height: 10px;
   margin-top: 8px;
   border-radius: 4px;
   overflow: hidden;
-  background: rgba(244, 239, 230, 0.08);
+  background: rgba(255, 255, 255, 0.07);
 }
-.seg {
-  position: absolute;
-  inset: 0;
+.meter i,
+.rbar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c, rgba(244, 239, 230, 0.42));
   transform-origin: 0 50%;
 }
-.seg-p { background: #D97757; transform: scaleX(0.119); }
-.seg-s { background: #D97A8E; transform: scaleX(0.194); }
-.seg-t { background: rgba(244, 239, 230, 0.62); transform: scaleX(0.231); }
-.seg-o { background: rgba(244, 239, 230, 0.24); transform: scaleX(0.7); }
+.meter i { transform: scaleX(0.7); }
 .ram-rows { list-style: none; margin-top: 12px; }
 .ram-rows li {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto 64px;
+  grid-template-columns: 8px minmax(0, 1fr) auto minmax(40px, 84px) 52px;
   align-items: center;
   gap: 10px;
-  padding: 7px 0;
+  padding: 6px 0;
   border-top: 1px solid var(--line);
 }
-.ram-rows .nm { display: flex; flex-direction: column; font-weight: 600; }
-.ram-rows small { font-weight: 400; font-size: 12px; color: var(--text-3); }
-.ram-rows .ram,
-.ram-rows .disk { text-align: right; font-variant-numeric: tabular-nums; }
-.ram-rows .disk { color: var(--text-2); }
-.ram-rows .term .orb { font-family: var(--mono); font-size: 9px; background: #1A1918; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); }
+.ram-rows .dot { background: var(--c, rgba(244, 239, 230, 0.42)); }
+.ram-rows .nm { min-width: 0; font-weight: 600; }
+.ram-rows .nm small { display: block; }
+.ram-rows small { font-weight: 400; font-size: 11.5px; color: var(--text-3); }
+.ram-rows .ram { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+.ram-rows .ram.is-off { color: var(--text-3); }
+.ram-rows .disk { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.rbar {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+}
+.ram-rows .acc-p .rbar i { transform: scaleX(0.119); }
+.ram-rows .acc-s .rbar i { transform: scaleX(0.075); }
+.ram-rows .acc-w .rbar i,
+.ram-rows .acc-c .rbar i { transform: scaleX(0); }
+.ram-rows .term .rbar i { transform: scaleX(0.0375); }
+.ram-rows .other .rbar i { transform: scaleX(0.469); }
 .lim-head { display: flex; align-items: center; gap: 9px; }
+.lim-head .orb { background: var(--c); }
 .chip-btn {
   display: inline-block;
   padding: 5px 11px;
@@ -1557,30 +1516,45 @@ code {
 }
 .conn-acc { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .conn-line { flex: 1; height: 1.5px; min-width: 24px; background: rgba(244, 239, 230, 0.12); border-radius: 1px; overflow: hidden; }
-.conn-line i { display: block; height: 100%; background: var(--c, #6FA3D8); transform-origin: 0 50%; }
+.conn-line i { display: block; height: 100%; background: var(--c); transform-origin: 0 50%; }
 .conn-prof {
   padding: 4px 10px;
   border-radius: 980px;
-  border: 1px solid rgba(111, 163, 216, 0.6);
-  background: rgba(111, 163, 216, 0.14);
+  border: 1px solid rgba(217, 122, 142, 0.6);
+  background: rgba(217, 122, 142, 0.14);
   font-size: 12px;
   white-space: nowrap;
 }
 .conn-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
-.conn-mcp { margin-left: auto; font-size: 12px; color: var(--text-3); }
+.conn-mcp { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; }
+.conn-mcp-title { font-weight: 600; }
+.conn-group { margin-top: 6px; color: var(--text-3); }
+.conn-mcp ul { list-style: none; margin-top: 2px; font-family: var(--mono); font-size: 11.5px; line-height: 1.6; }
+.conn-only { margin-left: 6px; font-family: var(--sans); font-size: 12px; color: var(--purple-light); }
 .lim-name { font-weight: 600; }
+.lim-state { display: grid; justify-items: end; margin-left: auto; min-width: 0; font-size: 12px; }
+.lim-asking,
+.lim-when { grid-area: 1 / 1; white-space: nowrap; }
+.lim-asking { display: flex; align-items: center; gap: 6px; color: var(--text-2); opacity: 0; }
+.lim-when { color: var(--text-3); }
+/* The app's mini spinner, drawn as a ring: it turns only while Claude Code is asked. */
+.lim-spin {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(244, 239, 230, 0.22);
+  border-top-color: var(--text-2);
+}
 .lim-btn {
-  margin-left: auto;
+  flex: none;
   padding: 5px 11px;
   border-radius: 7px;
   background: rgba(244, 239, 230, 0.1);
   font-size: 12px;
   font-weight: 500;
 }
-.lim-body { display: grid; margin-top: 16px; }
-.lim-asking,
-.lim-bars { grid-area: 1 / 1; }
-.lim-asking { color: var(--text-2); opacity: 0; }
+.lim-bars { margin-top: 16px; }
 .lim + .lim { margin-top: 14px; }
 .lim-row { display: flex; justify-content: space-between; gap: 12px; }
 .lim-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -1594,7 +1568,7 @@ code {
 .bar i {
   display: block;
   height: 100%;
-  background: var(--purple-light);
+  background: var(--c);
   transform-origin: 0 50%;
 }
 .lim-a .bar i { transform: scaleX(0.17); }
@@ -1704,7 +1678,10 @@ code {
 .td-tabs span { padding: 3px 10px; border-radius: 6px; color: var(--text-2); }
 .td-tabs .on { background: var(--purple); color: #fff; }
 .td-body { display: grid; }
-.td-line { margin-top: 14px; color: var(--text-2); opacity: 0.45; }
+.td-line { display: grid; margin-top: 14px; color: var(--text-2); }
+.td-before,
+.td-after { grid-area: 1 / 1; }
+.td-before { visibility: hidden; }
 .td-stage { position: relative; height: 104px; margin-top: 8px; }
 .td-folder {
   position: absolute;
@@ -1784,7 +1761,13 @@ code {
   .nav-cta:active,
   .flow-play:active,
   .flow-opt:active { transform: scale(0.97); }
-  .flow-pill { transition: transform var(--t-page) var(--ease-move); }
+  /* The toggle answers the hand: the pill slides on the arrival curve, and the chosen label turns white as the pill
+     reaches it (60 ms late), never ahead of it. */
+  .flow-pill { transition: transform var(--t-base) var(--ease-out); }
+  .has-js .flow-opt { transition: background-color var(--t-hover) var(--ease-color), color var(--t-quick) var(--ease-color) 60ms, transform var(--t-press) var(--ease-out); }
+  /* The section being read: its underline draws from the left. */
+  .nav-links a::after { transform: scaleX(0); transition: transform var(--t-base) var(--ease-out), opacity var(--t-quick) var(--ease-color); }
+  .nav-links a.is-here::after { transform: none; }
   .nav-brand:active img,
   .footer-brand:active img { transform: scale(0.94); }
   .dl-ico .dl-arrow { transform: none; }
@@ -1811,7 +1794,7 @@ code {
   .hero-sub { animation-delay: 120ms; }
   .hero .actions { animation-delay: 180ms; }
   .hero-fine { animation-delay: 240ms; }
-  .hero-shot { animation: shot-in 900ms var(--ease-out) 280ms both; }
+  .hero-shot { animation: shot-in var(--t-shot) var(--ease-out) 280ms both; }
   /* The creature, from the start: asleep, it only settles in. */
   .hero .creature { animation: sleep-in var(--t-page) var(--ease-out) both; }
 
@@ -1835,9 +1818,6 @@ code {
   .js .reveal-group.is-in > :nth-child(5) { transition-delay: calc(var(--d, 0ms) + 4 * var(--stagger)); }
   .js .reveal-group.is-in > :nth-child(6) { transition-delay: calc(var(--d, 0ms) + 5 * var(--stagger)); }
   .js .reveal-group.is-in > :nth-child(n+7) { transition-delay: calc(var(--d, 0ms) + 6 * var(--stagger)); }
-  /* Screenshots arrive a touch larger, like a window settling. */
-  .js .reveal.shot-rise { transform: translateY(24px) scale(0.985); transform-origin: 50% 0; }
-  .js .reveal.shot-rise.is-in { transform: none; }
 
   /* The Dock answers the pointer like a Mac's: the app under it rises a little and says its name. */
   .dock-item { transition: transform var(--t-base) var(--ease-out); transform-origin: 50% 100%; }
@@ -1848,7 +1828,8 @@ code {
 
   /* ---------- The scenes, before their beats (script.js adds one class per beat) ---------- */
 
-  /* Menu bar: the icon is clicked, the menu shows, the pointer goes down to Open Work, lighting each row it passes. */
+  /* Menu bar: the pointer rests on the icon, presses it, the menu shows at once; the pointer goes down to Open Work,
+     and each row lights the moment the pointer's tip enters it (the beats come from the pointer's curve, script.js). */
   .js .scene-menu:not(.b-press) .mb-icon { background: transparent; }
   .js .scene-menu .mb-menu { transition: opacity var(--t-hover) var(--ease-out); }
   .js .scene-menu:not(.b-open) .mb-menu { opacity: 0; }
@@ -1856,61 +1837,66 @@ code {
   .js .scene-menu.b-h1:not(.b-h2) .mb-hl { transform: none; }
   .js .scene-menu.b-h2:not(.b-h3) .mb-hl { transform: translateY(22px); }
   .js .scene-menu .mb-cursor { transition: transform 460ms var(--ease-move); }
-  .js .scene-menu:not(.b-move) .mb-cursor { transform: translate(84px, -86px); }
+  .js .scene-menu:not(.b-move) .mb-cursor { transform: translate(var(--mb-x), -86px); }
 
-  /* Quick opener: the shortcut, the panel, two letters, Return. The rows change at once as letters are typed, as in
-     the app: a keystroke is never animated. Return closes the panel, and Work's window opens in its tint. */
-  .js .scene-opener .qo-panel { transition: opacity var(--t-base) var(--ease-out), transform var(--t-base) var(--ease-out); }
-  .js .scene-opener:not(.b-open) .qo-panel,
-  .js .scene-opener.b-closed .qo-panel { opacity: 0; transform: scale(0.96); }
-  .js .scene-opener.b-closed .qo-panel { transition-duration: var(--t-quick); }
-  .js .scene-opener:not(.b-w) .qo-ph { visibility: visible; }
-  .js .scene-opener:not(.b-w) .qo-typed { visibility: hidden; }
+  /* Quick opener: the shortcut, the panel (a plain fade, as the system shows it), two letters, Return. The rows change
+     at once as letters are typed, as in the app: a keystroke is never animated. Each key is a tap: down at once, 40 ms
+     before what it does, and up 110 ms later on the arrival curve. The story ends on the panel, Work picked. */
+  .js .scene-opener .qo-panel { transition: opacity var(--t-quick) var(--ease-out); }
+  .js .scene-opener:not(.b-open) .qo-panel { opacity: 0; }
+  .js .scene-opener:not(.b-w) .qo-ph { display: inline; }
+  .js .scene-opener:not(.b-w) .qo-typed { display: none; }
   .js .scene-opener:not(.b-wo) .qo-k2 { display: none; }
   .js .scene-opener:not(.b-w) .qo-all { display: block; }
   .js .scene-opener:not(.b-w) .qo-found { display: none; }
-  .js .scene-opener .qo-win { transition: opacity var(--t-page) var(--ease-out), transform var(--t-page) var(--ease-out); transform: translateY(10px) scale(0.98); }
-  .js .scene-opener.b-window .qo-win { opacity: 1; transform: none; }
-  .js .scene-opener .qo-keys kbd { transition: transform 90ms var(--ease-out), background-color 90ms var(--ease-color), border-color 90ms var(--ease-color), color 90ms var(--ease-color); }
-  .js .scene-opener.b-keys:not(.b-w) :is(.k-ctrl, .k-opt, .k-space),
-  .js .scene-opener.b-w:not(.b-wo) .k-w,
-  .js .scene-opener.b-wo:not(.b-return) .k-o,
-  .js .scene-opener.b-return:not(.b-window) .k-ret {
-    transform: translateY(1px);
-    border-bottom-width: 1px;
-    border-color: var(--purple-light);
-    background: rgba(160, 107, 224, 0.3);
-    color: var(--text);
-  }
+  .js .scene-opener.b-keys :is(.k-ctrl, .k-opt) { animation: key-up 90ms var(--ease-out) 230ms backwards; }
+  .js .scene-opener.b-space .k-space { animation: key-up 90ms var(--ease-out) 110ms backwards; }
+  .js .scene-opener.b-kw .k-w { animation: key-up 90ms var(--ease-out) 110ms backwards; }
+  .js .scene-opener.b-ko .k-o { animation: key-up 90ms var(--ease-out) 110ms backwards; }
+  .js .scene-opener.b-return .k-ret { animation: key-up 90ms var(--ease-out) 110ms backwards; }
 
-  /* RAM and disk: the Mac's meter fills account by account, from the left, then the rows come in. */
-  .js .scene-ram .seg { transition: transform 720ms var(--ease-out); }
-  .js .scene-ram .seg-s { transition-delay: 70ms; }
-  .js .scene-ram .seg-t { transition-delay: 140ms; }
-  .js .scene-ram .seg-o { transition-delay: 210ms; }
-  .js .scene-ram:not(.b-meter) .seg { transform: scaleX(0); }
+  /* RAM and disk, as the app draws them: the Mac's meter fills (0.25 s), then the rows arrive 50 ms apart and each
+     row's bar grows from nothing (0.35 s). The figures themselves never animate. */
+  .js .scene-ram .meter i { transition: transform 250ms var(--ease-out); }
+  .js .scene-ram:not(.b-meter) .meter i { transform: scaleX(0); }
   .js .scene-ram .ram-rows li,
-  .js .scene-ram .card-foot { transition: opacity var(--t-page) var(--ease-out), transform var(--t-page) var(--ease-out); }
-  .js .scene-ram .ram-rows li:nth-child(2) { transition-delay: 50ms; }
-  .js .scene-ram .ram-rows li:nth-child(3) { transition-delay: 100ms; }
-  .js .scene-ram .ram-rows li:nth-child(4) { transition-delay: 150ms; }
-  .js .scene-ram .card-foot { transition-delay: 260ms; }
+  .js .scene-ram .card-foot { transition: opacity 240ms var(--ease-out), transform 240ms var(--ease-out); }
+  .js .scene-ram .rbar i { transition: transform 350ms var(--ease-out); }
+  .js .scene-ram .ram-rows li:nth-child(2),
+  .js .scene-ram .ram-rows li:nth-child(2) .rbar i { transition-delay: 50ms; }
+  .js .scene-ram .ram-rows li:nth-child(3),
+  .js .scene-ram .ram-rows li:nth-child(3) .rbar i { transition-delay: 100ms; }
+  .js .scene-ram .ram-rows li:nth-child(4),
+  .js .scene-ram .ram-rows li:nth-child(4) .rbar i { transition-delay: 150ms; }
+  .js .scene-ram .ram-rows li:nth-child(5),
+  .js .scene-ram .ram-rows li:nth-child(5) .rbar i { transition-delay: 200ms; }
+  .js .scene-ram .ram-rows li:nth-child(6),
+  .js .scene-ram .ram-rows li:nth-child(6) .rbar i { transition-delay: 250ms; }
+  .js .scene-ram .card-foot { transition-delay: 300ms; }
   .js .scene-ram:not(.b-rows) .ram-rows li,
-  .js .scene-ram:not(.b-rows) .card-foot { opacity: 0; transform: translateY(6px); }
+  .js .scene-ram:not(.b-rows) .card-foot { opacity: 0; transform: translateY(8px); }
+  .js .scene-ram:not(.b-rows) .rbar i { transform: scaleX(0); }
 
-  /* Check limits: the click, "Asking Claude Code…", the two limits as bars, and when. */
+  /* Check limits: the click, "Asking Claude Code…" with its spinner in the header, then the answer: the two limits
+     arrive as rows (8 px, 0.24 s, 50 ms apart) whose bars grow in Work's color (0.35 s), and "Checked at" takes the
+     header's place. Two words never print over each other: the old leave in 0.10 s, the new settle from 0.06 s. */
   .js .scene-limits .lim-btn { transition: transform var(--t-press) var(--ease-out), background-color var(--t-press) var(--ease-color); }
   .js .scene-limits.b-press:not(.b-asking) .lim-btn { transform: scale(0.95); background: rgba(244, 239, 230, 0.2); }
-  .js .scene-limits .lim-asking { transition: opacity var(--t-quick) var(--ease-out); }
-  .js .scene-limits.b-asking:not(.b-bars) .lim-asking { opacity: 1; }
-  .js .scene-limits .lim { transition: opacity var(--t-page) var(--ease-out), transform var(--t-page) var(--ease-out); }
-  .js .scene-limits .lim-b { transition-delay: 90ms; }
-  .js .scene-limits:not(.b-bars) .lim { opacity: 0; transform: translateY(4px); }
-  .js .scene-limits .bar i { transition: transform 700ms var(--ease-out) 60ms; }
-  .js .scene-limits .lim-b .bar i { transition-delay: 150ms; }
+  .js .scene-limits .lim-asking,
+  .js .scene-limits .lim-when { transition: opacity 100ms var(--ease-out), transform 100ms var(--ease-out); }
+  .js .scene-limits.b-asking:not(.b-bars) .lim-asking,
+  .js .scene-limits.b-checked .lim-when { opacity: 1; transform: none; transition-duration: 160ms; }
+  .js .scene-limits.b-asking:not(.b-bars) .lim-asking { transition-delay: 60ms; }
+  .js .scene-limits:not(.b-asking) .lim-asking { transform: translateY(3px); }
+  .js .scene-limits.b-bars .lim-asking { transform: translateY(-3px); }
+  .js .scene-limits:not(.b-checked) .lim-when { opacity: 0; transform: translateY(3px); }
+  .js .scene-limits.b-asking:not(.b-bars) .lim-spin { animation: spin 800ms linear infinite; }
+  .js .scene-limits .lim { transition: opacity 240ms var(--ease-out), transform 240ms var(--ease-out); }
+  .js .scene-limits .bar i { transition: transform 350ms var(--ease-out); }
+  .js .scene-limits .lim-b,
+  .js .scene-limits .lim-b .bar i { transition-delay: 50ms; }
+  .js .scene-limits:not(.b-bars) .lim { opacity: 0; transform: translateY(8px); }
   .js .scene-limits:not(.b-bars) .bar i { transform: scaleX(0); }
-  .js .scene-limits .lim-when { transition: opacity var(--t-page) var(--ease-out); }
-  .js .scene-limits:not(.b-checked) .lim-when { opacity: 0; }
 
   /* All set, as the app plays it (AllSetBeat): the six checks pop in 60 ms apart from 0.4 s, 0.6 to 1 of their size
      on the pop spring, fading in over 0.12 s; the creature hops once they are in (script.js). Then Health checks. */
@@ -1923,36 +1909,43 @@ code {
   .js .scene-allset.b-in .as-checks li:nth-child(6) .as-ok { animation-delay: 700ms; }
   .js .scene-allset .health { transition: opacity var(--t-page) var(--ease-out); }
   .js .scene-allset:not(.b-health) .health { opacity: 0; }
+  /* Checking… leaves in 0.10 s, then the answer settles from 0.06 s: never both on screen. */
   .js .scene-allset .h-checking,
-  .js .scene-allset .h-ok { transition: opacity var(--t-base) var(--ease-out); }
+  .js .scene-allset .h-ok { transition: opacity 100ms var(--ease-out), transform 100ms var(--ease-out); }
   .js .scene-allset.b-health:not(.b-healthy) .h-checking { opacity: 1; }
-  .js .scene-allset:not(.b-healthy) .h-ok { opacity: 0; }
+  .js .scene-allset.b-healthy .h-checking { transform: translateY(-3px); }
+  .js .scene-allset:not(.b-healthy) .h-ok { opacity: 0; transform: translateY(3px); }
+  .js .scene-allset.b-healthy .h-ok { transition-duration: 160ms; transition-delay: 60ms; }
   .js .scene-allset.b-healthy .h-ok .as-ok { animation: pop-scale var(--t-pop) var(--ease-pop) both; }
 
   /* Connections: a thread draws from the account to its browser profile, the profile answers, the buttons follow. */
   .js .scene-conn .conn-line i { transition: transform 420ms var(--ease-move); }
   .js .scene-conn:not(.b-line) .conn-line i { transform: scaleX(0); }
+  .js .scene-conn .conn-prof { transition: opacity var(--t-base) var(--ease-out), transform var(--t-base) var(--ease-out); }
   .js .scene-conn:not(.b-prof) .conn-prof { opacity: 0; transform: scale(0.9); }
-  .js .scene-conn.b-prof .conn-prof { animation: pop-scale var(--t-pop) var(--ease-pop) both, fade-in 120ms var(--ease-out) both; }
   .js .scene-conn .conn-btns > * { transition: opacity var(--t-page) var(--ease-out), transform var(--t-page) var(--ease-out); }
   .js .scene-conn .conn-btns > :nth-child(2) { transition-delay: 60ms; }
-  .js .scene-conn .conn-btns > :nth-child(3) { transition-delay: 120ms; }
-  .js .scene-conn:not(.b-btns) .conn-btns > * { opacity: 0; transform: translateY(4px); }
+  .js .scene-conn .conn-mcp { transition: opacity var(--t-page) var(--ease-out) 120ms, transform var(--t-page) var(--ease-out) 120ms; }
+  .js .scene-conn:not(.b-btns) :is(.conn-btns > *, .conn-mcp) { opacity: 0; transform: translateY(4px); }
 
-  /* Tidy: File under, the two notes fly into the project's folder on a glide, one after the other, and land; the
-     row gives way to the commit that says so. */
+  /* Tidy: File under, and the two notes are thrown together into the project's folder: across at a nearly constant
+     speed (the app's travel curve), up and down on a parabola, a small squash as they land. The line tells what is left
+     to tidy, and the commit says what was done. */
   .js .scene-tidy .td-btn { transition: transform var(--t-press) var(--ease-out), background-color var(--t-press) var(--ease-color); }
   .js .scene-tidy.b-press:not(.b-fly) .td-btn { transform: scale(0.95); background: rgba(244, 239, 230, 0.2); }
   .js .scene-tidy:not(.b-fly) .td-note { transform: translateX(-56%); }
-  .js .scene-tidy.b-fly .td-note { animation: td-glide 720ms var(--ease-glide) both; }
+  .js .scene-tidy.b-fly .td-note { animation: td-glide 720ms cubic-bezier(0.33, 0.33, 0.55, 1) both; }
   .js .scene-tidy.b-fly .td-note .td-arc { animation: td-arc 720ms linear both; }
   .js .scene-tidy.b-fly .td-n2,
-  .js .scene-tidy.b-fly .td-n2 .td-arc { animation-delay: 90ms; }
+  .js .scene-tidy.b-fly .td-n2 .td-arc { animation-delay: 50ms; }
   .js .scene-tidy:not(.b-filed) .td-actions { visibility: visible; }
   .js .scene-tidy:not(.b-filed) .td-done { visibility: hidden; }
-  .js .scene-tidy .td-line,
+  .js .scene-tidy :is(.td-before, .td-after) { transition: opacity 100ms var(--ease-out), transform 100ms var(--ease-out), visibility 0s 100ms; }
+  .js .scene-tidy:not(.b-filed) .td-before { visibility: visible; transition-delay: 0s; }
+  .js .scene-tidy:not(.b-filed) .td-after { opacity: 0; transform: translateY(3px); }
+  .js .scene-tidy.b-filed .td-before { opacity: 0; transform: translateY(-3px); }
+  .js .scene-tidy.b-filed .td-after { transition: opacity 160ms var(--ease-out) 60ms, transform 160ms var(--ease-out) 60ms; }
   .js .scene-tidy .td-count { transition: opacity var(--t-page) var(--ease-out); }
-  .js .scene-tidy:not(.b-filed) .td-line { opacity: 1; }
   .js .scene-tidy:not(.b-filed) .td-count { display: inline; }
   .js .scene-tidy.b-filed .td-done { animation: rise-in var(--t-page) var(--ease-out) both; }
 
@@ -1968,13 +1961,15 @@ code {
   .js .download.b-go .download-head > .actions { transition-delay: 600ms; }
   .js .download.b-go .download-head > .install-note { transition-delay: 680ms; }
   .js .download.b-go .download-head > .fine { transition-delay: 740ms; }
-  .js .download.b-land .btn-ring { animation: ring-out 900ms var(--ease-out) 1; }
+  /* Reached by the keyboard first: the focused button shows at once, whatever the creature is doing. */
+  .js .download.b-now .download-head > :not(.cv) { transition: none; }
+  .js .download.b-land .btn-ring { animation: ring-out 500ms var(--ease-color) 1; }
 
   /* The timeline lights up line by line. While waiting, text stays at full AA contrast. */
   .js .said .av,
   .js .said strong,
   .js .said em {
-    transition: background-color 360ms ease, color 360ms ease;
+    transition: background-color var(--t-page) var(--ease-color), color var(--t-page) var(--ease-color);
   }
   .js .said li:not(.lit) .av {
     background: rgba(244, 239, 230, 0.12);
@@ -1984,26 +1979,21 @@ code {
   .js .said li:not(.lit) em { color: var(--text-2); }
   .js .said li.lit .av::after { animation: saved 700ms var(--ease-out) 1; }
 
-  /* The Dock: Studio launches like a Mac app. The tooltip shows, the tile bounces twice, its run dot appears. */
-  .js .dock-stage .acc-s .tip {
-    opacity: 0;
-    transform: translate(-50%, 4px);
-    transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out);
-  }
+  /* The Dock: Studio launches like a Mac app. Its name shows while the tile bounces twice, then goes, as a Mac shows a
+     name only under the pointer; its run dot appears as it lands. A pointer on the Dock ends the name at once. */
   .js .dock-stage .acc-s .run {
     opacity: 0;
-    transition: opacity 200ms var(--ease-out);
+    transition: opacity var(--t-base) var(--ease-out);
   }
-  .js .dock-stage.is-in .acc-s .tip {
-    opacity: 1;
-    transform: translate(-50%, 0);
-    transition-delay: 250ms;
-  }
+  .js .dock-stage.is-in .acc-s .tip { animation: dock-name 1700ms linear backwards; }
   .js .dock-stage.is-in .acc-s .run {
     opacity: 1;
     transition-delay: 1350ms;
   }
   .js .dock-stage.is-in .acc-s .tile { animation: dock-bounce 900ms 450ms 1 both; }
+  @media (hover: hover) and (pointer: fine) {
+    .js .dock-stage.is-in .dock:hover .acc-s .tip { animation: none; }
+  }
 
   /* The hero creature wakes up: a sleepy double blink, a crouch, a hop with squash and stretch, a wave.
      Limbs and eyes move in whole cells; only the body's squash and stretch is eased. 1.88 s after a 400 ms wait. */
@@ -2031,8 +2021,13 @@ code {
   .lost .creature .cr-eyes { animation: cr-lost 1400ms step-end 600ms 1; }
 
   /* How it works: the mode switch. The story itself is driven by script.js, frame by frame. */
-  .fl-lanes { transition: opacity 420ms var(--ease-move); }
+  /* The old lanes go at once; the new ones come once the box is most of the way (60%), so one set reads at a time. */
+  .fl-lanes { transition: opacity var(--t-quick) var(--ease-color); }
+  .flow-fig:not([data-mode="each"]) .fl-lanes[data-mode="shared"],
+  .flow-fig[data-mode="each"] .fl-lanes[data-mode="each"] { transition: opacity 240ms var(--ease-out) 200ms; }
   .fl-box-shared { transition: transform 420ms var(--ease-move); }
+  /* While the boxes move, what the story had drawn fades out, and the story starts over once they have settled. */
+  .flow-fig.is-switching :is(.fl-slot, .fl-notes, .fl-ring, .fl-flash) { opacity: 0; transition: opacity var(--t-quick) var(--ease-color); }
   .fl-box-work { transition: opacity 240ms var(--ease-out) 120ms, transform 320ms var(--ease-out) 120ms; }
 }
 
@@ -2052,9 +2047,22 @@ code {
   35% { transform: translateY(-8px); opacity: 0; animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
   100% { transform: none; opacity: 1; }
 }
+/* The ring grows by the same 8 px on every side (script.js sets the two scales from the button's size). */
 @keyframes ring-out {
   0% { opacity: 0.8; transform: none; }
-  100% { opacity: 0; transform: scale(1.14, 1.4); }
+  100% { opacity: 0; transform: scale(var(--ring-x, 1.07), var(--ring-y, 1.33)); }
+}
+@keyframes key-up {
+  from { transform: translateY(1px); border-color: var(--purple-light); background-color: rgba(160, 107, 224, 0.3); color: var(--text); }
+}
+@keyframes spin {
+  to { transform: rotate(1turn); }
+}
+/* Studio's name while it launches: in at 250 ms, held while the tile bounces, gone by 1.7 s. */
+@keyframes dock-name {
+  0%, 14.7% { opacity: 0; transform: translate(-50%, 4px); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
+  24.1%, 82.4% { opacity: 1; transform: translate(-50%, 0); animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1); }
+  100% { opacity: 0; transform: translate(-50%, 0); }
 }
 @keyframes pop-scale {
   from { transform: scale(0.6); }
@@ -2067,10 +2075,11 @@ code {
   from { transform: translateX(-56%); }
   to { transform: none; }
 }
+/* A parabola: up decelerating, down accelerating, mirror curves; then a small squash on landing. */
 @keyframes td-arc {
-  0% { transform: none; animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
-  45% { transform: translateY(-30px); animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45); }
-  88% { transform: translateY(2px) scale(1.04, 0.92); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
+  0% { transform: none; animation-timing-function: cubic-bezier(0.33, 0.67, 0.67, 1); }
+  46% { transform: translateY(-22px); animation-timing-function: cubic-bezier(0.33, 0, 0.67, 0.33); }
+  92% { transform: translateY(0) scale(1.04, 0.92); animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1); }
   100% { transform: none; }
 }
 @keyframes saved {
@@ -2249,7 +2258,24 @@ code {
   .footer-links { gap: 8px 18px; }
   .screen { height: 318px; }
   .mb-menu { right: 44px; }
+  .mb-cursor { right: 148px; }
+  .scene-menu { --mb-x: 73px; }
   .scene figcaption { font-size: 14px; }
+}
+
+/* A phone: each row's bar takes a line of its own under the figures, so the names keep their room. */
+@media (max-width: 560px) {
+  .ram-rows li {
+    grid-template-columns: 8px minmax(0, 1fr) auto 48px;
+    grid-template-areas: "dot nm ram disk" ". bar bar bar";
+    row-gap: 7px;
+    padding: 8px 0;
+  }
+  .ram-rows .dot { grid-area: dot; }
+  .ram-rows .nm { grid-area: nm; }
+  .ram-rows .ram { grid-area: ram; }
+  .ram-rows .rbar { grid-area: bar; }
+  .ram-rows .disk { grid-area: disk; }
 }
 
 @media (max-width: 600px) {
@@ -2263,4 +2289,13 @@ code {
 
 @media (max-width: 480px) {
   .br-wide { display: none; }
+}
+
+/* ---------- Print ---------- */
+/* On paper everything is shown as its still: nothing waits for a scroll. */
+@media print {
+  .js .reveal,
+  .js .reveal-group > *,
+  .js .download .download-head > * { opacity: 1 !important; transform: none !important; }
+  .nav { position: static; }
 }
