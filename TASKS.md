@@ -27,6 +27,53 @@
 - [ ] `brainmerge uninstall` (ligne de commande) ne peut pas effacer le raccourci du lanceur rapide, rangé dans les préférences de l'app : seule la désinstallation depuis Settings l'oublie ; décider s'il faut le dire dans SECURITY.md ou le nettoyer au prochain lancement sans état
 - [ ] Montrer aussi un enregistrement de vos propres modifications (« You ») qui échoue : la passe de la minute de l'app n'écrit aucun statut, seul le hook Stop de chaque compte en laisse un (`saves/<compte>.json`)
 
+### 0.6.1 : petits défauts de la revue
+
+- [ ] `brainmerge/SyncCommand.swift:89` : sync.log est écrit par un saut en fin de fichier puis une écriture, sans O_APPEND : deux hooks simultanés écrasent la ligne de l'autre, et le fichier ne tourne jamais
+- [ ] `Brain/MemoryHealth.swift:234` : l'analyse Tidy coûte dossiers × notes (toutes les notes refiltrées pour chaque dossier, toutes les 10 s) : grouper les notes par dossier en une passe
+- [ ] `Infra/GitAvailability.swift:24` : git compte comme disponible même quand il ne peut pas tourner (licence Xcode non acceptée, safe.directory) : sonder `git --version` et le dire dans doctor
+- [ ] `Identity/IdentityManager.swift:266` : retirer un compte efface ses listes hors du verrou de la mémoire : un enregistrement en cours recrée une liste orpheline que plus personne n'enregistre
+- [ ] `launcher/main.swift:55` : la garde du lanceur ne vérifie que la forme du chemin, pas que c'est Claude (ni bundle, ni signature, liens suivis) : resserrer la phrase de SECURITY.md ou vérifier
+- [ ] `Claude/ManagedBlock.swift:50` : un marqueur de début orphelin fait supprimer le texte de la personne au prochain upsert de CLAUDE.md
+- [ ] `Usage/ClaudeCodeLimits.swift:131` : « Check limits » lance claude depuis le home, et le hook de Brainmerge ajoute alors un projet « home » à la mémoire
+- [ ] `Brain/MemoryGraph.swift:151` : un `](` non fermé fait relire le reste de la ligne à chaque fois (temps quadratique) ; le test de vitesse ne couvre que `[[`
+- [ ] `Identity/IdentityManager.swift:261` : le `saves/<slug>.json` d'un compte retiré survit (un hook peut le réécrire) et un compte recréé du même nom en hérite
+- [ ] `Brain/MemoryTidy.swift:68` : « File under » réécrit les deux index MEMORY.md depuis des copies lues avant ses `git mv`, et son retour arrière peut effacer un index vivant
+- [ ] `scripts/demo-home.sh:123` : les notes « committed by two accounts » du home de démo ne sont jamais commitées
+- [ ] `Usage/LineFields.swift:135` : le lecteur d'usage décode chaque chaîne qu'il ne fait que sauter, et passe JSONSerialization sur chaque chaîne échappée
+- [ ] `Doctor/Doctor.swift:137` : les vérifications de CLAUDE.md et des liens de doctor acceptent des pointeurs périmés
+- [ ] `brainmerge/IdentityCommands.swift:109` : `remove --delete-data` promet « the brain keeps everything » mais peut supprimer des notes jamais enregistrées
+- [ ] `Brain/MemoryWiring.swift:97` : adopter un vrai dossier mémoire le supprime récursivement après en avoir déplacé les fichiers
+- [ ] `Doctor/Doctor.swift:95` : le conseil en ligne de commande de doctor pour une mémoire manquante échoue ou coupe la mémoire en deux (à revérifier depuis `brain relocate`)
+- [ ] `Identity/IdentityManager.swift:242` : les notes retenues d'un compte retiré ne sont jamais retirées de held/<memory>.json
+- [ ] `Claude/ProjectSlug.swift:5` : un projet à chemin long reçoit un lien de mémoire que Claude Code n'utilise jamais
+- [ ] `Identity/Uninstaller.swift:82` : le plan de désinstallation ne dit pas qu'il supprime ~/Library/Logs/Brainmerge
+- [ ] `Brain/MemoryWiring.swift:42` : le câblage des projets ralentit avec chaque projet et réécrit projects.json toutes les minutes
+- [ ] `Identity/IdentityManager.swift:174` : « Swap names » peut laisser un compte nommé comme l'autre quand un enregistrement tient le verrou de la mémoire
+- [ ] `Brain/ProjectRegistry.swift:14` : un projects.json ou identities.json illisible est pris pour vide, puis écrasé
+- [ ] `Brain/SaveStatus.swift:14` : des échecs qui ne sont pas un verrou sont affichés « locked by another program »
+- [ ] `Claude/HookInstaller.swift:112` : deux comptes peuvent partager un dossier Claude Code ou un CLAUDE.md, et le dernier rattaché signe les notes de l'autre
+- [ ] `Model/NameRules.swift:8` : un nom de compte que git refuse comme auteur fait échouer chaque enregistrement
+- [ ] `Claude/HookInstaller.swift:202` : settings.json est réécrit en entier alors que SECURITY.md disait le reste « untouched » (à revérifier depuis la mise à jour de SECURITY.md)
+- [ ] `Brain/BrainGit.swift:107` : une édition qui nomme une note dans une autre casse n'est pas enregistrée par le compte, puis est signée « You »
+- [ ] `BrainmergeCoreTests/SecurityGuardTests.swift:53` : les tests ne fixent pas les programmes du lanceur de processus, une seconde façon de lancer des processus, ni plusieurs API réseau et trousseau (à revérifier depuis test(guards))
+- [ ] `Brain/MemorySaves.swift:94` : les chemins de la liste d'un compte ne sont enregistrés que par le hook Stop de ce compte
+- [ ] `launcher/main.swift:33` : quand un lanceur ne peut pas démarrer Claude, il ne le dit que sur stderr, invisible depuis le Dock
+- [ ] `Brain/MemoryGraph.swift:258` : le parcours du graphe n'a ni limite ni annulation, et refait tout son travail quand rien n'a changé
+- [ ] `Usage/UsageReader.swift:188` : Usage ne fusionne les lignes répétées d'un message que si elles se suivent dans un même fichier : les copies rejouées sont recomptées
+- [ ] `brainmerge/UsageCommand.swift:23` : `brainmerge usage` compte deux fois les comptes à historique partagé
+- [ ] `Brain/MemoryTidy.swift:68` : « File under » lit un MEMORY.md lien symbolique à travers le lien et commite le texte du fichier lié en « You », sans passer par le garde des secrets
+- [ ] `Claude/ClaudeLocator.swift:80` : trouver Claude lit chaque app de tout dossier où macOS a enregistré une copie de Claude
+- [ ] `Identity/TintedCloneBuilder.swift:60` : chaque copie à icône distincte coûte environ 420 Mio de disque et est réécrite en entier à chaque reconstruction, même pour un changement de note
+- [ ] `Infra/Paths.swift:35` : une copie teintée et le lanceur d'un autre compte peuvent avoir le même chemin d'app
+- [ ] `brainmerge/BrainmergeCLI.swift:23` : `claude-<slug>` retombe sur l'analyseur de brainmerge quand l'état est illisible (relevé deux fois par la revue)
+- [ ] `Brain/BrainGit.swift:184` : l'attente de catchUpIndex pendant une fusion arrêtée n'est pas testée
+- [ ] `Brain/Brain.swift:53` : ensureIgnores ajoute ses lignes à travers un .gitignore lien symbolique, dans n'importe quel fichier hors de la mémoire
+- [ ] `Brain/BrainGit.swift:127` : un enregistrement tué entre son commit et `followCommit` laisse l'index de git en retard pour de bon, et les suivants ne le réparent jamais
+- [ ] `brainmerge/UninstallCommand.swift:22` : `brainmerge uninstall` laisse les préférences du lanceur rapide et ignore un Brainmerge ouvert, alors que SECURITY.md dit que les deux voies défont tout
+- [ ] `README.md:108` : la doc dit que l'enregistrement se fait en fin de session ; il se fait après chaque tour
+- [ ] `SECURITY.md:36` : la liste de programmes de « No shell » oublie ps et lsregister
+
 ### Vérifications manuelles 0.6
 
 - [ ] Vérifier à la main dans l'app installée : survol et clic sur toute la ligne, Cmd-1 à Cmd-4, « Show » qui ramène une fenêtre fermée
