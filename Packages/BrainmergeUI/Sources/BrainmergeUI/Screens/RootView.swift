@@ -52,6 +52,8 @@ public struct RootView: View {
             showRequestedScreen()
         }
         .onChange(of: model.requestedScreen) { showRequestedScreen() }
+        // brainmerge:// links: they can only open or show (see BrainmergeLink).
+        .onOpenURL { model.handle($0) }
         // The splash's only element goes away: VoiceOver hears that the accounts are there.
         .onChange(of: model.launchPhase) { _, phase in
             if phase == .ready { AccessibilityNotification.Announcement(LaunchView.readyAnnouncement).post() }

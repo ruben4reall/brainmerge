@@ -107,6 +107,10 @@ public final class AppModel {
     /// A screen asked for from outside the window (the menu bar, the app menu with no window): the window shows it
     /// once its screens are there.
     public var requestedScreen: AppSection?
+    /// The same brainmerge:// link twice within 2 s acts once.
+    var linkGate = BrainmergeLink.Gate()
+    /// The Accounts menu's Add Account…: the Accounts screen opens its add sheet.
+    public var requestedAdd = false
     public var message: UserMessage?
     /// Accounts launched and not seen running yet: cleared as soon as `reload()` sees their process,
     /// or after a few seconds if it never shows up.
@@ -427,6 +431,11 @@ public final class AppModel {
         let shown = AppLifecycle.showsMenuBarIcon(setting: menuBarIcon, phase: launchPhase, setupDone: done, environment: environment)
         if done != setupDone { setupDone = done }
         if shown != showsMenuBarIcon { showsMenuBarIcon = shown }
+    }
+
+    /// The Accounts menu: the menu bar's entries, Cmd-Option-1 to 9 for the first nine.
+    public var accountsMenuItems: [AccountsMenuItem] {
+        AccountsMenu.items(accounts: accounts, opening: opening, busy: accountsBusy, appExists: { appURL(of: $0) != nil })
     }
 
     /// The accounts of the menu bar's menu, with the sidebar's words.

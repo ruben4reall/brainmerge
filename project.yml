@@ -35,6 +35,10 @@ targets:
         LSMinimumSystemVersion: "26.0"
         NSHumanReadableCopyright: "Ruben Catalao. Works with Claude. Not made by Anthropic."
         LSApplicationCategoryType: public.app-category.developer-tools
+        # brainmerge:// links can only open or show (see BrainmergeLink).
+        CFBundleURLTypes:
+          - CFBundleURLName: ch.rubencatalao.brainmerge.link
+            CFBundleURLSchemes: [brainmerge]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ch.rubencatalao.brainmerge

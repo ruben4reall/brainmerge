@@ -167,6 +167,24 @@ brainmerge doctor [--json]                      check that everything is in plac
 brainmerge uninstall [--yes]                    undo everything, keep every note and login
 ```
 
+## Links
+
+Brainmerge answers `brainmerge://` links, so a launcher, a button or a note can open an account or a screen. A link can only open or show: it never adds, edits, removes or quits anything, and an account that still has to log in goes through the Log in sheet.
+
+```
+brainmerge://open/work          open the account whose short name is "work" (or show it when it runs)
+brainmerge://show/work          bring its Claude window forward
+brainmerge://memory             the Memory screen (brainmerge://memory/<id> for one memory)
+brainmerge://usage              the Usage screen
+brainmerge://settings           Settings
+```
+
+- Raycast: a Quicklink with `brainmerge://open/work` as its link.
+- Stream Deck: the Website action with `brainmerge://open/client`.
+- Obsidian: a note with `[Open Work](brainmerge://open/work)`.
+
+The Accounts menu in the menu bar lists every account with Cmd-Option-1 to Cmd-Option-9 for the first nine, Add Account… and Quit All Accounts….
+
 ## Contributing
 
 Issues and pull requests are welcome: see `CONTRIBUTING.md` for the workflow and the rules, `docs/brand/DESIGN.md` for the design tokens. The code is Swift: `Packages/BrainmergeCore` (engine and command line), `Packages/BrainmergeUI` (SwiftUI screens and models), and an Xcode project generated with `xcodegen generate`. Please keep the six points above true.

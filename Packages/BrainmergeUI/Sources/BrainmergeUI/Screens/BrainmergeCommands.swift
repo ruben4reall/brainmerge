@@ -46,7 +46,48 @@ public struct BrainmergeCommands: Commands {
         }
     }
 
+    /// The Accounts menu works with the window closed: it acts on the model, and opens the window only for a sheet.
+    func openWindowNow() {
+        openWindow(id: BrainmergeWindow.main)
+        NSApp.activate()
+    }
+
+    func quitAllAsked() {
+        let counts = model.quitAllCounts()
+        guard counts.windows > 0 else { return }
+        let alert = NSAlert()
+        alert.messageText = AccountsMenu.quitAllTitle(windows: counts.windows)
+        alert.informativeText = AccountsMenu.quitAllDetail(sessions: counts.sessions) ?? ""
+        alert.addButton(withTitle: "Quit")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn { model.quitAll() }
+    }
+
     public var body: some Commands {
+        CommandMenu("Accounts") {
+            ForEach(model.accountsMenuItems) { item in
+                let button = Button(item.title) {
+                    model.openFromMenu(item.id)
+                    if model.login != nil { openWindowNow() }
+                }
+                .disabled(!item.entry.isEnabled || route == .off)
+                if let key = item.shortcut {
+                    button.keyboardShortcut(KeyEquivalent(key), modifiers: [.command, .option])
+                } else {
+                    button
+                }
+            }
+            Divider()
+            Button(AccountsMenu.addTitle) {
+                model.requestedScreen = .accounts
+                model.requestedAdd = true
+                openWindowNow()
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(route == .off)
+            Button(AccountsMenu.quitAllTitle) { quitAllAsked() }
+                .disabled(model.openAccounts.isEmpty)
+        }
         CommandGroup(replacing: .appSettings) {
             Button("Settings…") { show(.settings) }
                 .keyboardShortcut(KeyEquivalent(Self.settingsKey), modifiers: .command)

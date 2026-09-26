@@ -45,6 +45,9 @@ public struct AccountsView: View {
             .padding(Theme.Layout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onChange(of: model.requestedAdd, initial: true) { _, asked in
+            if asked { showAdd = true; model.requestedAdd = false }
+        }
         .sheet(isPresented: $showAdd, onDismiss: { model.beginPendingLogin() }) { AddAccountSheet(model: model, isPresented: $showAdd) }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory, attach: newMemoryFor) }
         .sheet(isPresented: Binding(get: { model.login != nil }, set: { if !$0 { model.cancelLogin() } })) { LoginSheet(model: model) }
