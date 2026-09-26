@@ -248,7 +248,11 @@ public final class IdentityManager: @unchecked Sendable {
         let fm = FileManager.default
         if !identity.isPrimary { try ensureStopped(identity) }
         try detachBrain(from: identity)
-        for app in apps(of: identity) where fm.fileExists(atPath: app.path) { try fm.removeItem(at: app) }
+        for app in apps(of: identity) where fm.fileExists(atPath: app.path) {
+            // Out of Launch Services first: its record would outlive the bundle.
+            if registerLaunchers { _ = try? shell.run(LauncherBuilder.lsregister, ["-u", app.path]) }
+            try fm.removeItem(at: app)
+        }
         if !identity.isPrimary {
             // Only folders created by Brainmerge can be deleted; an adopted folder doesn't belong to it.
             if deleteData {

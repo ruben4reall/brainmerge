@@ -111,6 +111,26 @@ import BrainmergeTestSupport
         #expect(try e.store.load().identities.isEmpty)
     }
 
+    /// An app registered with Launch Services when it was built is taken out of it when its account goes: no record is left
+    /// for a bundle that no longer exists. Launch Services itself is never asked here: the fake shell answers for it.
+    @Test func removingAnAccountUnregistersItsApp() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        let calls = ShellCalls()
+        let shell = Shell { executable, arguments, cwd, environment in
+            if executable == LauncherBuilder.lsregister { calls.record(arguments); return ShellResult(status: 0, stdout: "", stderr: "") }
+            return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+        }
+        let manager = IdentityManager(paths: e.home.paths, store: e.store, launcherBinary: Products.launcher, cliPath: e.cliPath,
+                                      claudeAppURL: e.claude.url, shell: shell, registerLaunchers: true,
+                                      monitor: ProcessMonitor(psOutput: { "" }))
+        _ = try manager.adoptPrimary(name: "Perso")
+        _ = try manager.add(IdentityManager.AddRequest(name: "Client"))
+        let app = e.home.paths.launcherApp(name: "Client").path
+        #expect(calls.all == [["-f", app]])
+        try manager.remove(slug: "client", deleteData: false)
+        #expect(calls.all == [["-f", app], ["-u", app]])
+    }
+
     /// "Repair hooks" in Settings: each account's hooks are written as they are today, the person's own hooks stay, and
     /// nothing else of the account changes.
     @Test func repairHooksRewritesOnlyTheHooks() throws {

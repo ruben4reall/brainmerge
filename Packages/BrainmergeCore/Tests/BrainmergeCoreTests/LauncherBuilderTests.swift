@@ -5,6 +5,17 @@ import LauncherGuard
 @testable import BrainmergeCore
 
 @Suite struct LauncherBuilderTests {
+    /// The command line's apps are registered with Launch Services only for the real home: a home forced by
+    /// BRAINMERGE_HOME is a test's or a demo's, whose disposable apps would otherwise stay listed under real accounts'
+    /// identifiers long after their folder is gone (every CLI smoke test used to add some to the developer's Mac).
+    @Test func theCommandLineRegistersAppsOnlyForTheRealHome() throws {
+        let context = try String(contentsOf: SecurityGuardTests.repo.appending(path: "Packages/BrainmergeCore/Sources/brainmerge/Context.swift"), encoding: .utf8)
+        #expect(context.contains("registerLaunchers: LauncherBuilder.registersApps()"))
+        #expect(LauncherBuilder.registersApps(environment: [:]))
+        #expect(LauncherBuilder.registersApps(environment: ["BRAINMERGE_HOME": ""]))
+        #expect(!LauncherBuilder.registersApps(environment: ["BRAINMERGE_HOME": "/tmp/demo-home"]))
+    }
+
     @Test func buildsSignedBundleWithConfigAndPlist() throws {
         let home = try TempHome(); defer { home.remove() }
         let claude = try FakeClaudeApp.make(in: home.url)

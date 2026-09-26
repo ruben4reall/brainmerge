@@ -34,6 +34,13 @@ public struct LauncherBuilder: Sendable {
         return exe.deletingLastPathComponent().appending(path: "launcher")
     }
 
+    /// Whether the apps built for this home go into Launch Services: only for the real home. A home forced by
+    /// BRAINMERGE_HOME is a test's or a demo's, thrown away with its apps; registering them would leave records under real
+    /// accounts' identifiers long after their folder is gone.
+    public static func registersApps(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        (environment["BRAINMERGE_HOME"] ?? "").isEmpty
+    }
+
     /// `register: false` avoids registering the disposable test bundles with Launch Services.
     @discardableResult
     public func build(for identity: Identity, claude: ClaudeApp, icon: URL?, register: Bool = true) throws -> URL {

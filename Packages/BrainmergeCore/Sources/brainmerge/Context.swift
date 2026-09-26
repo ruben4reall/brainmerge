@@ -14,7 +14,7 @@ struct Context {
 
     var manager: IdentityManager {
         IdentityManager(paths: paths, store: store, launcherBinary: LauncherBuilder.siblingLauncher(),
-                        cliPath: cliLink.path, claudeAppURL: claudeAppURL)
+                        cliPath: cliLink.path, claudeAppURL: claudeAppURL, registerLaunchers: LauncherBuilder.registersApps())
     }
 
     var doctor: Doctor { Doctor(paths: paths, store: store, claudeAppURL: claudeAppURL, cliPath: cliLink.path) }
