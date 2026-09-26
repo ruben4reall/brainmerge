@@ -137,6 +137,22 @@ import BrainmergeTestSupport
         #expect(try e.manager.hooksHealth().map(\.0.slug) == ["perso"])
     }
 
+    /// One account's settings.json that is not JSON stops only that account: the ones after it are still repaired, and
+    /// the error is thrown once all were tried (the launch's silent upgrade relies on this).
+    @Test func repairHooksGoesPastAnAccountItCannotRead() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let client = try e.manager.add(IdentityManager.AddRequest(name: "Client"))
+        let clientSettings = CLIProfile(directory: client.cliProfile(in: e.home.paths)).settingsFile
+        try Data(#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\"/old/brainmerge\" sync --identity client"}]}]}}"#.utf8).write(to: clientSettings)
+        try Data("{ not json".utf8).write(to: e.primaryProfile.settingsFile)
+        #expect(try e.store.load().identities.map(\.slug) == ["perso", "client"])
+
+        #expect(throws: (any Error).self) { try e.manager.repairHooks() }
+        #expect(HookInstaller.health(settingsFile: clientSettings, cliPath: e.cliPath, slug: "client") == .current)
+        #expect(try String(contentsOf: e.primaryProfile.settingsFile, encoding: .utf8) == "{ not json")
+    }
+
     @Test func addWithoutBrainCreatesNothing() throws {
         let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
         #expect(throws: BrainmergeError.brainNotConfigured) { try e.manager.add(IdentityManager.AddRequest(name: "Client")) }

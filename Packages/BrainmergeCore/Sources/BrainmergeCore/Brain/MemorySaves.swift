@@ -53,7 +53,12 @@ public struct AccountSave: Sendable {
     public func run(for identity: Identity) throws -> Outcome {
         let ledger = TouchedLedger(brain: brain, slug: identity.slug)
         let paths = try ledger.take()
-        guard !paths.isEmpty else { try ledger.finish(keeping: []); return Outcome() }
+        guard !paths.isEmpty else {
+            // Nothing to save, but git's index may still be behind an earlier save (see BrainGit.catchUpIndex).
+            try? git.catchUpIndex()
+            try ledger.finish(keeping: [])
+            return Outcome()
+        }
         do {
             let result = try GuardedCommit(brain: brain, git: git, held: held)
                 .run(paths: paths, author: identity.gitAuthor, account: identity.slug) { MemorySentence.message(name: identity.name, files: $0) }

@@ -404,13 +404,17 @@ public final class IdentityManager: @unchecked Sendable {
     }
 
     /// Writes every account's hooks as they are today (see HookInstaller.install), and nothing else. An account whose
-    /// Claude Code folder is gone is skipped: it is never recreated here.
+    /// Claude Code folder is gone is skipped: it is never recreated here. One that cannot be written (its settings.json
+    /// is not JSON) stops only itself: the others are still repaired, then the first error is thrown.
     public func repairHooks() throws {
+        var failure: Error?
         for identity in try store.load().identities {
             let profile = CLIProfile(directory: identity.cliProfile(in: paths))
             guard profile.exists else { continue }
-            try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug)
+            do { try HookInstaller.installAll(settingsFile: profile.settingsFile, cliPath: cliPath, slug: identity.slug) }
+            catch { failure = failure ?? error }
         }
+        if let failure { throw failure }
     }
 
     /// Removes the block and every Brainmerge hook. The memory links stay: they break nothing and the brain keeps everything.

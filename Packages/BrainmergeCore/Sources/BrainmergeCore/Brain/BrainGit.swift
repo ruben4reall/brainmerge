@@ -130,8 +130,11 @@ public struct BrainGit: Sendable {
         // Asked of git, not guessed: a worktree or a separate git folder keeps these elsewhere.
         let located = try shell.check("/usr/bin/git", ["rev-parse"] + markers.flatMap { ["--git-path", $0] }, cwd: brain.root)
         let fm = FileManager.default
+        // Git answers relative to the memory's folder: appended to it, never resolved against a URL whose folder may
+        // lack its trailing slash (that would look in the parent folder and miss the merge).
         let stopped = located.split(separator: "\n").contains { line in
-            fm.fileExists(atPath: URL(fileURLWithPath: String(line), relativeTo: brain.root).path)
+            let path = String(line)
+            return fm.fileExists(atPath: path.hasPrefix("/") ? path : brain.root.appending(path: path).path)
         }
         if stopped { return true }
         return !(try shell.check("/usr/bin/git", ["ls-files", "-u"], cwd: brain.root)).isEmpty

@@ -66,6 +66,20 @@ import BrainmergeTestSupport
         #expect(try AccountSave(brain: brain, git: repo, held: held(home)).run(for: work).saved == ["memory/acme/note.md"])
     }
 
+    /// A clean merge left open with --no-commit is seen whatever way the memory's folder was written: git names its
+    /// markers relative to the folder, and a folder URL without a trailing slash must not resolve them in its parent.
+    @Test func aMergeLeftOpenIsSeenFromAFolderWrittenWithoutASlash() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, _) = try diverged(home)
+        try git(["reset", "-q", "--hard", "HEAD~1"], in: brain)
+        #expect(try git(["merge", "-q", "--no-commit", "--no-ff", "other"], in: brain).status == 0)
+        #expect(exists("MERGE_HEAD", in: brain))
+        let bare = Brain(root: URL(filePath: brain.root.path.hasSuffix("/") ? String(brain.root.path.dropLast()) : brain.root.path))
+        #expect(!bare.root.hasDirectoryPath, "the case under test: a folder URL with no trailing slash")
+        #expect(try BrainGit(brain: bare).operationUnfinished())
+        #expect(try BrainGit(brain: brain).operationUnfinished())
+    }
+
     @Test func aSaveIsNeverSignedByTheCommitYouArePicking() throws {
         let home = try TempHome(); defer { home.remove() }
         let (brain, repo) = try diverged(home)
@@ -217,6 +231,21 @@ import BrainmergeTestSupport
         try accountWrote("memory/acme/new.md", in: brain)
         let git = BrainGit(brain: brain)
         #expect(try AccountSave(brain: brain, git: git, held: held(home)).run(for: work).saved == ["memory/acme/new.md"])
+        #expect(try yourNextCommit(brain).isEmpty)
+        #expect(git.indexBehind.isEmpty)
+    }
+
+    /// An account's turn that ends with nothing to save catches up too: the index is not left behind until that
+    /// account writes again.
+    @Test func aSaveWithNothingToSaveCatchesUp() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let brain = try memory(home)
+        try accountWrote("memory/acme/old.md", in: brain)
+        _ = try AccountSave(brain: brain, git: busyIndexGit(brain, release: nil), held: held(home)).run(for: work)
+        try FileManager.default.removeItem(at: lock(brain))
+
+        let git = BrainGit(brain: brain)
+        #expect(try AccountSave(brain: brain, git: git, held: held(home)).run(for: work).saved.isEmpty)
         #expect(try yourNextCommit(brain).isEmpty)
         #expect(git.indexBehind.isEmpty)
     }

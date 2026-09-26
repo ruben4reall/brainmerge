@@ -201,6 +201,30 @@ import BrainmergeTestSupport
         #expect(log.contains("perso: another git held the memory's index, it catches up with 2 files at the next save"), "\(log)")
     }
 
+    /// A memory whose save waits (the person's own merge is stopped there, for days maybe) never stops the account's
+    /// saves in its other memories: each memory is saved on its own, and the log names the one that waits.
+    @Test func eachMemoryIsSavedOnItsOwn() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let clients = Brain(root: try e.manager.addBrain(name: "Clients", path: nil, language: .en).url)
+        for brain in [e.brain, clients] {
+            let notes = brain.memoryDir(forProject: "acme")
+            try FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
+            try Data("# note\n".utf8).write(to: notes.appending(path: "note.md"))
+            try TouchedLedger(brain: brain, slug: "perso").append("memory/acme/note.md")
+        }
+        // Its own memory, listed first, is in the middle of the person's merge.
+        try Data("0000000000000000000000000000000000000000\n".utf8).write(to: e.brain.gitDir.appending(path: "MERGE_HEAD"))
+
+        #expect(try run(e, ["sync", "--identity", "perso"]).status == 0)
+        let saved = try #require(try BrainGit(brain: clients).log(limit: 1).first)
+        #expect(saved.authorName == "Perso" && saved.files == ["memory/acme/note.md"])
+        #expect(TouchedLedger.claimed(in: e.brain).contains("memory/acme/note.md"), "the waiting memory keeps its list")
+        let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
+        #expect(log.contains("perso: Shared: \(BrainmergeError.gitOperationUnfinished)"), "\(log)")
+        #expect(log.contains("perso: committed 1 file"), "\(log)")
+    }
+
     /// A note that looks like it holds a key is not committed, and nothing that could carry the key is written anywhere:
     /// not the log, not the held list, not the doctor. Its neighbor is saved.
     @Test func aKeyShapedNoteIsHeldBackAndNeverWrittenOut() throws {

@@ -27,18 +27,30 @@ struct Sync: ParsableCommand {
             var saved = 0
             var held: Set<String> = []
             var behind = 0
+            var wentThrough = 0
+            // Each memory on its own: one that waits (a lock, the person's merge left open for days) never stops the
+            // others. A memory that failed keeps its list for the next save (see AccountSave).
             for memory in [folder] + others {
                 let brain = Brain(root: memory.url)
                 try? brain.ensureIgnores()
                 let git = BrainGit(brain: brain)
                 let store = HeldStore(paths: context.paths, memoryID: memory.id)
-                let outcome = try git.withLock(timeout: timeout) { try AccountSave(brain: brain, git: git, held: store).run(for: id) }
-                saved += outcome.saved.count
-                held.formUnion(outcome.held.map { "\(memory.id)/\($0.path)" })
+                do {
+                    let outcome = try git.withLock(timeout: timeout) { try AccountSave(brain: brain, git: git, held: store).run(for: id) }
+                    saved += outcome.saved.count
+                    held.formUnion(outcome.held.map { "\(memory.id)/\($0.path)" })
+                    wentThrough += 1
+                } catch BrainmergeError.lockTimeout {
+                    log.write("\(identity): \(memory.name): brain lock held by another process, skipped")
+                } catch {
+                    log.write("\(identity): \(memory.name): \(error)")
+                }
                 behind += git.indexBehind.count
             }
             let ms = Int(Date().timeIntervalSince(start) * 1000)
-            log.write("\(identity): \(saved == 0 ? "nothing to commit" : "committed \(saved) file\(saved == 1 ? "" : "s")") in \(ms) ms")
+            if wentThrough > 0 {
+                log.write("\(identity): \(saved == 0 ? "nothing to commit" : "committed \(saved) file\(saved == 1 ? "" : "s")") in \(ms) ms")
+            }
             // The save is made; only git's own list of what is staged waits (see BrainGit.followCommit).
             if behind > 0 {
                 log.write("\(identity): another git held the memory's index, it catches up with \(behind) file\(behind == 1 ? "" : "s") at the next save")
