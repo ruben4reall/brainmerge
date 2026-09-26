@@ -388,15 +388,24 @@ import BrainmergeTestSupport
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == notes.path)
         #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8).contains(moved.path))
 
-        // An empty folder: the memory starts again there.
+        // A memory whose folder is in place never moves: its links would keep writing there, unsaved.
         let fresh = e.home.url.appending(path: "Fresh", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: fresh, withIntermediateDirectories: true)
+        #expect(throws: BrainmergeError.memoryInPlace(id: "work", path: moved.path)) { try e.manager.relocateBrain(id: "work", to: fresh, language: .en) }
+        #expect(try e.store.load().brain(id: "work")?.path == moved.path)
+        #expect(!Brain(root: fresh).isInitialized)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == notes.path)
+
+        // Its folder gone, an empty folder: the memory starts again there.
+        let aside = e.home.url.appending(path: "Aside", directoryHint: .isDirectory)
+        try FileManager.default.moveItem(at: moved, to: aside)
         _ = try e.manager.relocateBrain(id: "work", to: fresh, language: .en)
         #expect(Brain(root: fresh).isInitialized)
-        #expect(FileManager.default.fileExists(atPath: notes.appending(path: "pricing.md").path), "the old folder is left as it is")
+        #expect(FileManager.default.fileExists(atPath: Brain(root: aside).memoryDir(forProject: "atelier").appending(path: "pricing.md").path), "the old folder is left as it is")
 
         #expect(throws: BrainmergeError.brainFolderInUse(e.brain.root.path)) { try e.manager.relocateBrain(id: "work", to: e.brain.root, language: .en) }
         #expect(throws: BrainmergeError.brainUnknown("gone")) { try e.manager.relocateBrain(id: "gone", to: fresh, language: .en) }
+        try FileManager.default.moveItem(at: fresh, to: e.home.url.appending(path: "Aside2", directoryHint: .isDirectory))
         let inside = e.home.url.appending(path: "repo/notes", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: e.home.url.appending(path: "repo/.git"), withIntermediateDirectories: true)
         #expect(throws: BrainmergeError.memoryInsideRepository(e.home.url.appending(path: "repo").resolvingSymlinksInPath().path)) {

@@ -70,6 +70,27 @@ import BrainmergeTestSupport
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == Brain(root: URL(fileURLWithPath: other)).memoryDir(forProject: "atelier").path)
     }
 
+    /// `brain relocate` is for a memory whose folder is gone. One that is in place is refused before anything changes, as
+    /// with `brain init`: its projects' links would keep writing into the old folder, and nothing would save those notes.
+    @Test func brainRelocateNeverMovesAMemoryInPlace() throws {
+        let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
+        let notes = e.home.url.appending(path: "My Notes").path
+        #expect(try run(e, ["brain", "init", notes]).status == 0)
+        #expect(try run(e, ["adopt-primary", "--name", "Me"]).status == 0)
+        let claudeMD = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        let link = e.primaryProfile.projectsDir.appending(path: ProjectSlug.slug(forPath: e.atelier)).appending(path: "memory")
+        let target = try FileManager.default.destinationOfSymbolicLink(atPath: link.path)
+
+        let other = e.home.url.appending(path: "Brain2").path
+        let moved = try run(e, ["brain", "relocate", AppState.defaultBrainID, other])
+        #expect(moved.status != 0)
+        #expect(moved.stderr.contains(notes), "\(moved.stderr)")
+        #expect(try e.store.load().brainPath == notes)
+        #expect(!FileManager.default.fileExists(atPath: other))
+        #expect(try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8) == claudeMD)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target)
+    }
+
     @Test func fullScenarioThroughTheCLI() throws {
         let e = try ManagerEnv.make(withBrain: false); defer { e.home.remove() }
 
