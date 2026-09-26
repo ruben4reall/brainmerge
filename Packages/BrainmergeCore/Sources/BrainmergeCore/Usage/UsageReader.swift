@@ -57,11 +57,20 @@ public struct UsageReader: Sendable {
         public var parsedLines: Int
         /// The project's real folder name, from the `cwd` the transcript carries; nil when no line had one.
         public var projectName: String?
+        /// The messages already counted in this file, by a digest of their id: a copy replayed later is not counted again.
+        public var seen: Set<UInt64>?
+    }
+
+    /// A stable digest of a message id (FNV-1a): the same across launches, unlike Swift's hashing.
+    static func digest(_ id: String) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in id.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        return hash
     }
 
     public struct Cache: Codable, Equatable, Sendable {
         /// Bumped when the parser changes what it stores: an older cache is simply rebuilt.
-        public static let currentVersion = 2
+        public static let currentVersion = 3
         public var version = Cache.currentVersion
         public var files: [String: FileState] = [:]
         public init() {}
@@ -103,7 +112,10 @@ public struct UsageReader: Sendable {
                     if size < state.size { state = FileState(offset: 0, size: 0, modified: 0, buckets: [], open: nil, parsedLines: 0) }
                     var open = state.open
                     var projectName = state.projectName
-                    let parsed = Self.parse(file: file, from: state.offset, chunkSize: chunkSize, project: project, open: &open, projectName: &projectName, calendar: calendar)
+                    var seen = state.seen ?? []
+                    let parsed = Self.parse(file: file, from: state.offset, chunkSize: chunkSize, project: project, open: &open, projectName: &projectName,
+                                            seen: &seen, calendar: calendar)
+                    state.seen = seen
                     state.buckets = Self.merge(state.buckets, parsed.buckets)
                     state.open = open
                     state.projectName = projectName
@@ -166,7 +178,8 @@ public struct UsageReader: Sendable {
     /// break, waits for the next pass). Lines belonging to the same message follow one another: the "open" message absorbs
     /// its following lines (maximum of each counter) and joins the day's aggregate when another message begins.
     /// The first `cwd` seen names the project; lines without usage are then not decoded at all.
-    static func parse(file: URL, from offset: Int64, chunkSize: Int, project: String, open: inout OpenMessage?, projectName: inout String?, calendar: Calendar) -> (buckets: [DayBucket], consumed: Int64, lines: Int) {
+    static func parse(file: URL, from offset: Int64, chunkSize: Int, project: String, open: inout OpenMessage?, projectName: inout String?,
+                      seen: inout Set<UInt64>, calendar: Calendar) -> (buckets: [DayBucket], consumed: Int64, lines: Int) {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return ([], 0, 0) }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: UInt64(max(0, offset)))) != nil else { return ([], 0, 0) }
@@ -192,6 +205,8 @@ public struct UsageReader: Sendable {
                     current.sample.output = max(current.sample.output, sample.output)
                     open = current
                 } else {
+                    // A message counted earlier in this file, replayed away from its lines: not counted again.
+                    guard seen.insert(digest(id)).inserted else { return }
                     if let previous = open { flush(previous.sample) }
                     open = OpenMessage(id: id, sample: sample)
                 }

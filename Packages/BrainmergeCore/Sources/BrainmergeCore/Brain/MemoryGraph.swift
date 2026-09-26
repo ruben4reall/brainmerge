@@ -93,6 +93,17 @@ public struct MemoryGraph: Equatable, Sendable {
         var fence: Unicode.Scalar?
         func string(_ range: Range<Int>) -> String { String(String.UnicodeScalarView(s[range])) }
         func endOfLine(_ from: Int) -> Int { var j = from; while j < n, s[j] != "\n" { j += 1 }; return j }
+        // The next `mark` on the line from a position, and whether it is there (else the line's end). What one search saw
+        // answers every later one that starts inside it: a line full of unclosed links is read once, not once per link.
+        var seen: [Unicode.Scalar: (from: Int, stop: Int, found: Bool)] = [:]
+        func next(_ mark: Unicode.Scalar, from j: Int) -> (at: Int, found: Bool) {
+            if let known = seen[mark], j >= known.from, j <= known.stop { return (known.stop, known.found) }
+            var k = j
+            while k < n, s[k] != mark, s[k] != "\n" { k += 1 }
+            let found = k < n && s[k] == mark
+            seen[mark] = (j, k, found)
+            return (k, found)
+        }
         while i < n {
             let c = s[i]
             if c == "\n" { lineStart = true; i += 1; continue }
@@ -139,17 +150,17 @@ public struct MemoryGraph: Equatable, Sendable {
                 var j = i + 2
                 var destination: String?
                 if j < n, s[j] == "<" {
-                    var k = j + 1
-                    while k < n, s[k] != ">", s[k] != "\n" { k += 1 }
-                    if k < n, s[k] == ">" { destination = string((j + 1)..<k); j = k + 1 }
+                    let close = next(">", from: j + 1)
+                    if close.found { destination = string((j + 1)..<close.at); j = close.at + 1 }
                 } else {
                     var k = j
                     while k < n, s[k] != ")", s[k] != "\n", s[k] != " ", s[k] != "\t" { k += 1 }
                     destination = string(j..<k); j = k
                 }
                 // An optional title, then the closing parenthesis on the same line.
-                while j < n, s[j] != ")", s[j] != "\n" { j += 1 }
-                if var target = destination, j < n, s[j] == ")" {
+                let paren = next(")", from: j)
+                j = paren.at
+                if var target = destination, paren.found {
                     if let hash = target.firstIndex(of: "#") { target = String(target[..<hash]) }
                     let lower = target.lowercased()
                     let ext = (lower as NSString).pathExtension
@@ -158,7 +169,8 @@ public struct MemoryGraph: Equatable, Sendable {
                     }
                     i = j + 1
                 } else {
-                    i += 2
+                    // No parenthesis left on the line: no later link there can close either.
+                    i = paren.found ? i + 2 : j
                 }
             default:
                 i += 1
@@ -228,6 +240,13 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     private var stamps: [String: Stamp] = [:]
     private struct Stamp: Equatable { let modified: Date; let size: Int }
     private var built = false
+    /// The last graph and the files it was made from: a build where nothing changed returns it as it is.
+    private var lastGraph: MemoryGraph?
+    private var lastShown: [String] = []
+    /// How many graphs were made (tests: a build with nothing new makes none).
+    private(set) var graphsMade = 0
+    /// A walk stops after this many entries: a folder that big is not a memory, and the graph keeps what it saw.
+    static let maxEntries = 400_000
 
     public init(root: URL, style: MemoryGraph.Style = .memory, maxNotes: Int = 2000, maxBytes: Int = 256 * 1024) {
         self.given = root; self.style = style; self.maxNotes = maxNotes; self.maxBytes = maxBytes
@@ -255,9 +274,13 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
         defer { free(start) }
         var roots: [UnsafeMutablePointer<CChar>?] = [start, nil]
         // FTS_PHYSICAL: symlinks are reported as links and never followed.
-        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR, nil) else { return ([], [], false) }
+        // FTS_XDEV: never into another disk mounted inside.
+        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR | FTS_XDEV, nil) else { return ([], [], false) }
         defer { fts_close(fts) }
+        var seen = 0
         while let entry = fts_read(fts) {
+            seen += 1
+            if seen > Self.maxEntries { break }
             let info = Int32(entry.pointee.fts_info)
             // The folder itself refused (EPERM from macOS's privacy guard, EACCES from its permissions): said apart
             // from an empty folder. A locked folder inside is only skipped.
@@ -333,7 +356,18 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
         built = true
         // Reported by bubble: a project's index that changed is its project's bubble that changed.
         let ids = { (paths: [String]) in Array(Set(paths.map(self.nodeID(forFile:)))).sorted() }
-        return Result(graph: makeGraph(), changed: ids(changed), removed: ids(removed), readFiles: read,
+        // Nothing new, nothing gone, the same files shown and known: the graph is the one made last time.
+        let shownPaths = next.keys.sorted()
+        let graph: MemoryGraph
+        if let lastGraph, changed.isEmpty, removed.isEmpty, stamps == before, shownPaths == lastShown {
+            graph = lastGraph
+        } else {
+            graph = makeGraph()
+            graphsMade += 1
+        }
+        lastGraph = graph
+        lastShown = shownPaths
+        return Result(graph: graph, changed: ids(changed), removed: ids(removed), readFiles: read,
                       truncated: notes.count > maxNotes, attachmentsTruncated: attachments.count > maxNotes, refused: refused)
     }
 

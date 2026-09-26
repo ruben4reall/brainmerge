@@ -15,7 +15,7 @@ import BrainmergeTestSupport
     @Test func theHeaderSaysWhetherTheAccountMustBeClosed() {
         #expect(EditAccountSheet.header(for: account("Ruben", primary: true, running: true)) == "Changes apply when you save. Claude stays open.")
         #expect(EditAccountSheet.header(for: account("Ruben", primary: true, running: false)) == "Changes apply when you save.")
-        #expect(EditAccountSheet.header(for: account("Work", running: true)) == "Quit this account first: its app is rebuilt when you save.")
+        #expect(EditAccountSheet.header(for: account("Work", running: true)) == "A new note applies at once. For a new name, color or icon, quit this account first: its app is rebuilt.")
         #expect(EditAccountSheet.header(for: account("Work", running: false)) == "Changes apply when you save.")
     }
 

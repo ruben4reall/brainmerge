@@ -109,9 +109,59 @@ struct LineFields {
             let end = min(i, bytes.count)
             i = end + 1
             let slice = UnsafeBufferPointer(rebasing: bytes[start..<end])
-            let raw = String(decoding: slice, as: UTF8.self)
-            guard needsUnescape else { return raw }
-            return (try? JSONSerialization.jsonObject(with: Data("[\"\(raw)\"]".utf8)) as? [String])?.first ?? raw
+            guard needsUnescape else { return String(decoding: slice, as: UTF8.self) }
+            return Self.unescape(slice)
+        }
+
+        /// Steps over the string at the cursor without reading it: a skipped value is never copied or decoded.
+        mutating func skipString() {
+            guard peek() == UInt8(ascii: "\"") else { return }
+            i += 1
+            while let c = peek() {
+                if c == UInt8(ascii: "\\") { i += 2; continue }
+                i += 1
+                if c == UInt8(ascii: "\"") { return }
+            }
+        }
+
+        /// JSON's escapes, `\uXXXX` and its surrogate pairs included. A broken escape is kept as it is written.
+        static func unescape(_ raw: UnsafeBufferPointer<UInt8>) -> String {
+            var out: [UInt8] = []
+            out.reserveCapacity(raw.count)
+            var k = 0
+            func hex(_ at: Int) -> UInt32? {
+                guard at + 4 <= raw.count else { return nil }
+                var v: UInt32 = 0
+                for b in raw[at..<(at + 4)] {
+                    guard let d = Int(String(UnicodeScalar(b)), radix: 16) else { return nil }
+                    v = v << 4 | UInt32(d)
+                }
+                return v
+            }
+            while k < raw.count {
+                let c = raw[k]
+                guard c == UInt8(ascii: "\\"), k + 1 < raw.count else { out.append(c); k += 1; continue }
+                let e = raw[k + 1]
+                k += 2
+                switch e {
+                case UInt8(ascii: "n"): out.append(0x0A)
+                case UInt8(ascii: "t"): out.append(0x09)
+                case UInt8(ascii: "r"): out.append(0x0D)
+                case UInt8(ascii: "b"): out.append(0x08)
+                case UInt8(ascii: "f"): out.append(0x0C)
+                case UInt8(ascii: "u"):
+                    guard var scalar = hex(k) else { out += [UInt8(ascii: "\\"), e]; continue }
+                    k += 4
+                    if (0xD800...0xDBFF).contains(scalar), k + 1 < raw.count, raw[k] == UInt8(ascii: "\\"), raw[k + 1] == UInt8(ascii: "u"),
+                       let low = hex(k + 2), (0xDC00...0xDFFF).contains(low) {
+                        scalar = 0x10000 + ((scalar - 0xD800) << 10) + (low - 0xDC00)
+                        k += 6
+                    }
+                    out += Array(String(UnicodeScalar(scalar).map(Character.init) ?? "\u{FFFD}").utf8)
+                default: out.append(e)   // \" \\ \/ and anything else: the character itself
+                }
+            }
+            return String(decoding: out, as: UTF8.self)
         }
 
         /// The integer at the cursor (a JSON number without fraction), or nil.
@@ -132,11 +182,11 @@ struct LineFields {
             skipWhitespace()
             guard let c = peek() else { return }
             switch c {
-            case UInt8(ascii: "\""): _ = string()
+            case UInt8(ascii: "\""): skipString()
             case UInt8(ascii: "{"), UInt8(ascii: "["):
                 var depth = 0
                 while let c = peek() {
-                    if c == UInt8(ascii: "\"") { _ = string(); continue }
+                    if c == UInt8(ascii: "\"") { skipString(); continue }
                     if c == UInt8(ascii: "{") || c == UInt8(ascii: "[") { depth += 1 }
                     if c == UInt8(ascii: "}") || c == UInt8(ascii: "]") { depth -= 1; if depth == 0 { i += 1; return } }
                     i += 1

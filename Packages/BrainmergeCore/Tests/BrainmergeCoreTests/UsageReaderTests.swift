@@ -40,6 +40,24 @@ import BrainmergeTestSupport
         #expect(samples.first { $0.output == 40 }?.total == 2 + 100 + 1000 + 40)
     }
 
+    /// A message replayed later in its transcript (a sidechain copy with the same id) is counted once, on the same pass
+    /// or on a later one.
+    @Test func aReplayedMessageIsCountedOnce() throws {
+        let f = try fixture(); defer { f.home.remove() }
+        let now = Date()
+        let file = f.project.appending(path: "s3.jsonl")
+        try Data((assistant(id: "msg_1", at: now, output: 40) + assistant(id: "msg_2", at: now, output: 7)
+                  + assistant(id: "msg_1", at: now, output: 40)).utf8).write(to: file)
+        var samples = try f.reader.read(profile: f.profile, since: now.addingTimeInterval(-86_400), now: now)
+        #expect(samples.map(\.output).reduce(0, +) == 47)
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((assistant(id: "msg_2", at: now, output: 7) + assistant(id: "msg_3", at: now, output: 1)).utf8))
+        try handle.close()
+        samples = try f.reader.read(profile: f.profile, since: now.addingTimeInterval(-86_400), now: now.addingTimeInterval(1))
+        #expect(samples.map(\.output).reduce(0, +) == 48)
+    }
+
     @Test func incrementalReadOnlyParsesAppendedLines() throws {
         let f = try fixture(); defer { f.home.remove() }
         let now = Date()

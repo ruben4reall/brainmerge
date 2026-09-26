@@ -25,6 +25,16 @@ public struct ProjectRegistry: Codable, Equatable, Sendable {
         try encoder.encode(self).write(to: file, options: .atomic)
     }
 
+    /// Every path of this machine and its name, for many lookups at once. Where two names claim one path (a list
+    /// edited by hand), the first in name order wins, as `name(forPath:machineID:)` would not promise either.
+    public func names(machineID: String) -> [String: String] {
+        var index: [String: String] = [:]
+        for name in projects.keys.sorted() {
+            if let path = projects[name]?.paths[machineID], index[path] == nil { index[path] = name }
+        }
+        return index
+    }
+
     /// Name already assigned to this path on this machine.
     public func name(forPath path: String, machineID: String) -> String? {
         projects.first { $0.value.paths[machineID] == path }?.key

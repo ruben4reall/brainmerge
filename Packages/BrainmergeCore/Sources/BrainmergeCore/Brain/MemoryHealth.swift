@@ -229,12 +229,19 @@ public enum MemoryHealth {
     }
 
     /// The notes of a project folder that its index could name: not the index itself, not what `_archive/` keeps.
-    static func notes(of folder: String, in scan: MemoryScan) -> [String] {
-        let prefix = "memory/\(folder)/"
-        return scan.notes.map(\.path).filter { path in
-            guard path.hasPrefix(prefix), path != prefix + MemoryIndex.fileName else { return false }
-            return !path.dropFirst(prefix.count).hasPrefix(MemoryTidy.archiveFolder + "/")
-        }.sorted()
+    static func notes(of folder: String, in scan: MemoryScan) -> [String] { notesByFolder(scan)[folder] ?? [] }
+
+    /// Every project folder's notes (see `notes(of:in:)`), in one pass over the scan instead of one per folder.
+    static func notesByFolder(_ scan: MemoryScan) -> [String: [String]] {
+        var byFolder: [String: [String]] = [:]
+        for path in scan.notes.map(\.path) where path.hasPrefix("memory/") {
+            let rest = path.dropFirst("memory/".count)
+            guard let slash = rest.firstIndex(of: "/") else { continue }
+            let folder = String(rest[..<slash]), inside = rest[rest.index(after: slash)...]
+            guard inside != MemoryIndex.fileName, !inside.hasPrefix(MemoryTidy.archiveFolder + "/") else { continue }
+            byFolder[folder, default: []].append(path)
+        }
+        return byFolder.mapValues { $0.sorted() }
     }
 
     // MARK: The analysis
@@ -246,8 +253,9 @@ public enum MemoryHealth {
         let resolver = NoteResolver(notes: scan.notes.map(\.path))
         var groups: [GroupID: [Item]] = [:]
         var emptyOneOff: [String] = []
+        let byFolder = notesByFolder(scan)
         for folder in scan.folders.sorted() {
-            let notes = notes(of: folder, in: scan)
+            let notes = byFolder[folder] ?? []
             if isOneOff(folder) {
                 // One group per folder: a quick session's folder is only said to be one.
                 if !notes.isEmpty {
