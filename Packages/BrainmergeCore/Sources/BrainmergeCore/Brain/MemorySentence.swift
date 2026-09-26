@@ -13,22 +13,32 @@ public enum MemorySentence {
     }
 
     /// `project` is the one project folder every file is in, nil when there are several or none.
+    ///
+    /// A project's index (its `MEMORY.md`) changes with the notes it lists: it counts only when nothing else changed, so
+    /// one new note and its line in the index is "remembered something", never "2 things".
     public static func sentence(files: [String], project: String?, byYou: Bool = false) -> String {
-        let notes = files.filter { $0.hasPrefix("memory/") }
-        if notes.isEmpty {
+        let all = files.filter { $0.hasPrefix("memory/") }
+        if all.isEmpty {
             if files.contains("BRAIN.md") { return byYou ? "edited the memory's instructions" : "changed the memory's instructions" }
             return "\(byYou ? "edited" : "updated") \(count(files.count, "file"))"
         }
+        let others = all.filter { !isIndex($0) }
+        let notes = others.isEmpty ? all : others
+        // An index of another project, left out, no longer spreads the save over two projects.
+        let project = project ?? Self.project(files: notes)
         let projects = Set(notes.compactMap(Self.project(of:)))
         if let project, notes.count == 1 {
             if byYou { return "edited a note about \(project)" }
-            return notes[0].hasSuffix("/MEMORY.md") ? "updated its notes about \(project)" : "remembered something about \(project)"
+            return isIndex(notes[0]) ? "updated its notes about \(project)" : "remembered something about \(project)"
         }
         if let project { return byYou ? "edited \(notes.count) notes about \(project)" : "remembered \(notes.count) things about \(project)" }
         let verb = byYou ? "edited" : "updated"
         if projects.isEmpty { return "\(verb) \(count(notes.count, "note"))" }
         return "\(verb) \(notes.count) notes across \(projects.count) projects"
     }
+
+    /// A project's index, `memory/<project>/MEMORY.md`.
+    static func isIndex(_ path: String) -> Bool { path.hasSuffix("/MEMORY.md") }
 
     /// The project folder a note is in: `memory/<project>/…`. A note at the top of `memory/` has none.
     public static func project(of path: String) -> String? {

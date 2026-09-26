@@ -15,7 +15,8 @@ import BrainmergeCore
     @Test func sentencesInPlainWords() {
         let events = MemoryFeed.events(from: [entry("client@brainmerge.local", ["memory/trailbook/MEMORY.md", "memory/trailbook/feedback_tests.md"]),
                                               entry("client@brainmerge.local", ["BRAIN.md"])], identities: [client])
-        #expect(events.map(\.sentence) == ["remembered 2 things about trailbook", "changed the memory's instructions"])
+        // A note and its line in the project's index: one thing remembered.
+        #expect(events.map(\.sentence) == ["remembered something about trailbook", "changed the memory's instructions"])
     }
 
     /// The person's own edits, saved by the app: "You", in gray, and never counted as an account's saves.
