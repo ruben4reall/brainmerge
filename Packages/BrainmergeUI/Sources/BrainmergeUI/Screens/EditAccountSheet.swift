@@ -127,7 +127,7 @@ public struct EditAccountSheet: View {
             } else {
                 labeled("In the Dock") {
                     Toggle("Own icon in the Dock", isOn: $edit.distinctIcon).toggleStyle(.switch).tint(Theme.Colors.accent)
-                    Text("Recommended when several accounts stay open: the Dock shows this account's icon and name while it runs. It is a local copy of Claude, rebuilt after each Claude update.")
+                    Text("Recommended when several accounts stay open: the Dock shows this account's icon and name while it runs. It is a local copy of Claude, about 400 MB on disk, rebuilt after each Claude update.")
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                     appLocation
                     if appLabel != nil {

@@ -19,10 +19,15 @@ public struct TintedCloneBuilder: Sendable {
         // A signed Claude whose signature no longer matches its files is never copied: it is not Claude any more.
         // "Signed" means the bundle itself carries a signature that seals its resources; an executable signed only
         // by the linker, inside an unsigned bundle, is not a broken signature.
-        let description = try shell.run("/usr/bin/codesign", ["-dv", claude.url.path])
-        if description.status == 0, description.stderr.contains("Sealed Resources version="), !description.stderr.contains("linker-signed"),
-           try shell.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", claude.url.path]).status != 0 {
-            throw BrainmergeError.claudeAppTampered(claude.url.path)
+        // Verified once per version and files: rebuilding every account's copy after an update reads Claude once.
+        let stamp = Self.stamp(of: claude)
+        if !Self.verified.contains(stamp) {
+            let description = try shell.run("/usr/bin/codesign", ["-dv", claude.url.path])
+            if description.status == 0, description.stderr.contains("Sealed Resources version="), !description.stderr.contains("linker-signed"),
+               try shell.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", claude.url.path]).status != 0 {
+                throw BrainmergeError.claudeAppTampered(claude.url.path)
+            }
+            Self.verified.insert(stamp)
         }
         let final = paths.tintedClone(name: identity.bundleDisplayName)
         try fm.createDirectory(at: paths.launchersDir, withIntermediateDirectories: true)
@@ -65,6 +70,25 @@ public struct TintedCloneBuilder: Sendable {
         }
         if register { _ = try? shell.run(Self.lsregister, ["-f", final.path]) }
         return final
+    }
+}
+
+extension TintedCloneBuilder {
+    /// The Claude copies verified in this run, by path, version and the date and size of its program.
+    static let verified = VerifiedSet()
+
+    static func stamp(of claude: ClaudeApp) -> String {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: claude.executable.path)
+        let date = (attributes?[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+        let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+        return "\(claude.url.standardizedFileURL.path)|\(claude.version)|\(date)|\(size)"
+    }
+
+    final class VerifiedSet: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stamps: Set<String> = []
+        func contains(_ stamp: String) -> Bool { lock.lock(); defer { lock.unlock() }; return stamps.contains(stamp) }
+        func insert(_ stamp: String) { lock.lock(); stamps.insert(stamp); lock.unlock() }
     }
 }
 
