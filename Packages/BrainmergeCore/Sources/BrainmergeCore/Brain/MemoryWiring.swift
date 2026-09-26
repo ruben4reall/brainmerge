@@ -88,13 +88,12 @@ public struct MemoryWiring: Sendable {
             try fm.removeItem(at: link)
         case .realDirectory:
             try fm.createDirectory(at: target, withIntermediateDirectories: true)
-            let adopted = try Self.adopt(from: link, into: target, suffix: identitySlug)
+            let adopted = try Self.adoptAll(from: link, into: target, suffix: identitySlug)
             result.conflicts += adopted.conflicts
             result.adopted.append(name)
             // The account's own notes, written before it shared this memory: its save commits them, not "You edited".
             let ledger = TouchedLedger(brain: brain, slug: identitySlug)
             for path in Self.files(adopted.moved, project: name) { try? ledger.append(path) }
-            try fm.removeItem(at: link)
         case .broken:
             try fm.removeItem(at: link)
         case .missing:
@@ -162,6 +161,30 @@ public struct MemoryWiring: Sendable {
     /// Moves the files from `from` into `into`. A duplicate keeps the brain's version; the other one is renamed
     /// `<name>.<suffix>.<ext>` (`<name>.<suffix>-2.<ext>` and so on when taken) and reported. An item identical to one
     /// already there (a copy the uninstaller left) stays out: it would only be a second copy. `moved`: where each item went.
+    /// Moves everything out of a real memory folder, then removes the folder, only once it is empty: a note a session
+    /// writes meanwhile is moved on the next pass, never deleted with the folder. Still not empty after a few passes (a
+    /// session writing without pause), it stays, and this throws: the link waits for the next session start.
+    static func adoptAll(from: URL, into: URL, suffix: String, afterPass: () -> Void = {}) throws -> (conflicts: [String], moved: [URL]) {
+        let fm = FileManager.default
+        var conflicts: [String] = [], moved: [URL] = []
+        for _ in 0..<5 {
+            let pass = try adopt(from: from, into: into, suffix: suffix)
+            conflicts += pass.conflicts
+            moved += pass.moved
+            // What is left is identical to a note already in the memory: a copy, dropped.
+            for item in try fm.contentsOfDirectory(at: from, includingPropertiesForKeys: nil) {
+                let twin = into.appending(path: item.lastPathComponent)
+                if fm.contentsEqual(atPath: item.path, andPath: twin.path) { try fm.removeItem(at: item) }
+            }
+            afterPass()
+            // Not recursive: a file that arrived since the listing makes it fail, and the next pass moves it.
+            if rmdir(from.path) == 0 { return (conflicts, moved) }
+            guard errno == ENOTEMPTY || errno == EEXIST else { break }
+        }
+        throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: from.path,
+                                                      NSLocalizedDescriptionKey: "\(from.path) kept changing while its notes moved to the memory"])
+    }
+
     static func adopt(from: URL, into: URL, suffix: String) throws -> (conflicts: [String], moved: [URL]) {
         let fm = FileManager.default
         var conflicts: [String] = []
