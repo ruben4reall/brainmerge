@@ -30,14 +30,15 @@ public struct UsageView: View {
                 ResourcesSection(model: model)
                 sectionLabel("Spent in Claude Code").padding(.top, 8)
                 if model.usage.isEmpty {
+                    let placeholder = Placeholder.of(refreshing: model.usageRefreshing, updated: model.usageUpdatedAt)
                     GlassCard {
                         HStack(spacing: 8) {
-                            if model.usageRefreshing { ProgressView().controlSize(.small).transition(.fade(reduceMotion)) }
-                            Text(model.usageRefreshing ? "Reading the transcripts…" : "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
+                            if placeholder.spinner { ProgressView().controlSize(.small).transition(.fade(reduceMotion)) }
+                            Text(placeholder.text)
                                 .foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
                         }
                         .padding(22).frame(maxWidth: .infinity, alignment: .leading)
-                        .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.usageRefreshing)
+                        .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: placeholder)
                     }
                     .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
                     // Goes as the first cards come, never cut.
@@ -69,6 +70,20 @@ public struct UsageView: View {
             while !Task.isCancelled {
                 await model.refreshDisk()
                 try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    /// The card that stands in for the figures while there are none. Never read counts as reading: the screen's first
+    /// frame comes before its read starts, and "Nothing yet" there would be said over transcripts that hold data.
+    enum Placeholder: Equatable {
+        case reading, nothingYet
+        static func of(refreshing: Bool, updated: Date?) -> Placeholder { refreshing || updated == nil ? .reading : .nothingYet }
+        var spinner: Bool { self == .reading }
+        var text: String {
+            switch self {
+            case .reading: "Reading the transcripts…"
+            case .nothingYet: "Nothing yet. Open an account and work in Claude Code: what it spends shows up here."
             }
         }
     }

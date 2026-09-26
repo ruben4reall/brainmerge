@@ -87,7 +87,7 @@ import BrainmergeCore
             ("Screens/ConnectionsSection.swift", "options.isEmpty"), ("Screens/ConnectionsSection.swift", "choice"),
             ("Screens/ConnectionsSection.swift", "serversRead"), ("Screens/ConnectionsSection.swift", "showsServers"),
             ("Screens/AddAccountSheet.swift", "advanced"), ("Screens/EditAccountSheet.swift", "swapProblem?.id"),
-            ("Screens/UsageView.swift", "state"), ("Screens/UsageView.swift", "model.usageRefreshing"),
+            ("Screens/UsageView.swift", "state"), ("Screens/UsageView.swift", "placeholder"),
             ("Screens/UsageView.swift", "days.map(\\.output)"), ("Screens/UsageView.swift", "output"), ("Screens/UsageView.swift", "total"),
             ("Design/StateMotion.swift", "key ?? text"), ("Screens/MemoryGraphView.swift", "recent"),
             ("Screens/MemoryGraphView.swift", "counts"), ("Screens/MemoryGraphView.swift", "ordered.map(\\.id)"),

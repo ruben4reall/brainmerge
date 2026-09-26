@@ -34,6 +34,18 @@ import BrainmergeTestSupport
         #expect(model.usageUpdatedAt != nil)
     }
 
+    /// The card before the first figures: the screen's first frame comes before its read starts, and must never say
+    /// "Nothing yet" over transcripts that hold data. Nothing yet only once a read has finished and found nothing.
+    @Test func theFirstVisitSaysReadingNeverNothingYet() {
+        let never = UsageView.Placeholder.of(refreshing: false, updated: nil)
+        #expect(never == .reading && never.spinner && never.text == "Reading the transcripts…")
+        #expect(UsageView.Placeholder.of(refreshing: true, updated: nil) == .reading)
+        #expect(UsageView.Placeholder.of(refreshing: true, updated: Date()) == .reading)
+        let empty = UsageView.Placeholder.of(refreshing: false, updated: Date())
+        #expect(empty == .nothingYet && !empty.spinner)
+        #expect(empty.text == "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
+    }
+
     @Test func tokensReadLikeNumbers() {
         #expect(TokenFormat.short(0) == "0")
         #expect(TokenFormat.short(999) == "999")
