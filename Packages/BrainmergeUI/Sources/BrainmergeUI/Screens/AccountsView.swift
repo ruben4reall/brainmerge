@@ -25,14 +25,17 @@ public struct AccountsView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if let warning = model.memoryWarning { memoryBanner(warning) }
-                if let banner = model.updateBanner { updateBanner(banner) }
+                // Every word, orb and button here is an obstacle the launch's leap flies around; the cards' empty edges are
+                // not, so the leap can rise from the splash just under them.
+                if let warning = model.memoryWarning { memoryBanner(warning).launchObstacle("accounts.memoryBanner") }
+                if let banner = model.updateBanner { updateBanner(banner).launchObstacle("accounts.updateBanner") }
                 ScreenHeader("Accounts", subtitle: subtitle) {
                     HStack(spacing: 10) {
                         searchField
                         Button("Add account") { showAdd = true }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
                     }
                 }
+                .launchObstacle("accounts.header")
                 GlassEffectContainer(spacing: 12) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(shown) { account in card(account) }
@@ -42,8 +45,6 @@ public struct AccountsView: View {
                     Text("No account matches “\(query)”.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
-            // The header and the cards: the launch's leap flies around them.
-            .launchObstacle("accounts")
             .padding(Theme.Layout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -135,6 +136,7 @@ public struct AccountsView: View {
                 if let button = Self.cardButton(for: account, action: action) { cardButton(button, for: account, action: action) }
                 moreMenu(account)
             }
+            .launchObstacle("accounts.card.\(account.id)")
             .padding(14)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
         }

@@ -179,12 +179,13 @@ import BrainmergeTestSupport
         #expect(try e.store.load().identity(slug: "client") == nil)
     }
 
-    /// A newer "Opening…" is never cleared by the fallback timer of an older click.
+    /// A newer "Opening…" is never cleared by the fallback timer of an older click. The newer mark's own fallback is an
+    /// hour away: however long a loaded machine keeps the main actor from this test, only the older timer can fire here.
     @Test func anOldOpeningTimerLeavesANewerMarkAlone() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let m = model(e)
         m.markOpening("client", fallback: .milliseconds(30))
-        m.markOpening("client", fallback: .seconds(30))
+        m.markOpening("client", fallback: .seconds(3600))
         try await Task.sleep(for: .milliseconds(150))
         #expect(m.opening == ["client"])
         m.markOpening("other", fallback: .milliseconds(30))

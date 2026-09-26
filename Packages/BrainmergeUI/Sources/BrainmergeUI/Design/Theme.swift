@@ -123,7 +123,7 @@ public enum Theme {
     }
 
     /// The launch: the creature's pixels gather into one on the splash, then it leaps into its place while the window's
-    /// screens fade in underneath (LaunchScene.swift). The app never waits longer than `minimumVisible` for it.
+    /// screens fade in underneath (LaunchScene.swift). The hand-off never waits longer than `minimumVisible`.
     public enum Launch {
         /// One pixel of the creature on the splash, in points: a whole number keeps its edges crisp.
         public static let unit: CGFloat = 7

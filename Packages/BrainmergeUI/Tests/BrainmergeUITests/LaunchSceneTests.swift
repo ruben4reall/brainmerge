@@ -502,6 +502,106 @@ import Testing
         #expect(GuideExit.frame(at: 0.3, from: byTheButton, to: footer, obstacles: busy, reduceMotion: false).screensOpacity > 0.99)
     }
 
+    /// The same window as the hosted RootView reports it now that each card marks only its words, orb and buttons (four
+    /// accounts at 960 by 640): the header, the cards' insides (their empty edges are free), the sidebar's words, its four
+    /// rows down to 383.5, the creature's line.
+    let fourAccounts = [
+        CGRect(x: 264, y: 20, width: 676, height: 50), CGRect(x: 278, y: 100, width: 304, height: 51),
+        CGRect(x: 622, y: 100, width: 304, height: 51), CGRect(x: 278, y: 191, width: 304, height: 51),
+        CGRect(x: 622, y: 191, width: 304, height: 51), CGRect(x: 30, y: 50, width: 82.5, height: 17),
+        CGRect(x: 20, y: 79, width: 204, height: 30.5), CGRect(x: 20, y: 113.5, width: 204, height: 31),
+        CGRect(x: 20, y: 148.5, width: 204, height: 30), CGRect(x: 20, y: 182.5, width: 204, height: 30),
+        CGRect(x: 30, y: 259.5, width: 184, height: 22), CGRect(x: 30, y: 293.5, width: 184, height: 22),
+        CGRect(x: 30, y: 327.5, width: 184, height: 22), CGRect(x: 30, y: 361.5, width: 184, height: 22),
+        CGRect(x: 66, y: 599.5, width: 100, height: 15)]
+    /// The same window with the header and cards as one block, down to the cards' empty bottom edges (256): the splash's
+    /// hop reaches into it.
+    var fourAccountsAsABlock: [CGRect] { [CGRect(x: 264, y: 20, width: 676, height: 236)] + fourAccounts.filter { $0.maxX < 240 } }
+
+    @Test func whenTheRowsReachLowTheLeapRisesFirstThenSwingsHome() throws {
+        // Every arc that moves over at once crosses the sidebar's fourth row. The leap keeps its push and its stretch (never
+        // the dive that slides off the splash): straight up to its apex, then it swings home past the rows.
+        let inp = LaunchInput(size: size, readyAt: 0.2, target: footer, obstacles: fourAccounts)
+        let plan = try #require(LaunchDirector.handoff(inp))
+        let leap = try #require(plan.leap)
+        #expect(leap.route.apex == Theme.Launch.leapApex && leap.route.stretch == 1 && leap.route.lag > 0, "\(leap.route)")
+        #expect(!plan.held && leap.cover(fourAccounts) == 0)
+        let splash = AssembleScene.splashFeet(in: size)
+        let swing = leap.takeoff + leap.route.lag * leap.flightTime
+        var highest = CGFloat.infinity
+        for i in 0...Int(leap.flightTime * 480) {
+            let tau = leap.takeoff + Double(i) / 480
+            let feet = leap.frame(at: tau).feet
+            if tau <= swing { #expect(feet.x == splash.x, "tau \(tau): \(feet.x)") }
+            highest = min(highest, feet.y)
+        }
+        #expect(abs(highest - (splash.y - Theme.Launch.leapApex)) < 0.5, "apex \(splash.y - highest) pt")
+        // It moves over from rest: no kink where the swing starts.
+        let a = leap.frame(at: swing + 1.0 / 480).feet.x, b = leap.frame(at: swing + 2.0 / 480).feet.x
+        #expect(abs(a - splash.x) < 0.2 && abs(b - a) < 0.5, "\(splash.x) \(a) \(b)")
+        let finish = try #require(LaunchDirector.finishTime(inp))
+        for i in 0...Int((finish - 0.48) * 480) {
+            let f = AssembleScene.frame(at: 0.48 + Double(i) / 480, inp)
+            for o in fourAccounts { #expect(!Self.covers(f, o), "t \(0.48 + Double(i) / 480): over \(o)") }
+        }
+    }
+
+    /// A hand-off in the middle of the splash's hop whose way from the air crosses words or rows (every arc from the air
+    /// falls the same way, only its sideways timing changes): the creature finishes its hop and leaps from the landing on
+    /// a clear way instead. The screens never wait for that leap: they come in from the hand-off when the rest of the hop is
+    /// clear too, else as the hop lands. While they show, the creature is never over a word or a row.
+    @Test func aHandOffInTheHopLandsFirstRatherThanKeepTheScreensWaiting() throws {
+        for obstacles in [fourAccounts, fourAccountsAsABlock] {
+            for i in 0...27 {
+                let ready = 0.83 + Double(i) * 0.01
+                let inp = LaunchInput(size: size, readyAt: ready, target: footer, obstacles: obstacles)
+                let plan = try #require(LaunchDirector.handoff(inp))
+                let screens = plan.screensStart
+                #expect(screens <= max(ready + LaunchDirector.screensDelay, AssembleScene.hopLand) + 1e-9, "ready \(ready): screens from \(screens)")
+                var t = plan.start
+                while t < plan.finish {
+                    let f = LaunchDirector.frame(at: t, inp, plan: plan)
+                    if f.screensOpacity > 0, let o = obstacles.first(where: { Self.covers(f, $0) }) {
+                        Issue.record("ready \(ready) t \(t): over \(o)")
+                        break
+                    }
+                    t += 1.0 / 240
+                }
+            }
+        }
+        // In the window as it is, the rest of the hop is clear: the screens come in 0.04 s after the hand-off.
+        for ready in [0.86, 0.95, 1.05] {
+            let plan = try #require(LaunchDirector.handoff(LaunchInput(size: size, readyAt: ready, target: footer, obstacles: fourAccounts)))
+            #expect(!plan.held && abs(plan.screensStart - (ready + LaunchDirector.screensDelay)) < 1e-9, "ready \(ready)")
+        }
+        // With the cards as one block the hop reaches into it: the creature lands first, the screens come in as it lands.
+        let block = try #require(LaunchDirector.handoff(LaunchInput(size: size, readyAt: 0.95, target: footer, obstacles: fourAccountsAsABlock)))
+        #expect(block.leapStart == AssembleScene.hopLand && abs(block.screensStart - AssembleScene.hopLand) < 1e-9)
+    }
+
+    /// A click during the gather: the screens come in with the leap, from 0.04 s before it takes off, never under the
+    /// pixel cloud, which spreads over the cards while it gathers.
+    @Test func aSkipDuringTheGatherBringsTheScreensInWithTheLeap() throws {
+        for (ready, skip, crouch) in [(0.05, 0.1, 0.16), (0.02, 0.0, (0.58 - 0.02) / 3)] {
+            let inp = LaunchInput(size: size, readyAt: ready, skippedAt: skip, target: footer, obstacles: fourAccountsAsABlock)
+            let from = max(ready, skip) + crouch - LaunchDirector.screensDelay
+            #expect(AssembleScene.frame(at: from - 1e-6, inp).screensOpacity == 0, "skip \(skip)")
+            #expect(AssembleScene.frame(at: from + 0.05, inp).screensOpacity > 0, "skip \(skip)")
+            #expect(AssembleScene.frame(at: from + LaunchDirector.screensFade + 1e-6, inp).screensOpacity == 1, "skip \(skip)")
+            var t = max(ready, skip)
+            while t < from + 0.4 {
+                let f = AssembleScene.frame(at: t, inp)
+                if f.screensOpacity > 0, let o = fourAccountsAsABlock.first(where: { Self.covers(f, $0) }) {
+                    Issue.record("skip \(skip) t \(t): over \(o)")
+                    break
+                }
+                t += 1.0 / 240
+            }
+        }
+        // An ordinary crouch: the screens start 0.04 s into the hand-off, as always.
+        #expect(AssembleScene.frame(at: 0.48 + 0.04 + 0.03, input(0.2)).screensOpacity > 0)
+    }
+
     @Test func theGuideLeapGoesThroughEmptySpace() {
         // The All set creature stands beside "Open Brainmerge", low in the window: from there, clear of the main window's
         // words and rows all the way to the footer.

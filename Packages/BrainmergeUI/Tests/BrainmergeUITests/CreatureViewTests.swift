@@ -25,6 +25,35 @@ import Testing
         #expect(CreatureView.clockOrigin(clockStart: nil, appeared: nil, now: now) == now)
     }
 
+    /// The Canvas draws `drawnFrame`: the schedule's frame at the timeline's cadence. Held at a low frequency, a date that
+    /// falls mid-hop draws the resting pose, never a hop frozen in the air.
+    @Test func theCanvasDrawsTheScheduleAtTheTimelinesCadence() {
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let schedule = CreatureSchedule(start: now.addingTimeInterval(-0.2), mode: .live, state: .awake,
+                                        events: [CreatureStamp(.memorySaved, at: 0)], profile: .companion, walking: nil, asleepSince: nil)
+        let live = CreatureView.drawnFrame(schedule, at: now, cadence: .live)
+        #expect(live == schedule.frame(at: now) && live.pose.offset.dy < -1)
+        for cadence in [TimelineViewDefaultContext.Cadence.seconds, .minutes] {
+            #expect(CreatureView.drawnFrame(schedule, at: now, cadence: cadence) == CreatureLife.restingFrame(.awake), "\(cadence)")
+        }
+    }
+
+    /// The body goes through the tested helpers and nothing else: its Canvas draws `drawnFrame` with the timeline's cadence
+    /// (without it, a timeline held at a low frequency froze a hop in the air), and its clock's origin is `clockOrigin`
+    /// (reading the appearance first ignored the launch's landing time when it came after).
+    @Test func theBodyDrawsThroughTheTestedHelpers() throws {
+        let file = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Design/CreatureView.swift")
+        let source = try String(contentsOf: file, encoding: .utf8)
+        let start = try #require(source.range(of: "    public var body: some View {"))
+        let end = try #require(source.range(of: "    /// What the Canvas draws at a timeline date", range: start.upperBound..<source.endIndex))
+        let body = String(source[start.lowerBound..<end.lowerBound])
+        #expect(body.contains("Self.drawnFrame(schedule, at: context.date, cadence: context.cadence)"))
+        #expect(!body.contains("frame(at:"), "the body draws only through drawnFrame")
+        #expect(!body.contains("clockStart ??") && !body.contains("appeared ??"), "only clockOrigin picks the clock's start")
+        #expect(source.contains("private var origin: Date { Self.clockOrigin(clockStart: clockStart, appeared: appeared, now: Date()) }"))
+    }
+
     @Test func thePlacesUseTheirSizes() throws {
         // Sidebar 32 (2 pt cells, companion), welcome 64 (4 pt, stage), All set 48 (3 pt, stage).
         let screens = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

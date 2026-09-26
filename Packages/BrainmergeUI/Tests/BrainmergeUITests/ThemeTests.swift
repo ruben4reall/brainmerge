@@ -38,7 +38,7 @@ import BrainmergeCore
         #expect(Theme.Launch.unit == Theme.Launch.unit.rounded())
     }
 
-    /// The launch's beat: assemble, then leap home. The app never waits longer than today's 0.48 s for it.
+    /// The launch's beat: assemble, then leap home. The hand-off never waits longer than today's 0.48 s.
     @Test func launchTokensPinTheBeat() {
         #expect(Theme.Launch.unit == 7 && Theme.Launch.frameDuration == 0.12 && Theme.Launch.lift == 20)
         #expect(Theme.Launch.minimumVisible == .milliseconds(480))

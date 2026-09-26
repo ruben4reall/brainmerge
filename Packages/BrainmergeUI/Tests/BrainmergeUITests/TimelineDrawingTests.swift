@@ -46,6 +46,55 @@ import Testing
         window.orderOut(nil)
     }
 
+    @MainActor @Observable final class Start { var date: Date? }
+
+    /// The sidebar's creature, whose clock start (the launch's landing) may come after it appeared.
+    struct LateStart: View {
+        let start: Start
+        var body: some View {
+            CreatureView(state: .awake, events: [CreatureStamp(.memorySaved, at: 0)], clockStart: start.date)
+                .padding(30).background(Color.black)
+        }
+    }
+
+    /// The top of the creature's head in the window, in points from the top: the highest row with at least 20 pt of the
+    /// creature's purple, read in the capture's own color space (blue ahead, green under the lighter accent's; a sparkle
+    /// is a point or two wide anyway).
+    static func headTop(_ window: NSWindow) -> CGFloat? {
+        guard let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsWide) / view.bounds.width
+        for y in 0..<rep.pixelsHigh {
+            var run = 0
+            for x in 0..<rep.pixelsWide {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                if c.blueComponent > 0.6 && c.greenComponent < 0.5 && c.redComponent < 0.75 { run += 1 }
+            }
+            if CGFloat(run) / scale >= 20 { return CGFloat(y) / scale }
+        }
+        return nil
+    }
+
+    @Test func aClockStartGivenAfterTheCreatureAppearsTakesOver() throws {
+        // The hop stamped at 0 plays on appearance and is over after a second. Then the launch's landing time arrives, 0.1 s
+        // ago: from the next frame the creature's clock starts there, so the same hop plays again (never the appearance
+        // time kept, which leaves it at rest).
+        let start = Start()
+        let window = Self.window(for: LateStart(start: start))
+        defer { window.orderOut(nil) }
+        let settle = Date().addingTimeInterval(1.0)
+        while Date() < settle { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+        let rest = try #require(Self.headTop(window), "no creature drawn")
+        start.date = Date().addingTimeInterval(-0.1)
+        var highest = rest
+        let end = Date().addingTimeInterval(0.5)
+        while Date() < end {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.004))
+            if let top = Self.headTop(window) { highest = min(highest, top) }
+        }
+        #expect(rest - highest >= 2, "the head stayed at \(rest), highest \(highest)")
+    }
+
     /// The hosting window runs the real run loop but is never seen: it stands outside every screen.
     @Test func theHostWindowIsOffEveryScreen() {
         let window = Self.window(for: Color.clear)

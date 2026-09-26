@@ -356,7 +356,7 @@ public struct CreatureView: View {
         let schedule = schedule(since: origin)
         TimelineView(schedule) { context in
             Canvas { ctx, _ in
-                let frame = schedule.frame(at: context.date, cadence: context.cadence)
+                let frame = Self.drawnFrame(schedule, at: context.date, cadence: context.cadence)
                 Creature.draw(&ctx, pose: frame.pose, feet: CGPoint(x: feet.x * unit, y: feet.y * unit), unit: unit,
                               displayScale: displayScale, sprites: frame.sprites)
             }
@@ -382,6 +382,12 @@ public struct CreatureView: View {
             let t = scene(Date(), since: origin)
             if now { walk = CreatureWalk(start: t) } else { walk?.end = t }
         }
+    }
+
+    /// What the Canvas draws at a timeline date: the schedule's frame at the timeline's cadence (see
+    /// `CreatureSchedule.frame(at:cadence:)`).
+    static func drawnFrame(_ schedule: CreatureSchedule, at date: Date, cadence: TimelineViewDefaultContext.Cadence) -> LifeFrame {
+        schedule.frame(at: date, cadence: cadence)
     }
 
     /// The clock's start: the one given (the launch's landing) from the first frame it is known, else the appearance.
