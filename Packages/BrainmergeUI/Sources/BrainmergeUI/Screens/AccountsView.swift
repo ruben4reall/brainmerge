@@ -218,7 +218,8 @@ public struct AccountsView: View {
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
         }
         .contextMenu { actions(account) }
-        // The apps made by hand for the account are looked for as the pointer comes: "Edit…" opens its sheet at once.
+        // The apps made by hand for the account are looked for as the pointer comes (never its connections): "Edit…" then
+        // reads only those before its sheet opens.
         .onHover { inside in if inside { Task { await model.prefetchOtherApps(account.id) } } }
     }
 
@@ -229,14 +230,10 @@ public struct AccountsView: View {
     }
 
     /// The sheet opens once the apps made by hand for the account and its connections are known: at its full size, nothing
-    /// moving under the pointer afterwards. Both are looked for as the pointer comes over the card, so it opens at once;
-    /// not known yet (the keyboard, the edit screen at launch): found first, a few milliseconds.
+    /// moving under the pointer afterwards. The apps are looked for as the pointer comes over the card; the connections
+    /// (the browsers' profiles, the server names) only now, as "Edit…" is chosen (SECURITY.md), a few milliseconds.
+    /// Nothing known yet (the keyboard, the edit screen at launch): both are found first.
     func startEditing(_ account: Account) {
-        if let known = model.knownOtherApps(account.id), model.connectionsKnown(account.id) {
-            editingApps = known
-            editing = account
-            return
-        }
         Task {
             editingApps = await model.prepareEdit(account.id)
             editing = account

@@ -24,9 +24,14 @@ extension AppModel {
         return Self.noBrowserSentence
     }
 
-    /// What the edit sheet needs before it opens, read off the main thread: the apps made by hand for the account, and
-    /// the connections. The sheet then opens at its full size, and nothing moves under the pointer afterwards.
+    /// What the edit sheet needs before it opens, read off the main thread: the apps made by hand for the account (already
+    /// found when the pointer came over its card), and the connections, read only now. The sheet then opens at its full
+    /// size, and nothing moves under the pointer afterwards.
     public func prepareEdit(_ slug: String) async -> [ExistingApp] {
+        if let known = knownOtherApps(slug) {
+            await loadConnections()
+            return known
+        }
         async let apps = otherApps(opening: slug)
         await loadConnections()
         return await apps

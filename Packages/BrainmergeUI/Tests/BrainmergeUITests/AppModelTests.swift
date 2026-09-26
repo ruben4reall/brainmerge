@@ -1157,17 +1157,26 @@ import BrainmergeTestSupport
 
     /// The apps made by hand that open an account are looked for before "Edit…" is chosen (the pointer over its card): the
     /// sheet then opens at once. A change to the accounts looks again.
+    ///
+    /// The pointer alone never reads the browsers' Local State nor the accounts' server names (SECURITY.md: only when an
+    /// edit sheet opens): those wait for "Edit…".
     @Test func theAppsOfAnAccountAreFoundBeforeItsSheetOpens() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
-        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.adoptPrimary(name: "Personal")
         _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
         let m = model(e)
+        let browsersRead = OnboardingModelTests.Threads()
+        m.findBrowsers = { _ in browsersRead.record(Thread.isMainThread); return [] }
         m.reload()
         #expect(m.knownOtherApps("work") == nil)
         #expect(!m.connectionsKnown("work"))
         await m.prefetchOtherApps("work")
         #expect(m.knownOtherApps("work") != nil)
-        #expect(m.connectionsKnown("work"), "the sheet also needs its connections read to open at once")
+        #expect(browsersRead.all.isEmpty, "the pointer over a card read the browsers' profiles")
+        #expect(m.mcpServers("work") == nil && !m.connectionsKnown("work"), "the pointer over a card read the server names")
+        // "Edit…": read now, before the sheet opens.
+        _ = await m.prepareEdit("work")
+        #expect(browsersRead.all.count == 1 && m.connectionsKnown("work"))
         _ = try e.manager.add(IdentityManager.AddRequest(name: "Studio"))
         m.reload()
         #expect(m.knownOtherApps("work") == nil)

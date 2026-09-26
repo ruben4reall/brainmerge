@@ -756,14 +756,15 @@ public final class AppModel {
         accounts.first { $0.id == slug }?.identity.appURL(in: paths).flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
     }
 
-    /// The apps made by hand that open each account, found ahead (the pointer over its card) with the connections the
-    /// edit sheet shows (see `prepareEdit`): "Edit…" then opens its sheet at once. Looked for again after 30 s, and
-    /// forgotten when the accounts change.
+    /// The apps made by hand that open each account, found ahead (the pointer over its card): "Edit…" then waits only for
+    /// the connections (see `prepareEdit`), read when it is chosen, never on the pointer's way (SECURITY.md: the browsers'
+    /// `Local State` and the server names only when an edit sheet opens). Looked for again after 30 s, and forgotten
+    /// when the accounts change.
     @ObservationIgnored private var otherAppsFound: [String: (apps: [ExistingApp], at: Date)] = [:]
     public func knownOtherApps(_ slug: String) -> [ExistingApp]? { otherAppsFound[slug]?.apps }
     public func prefetchOtherApps(_ slug: String) async {
         if let known = otherAppsFound[slug], Date().timeIntervalSince(known.at) < 30 { return }
-        let apps = await prepareEdit(slug)
+        let apps = await otherApps(opening: slug)
         otherAppsFound[slug] = (apps, Date())
     }
 
