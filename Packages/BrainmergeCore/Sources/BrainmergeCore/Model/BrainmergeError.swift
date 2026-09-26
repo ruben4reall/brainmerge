@@ -73,7 +73,7 @@ public enum BrainmergeError: Error, Equatable, CustomStringConvertible {
         case .memoryInsideRepository(let top):
             return "This folder is inside another git repository (\(top)). Brainmerge would create a second repository inside it, and that repository's backups would stop covering these notes. Choose the repository's top folder, or a folder outside it."
         case .heldFileUnknown: return "A note looks like it holds a key, but Brainmerge could not tell which one, so this save kept every note back."
-        case .gitOperationUnfinished: return "Git is in the middle of a merge, rebase or cherry-pick in this memory. Saves wait until you finish it."
+        case .gitOperationUnfinished: return "Git is in the middle of a merge, rebase or cherry-pick in this memory, or no branch is checked out. Saves wait until you finish it."
         case .noteBeingWritten: return "This note is being written. Try again in a moment."
         case .noteNotSaved: return "This note has changes that are not saved yet. Try again once they are saved."
         case .noteExists(let name, let project): return "There is already a note called \(name) in \(project)."

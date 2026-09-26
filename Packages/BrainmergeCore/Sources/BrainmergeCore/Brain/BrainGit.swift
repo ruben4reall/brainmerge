@@ -134,9 +134,11 @@ public struct BrainGit: Sendable {
 
     /// The person's own git is stopped half way in this memory: a merge, a cherry-pick, a revert, a rebase or a bisect not
     /// finished, or conflicts left in the index (a stash pop leaves no other trace). A commit then would record their
-    /// merge in an account's name, sign a save with the picked commit's author, or keep conflict markers.
+    /// merge in an account's name, sign a save with the picked commit's author, or keep conflict markers. Or no branch is
+    /// checked out (a commit, to look at it): a save would be on no branch, and its notes would go at the next checkout.
     public func operationUnfinished() throws -> Bool {
         try requireGit()
+        guard try shell.run("/usr/bin/git", ["symbolic-ref", "-q", "HEAD"], cwd: brain.root).status == 0 else { return true }
         let markers = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "rebase-merge", "rebase-apply", "BISECT_LOG"]
         // Asked of git, not guessed: a worktree or a separate git folder keeps these elsewhere.
         let located = try shell.check("/usr/bin/git", ["rev-parse"] + markers.flatMap { ["--git-path", $0] }, cwd: brain.root)

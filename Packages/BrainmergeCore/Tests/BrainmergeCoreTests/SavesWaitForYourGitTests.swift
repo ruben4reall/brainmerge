@@ -124,6 +124,63 @@ import BrainmergeTestSupport
         #expect(repo.head() == head)
     }
 
+    /// Each of git's stopped states is seen without a conflict too, where the index alone shows nothing: a pick resolved
+    /// but not continued, a revert left open, a rebase stopped by its own step, `git am` stopped, a bisect under way.
+    @Test(arguments: ["cherry-pick", "revert", "rebase", "am", "bisect"])
+    func aSaveWaitsWhileYourGitIsStoppedWithoutAConflict(_ operation: String) throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, repo) = try diverged(home)
+        let marker: String
+        switch operation {
+        case "cherry-pick":
+            #expect(try git(["cherry-pick", "other"], in: brain).status != 0)
+            try write("both\n", "memory/acme/old.md", in: brain)
+            try git(["add", "memory/acme/old.md"], in: brain)
+            marker = "CHERRY_PICK_HEAD"
+        case "revert":
+            #expect(try git(["revert", "--no-commit", "HEAD"], in: brain).status == 0)
+            marker = "REVERT_HEAD"
+        case "rebase":
+            #expect(try git(["rebase", "-x", "false", "HEAD~1"], in: brain).status != 0)
+            marker = "rebase-merge"
+        case "am":
+            // `other`'s commit, which does not apply over main's: am stops before changing anything.
+            let patch = home.url.appending(path: "theirs.mbox")
+            try Data(try git(["format-patch", "-1", "--stdout", "other"], in: brain).stdout.utf8).write(to: patch)
+            #expect(try git(["am", patch.path], in: brain).status != 0)
+            marker = "rebase-apply"
+        default:
+            #expect(try git(["bisect", "start"], in: brain).status == 0)
+            marker = "BISECT_LOG"
+        }
+        #expect(try git(["ls-files", "-u"], in: brain).stdout.isEmpty, "no conflict in the index")
+        #expect(exists(marker, in: brain))
+        let head = repo.head()
+        try accountWrote(brain)
+
+        #expect(throws: BrainmergeError.gitOperationUnfinished) { try AccountSave(brain: brain, git: repo, held: held(home)).run(for: work) }
+        #expect(repo.head() == head)
+        #expect(exists(marker, in: brain), "the person can still finish or abort it")
+    }
+
+    /// A commit checked out to look at it, on no branch: a save there would be on no branch, and its notes would go at the
+    /// next checkout. It waits until a branch is checked out again.
+    @Test func aSaveWaitsWhileNoBranchIsCheckedOut() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, repo) = try diverged(home)
+        try git(["checkout", "-q", "--detach", "HEAD~1"], in: brain)
+        let head = repo.head()
+        try accountWrote(brain)
+
+        #expect(throws: BrainmergeError.gitOperationUnfinished) { try AccountSave(brain: brain, git: repo, held: held(home)).run(for: work) }
+        #expect(repo.head() == head)
+        #expect(TouchedLedger.claimed(in: brain) == ["memory/acme/note.md"])
+
+        try git(["checkout", "-q", "main"], in: brain)
+        #expect(try AccountSave(brain: brain, git: repo, held: held(home)).run(for: work).saved == ["memory/acme/note.md"])
+        #expect(try git(["log", "-1", "--format=%an", "main", "--", "memory/acme/note.md"], in: brain).stdout == "Work\n")
+    }
+
     /// Ten quiet minutes into a stopped merge, your edits still wait: the conflict markers are never saved as You.
     @Test func yourEditsNeverSaveConflictMarkers() throws {
         let home = try TempHome(); defer { home.remove() }
@@ -143,7 +200,7 @@ import BrainmergeTestSupport
     /// The sentence says why the save waits, and nothing of the notes.
     @Test func theSentenceSaysSavesWait() {
         #expect(BrainmergeError.gitOperationUnfinished.description
-                == "Git is in the middle of a merge, rebase or cherry-pick in this memory. Saves wait until you finish it.")
+                == "Git is in the middle of a merge, rebase or cherry-pick in this memory, or no branch is checked out. Saves wait until you finish it.")
     }
 }
 
