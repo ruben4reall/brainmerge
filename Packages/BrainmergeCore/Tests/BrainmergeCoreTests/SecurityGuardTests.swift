@@ -305,6 +305,11 @@ import Testing
         #expect(reads.isEmpty, "\(reads)")
         let rusage = try offenders(["proc_pid_rusage"], except: ["ProcessMonitor.swift"])
         #expect(rusage.isEmpty, "only ProcessMonitor.swift asks for a footprint: \(rusage)")
+        // One call site, with the smallest record that holds both the footprint and the start time.
+        let monitor = try #require(try Self.sources().first { $0.0.lastPathComponent == "ProcessMonitor.swift" }).1
+        #expect(monitor.components(separatedBy: "proc_pid_rusage(").count == 2, "one kernel call per process")
+        #expect(!monitor.contains("RUSAGE_INFO_V1") && !monitor.contains("RUSAGE_INFO_V2") && !monitor.contains("RUSAGE_INFO_V3")
+                && !monitor.contains("RUSAGE_INFO_V4") && !monitor.contains("RUSAGE_INFO_V5") && !monitor.contains("RUSAGE_INFO_V6"))
         // One ps call, with exactly these arguments: -E or an "e" keyword would print every environment.
         let calls = try Self.sources().flatMap { url, text in text.matches(of: try Regex(#""/bin/ps",\s*\[([^\]]*)\]"#)).map { (url.lastPathComponent, String($0.output[1].substring ?? "")) } }
         #expect(calls.count == 1 && calls.first?.0 == "ProcessMonitor.swift", "\(calls)")

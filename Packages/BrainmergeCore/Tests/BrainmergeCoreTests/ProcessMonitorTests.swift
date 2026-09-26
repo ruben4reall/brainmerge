@@ -77,6 +77,36 @@ import BrainmergeTestSupport
         #expect(measured.footprints == [502: 64 * Self.mb])
     }
 
+    /// One kernel call per process and snapshot: a window's start and its footprint come from the same call, and a
+    /// snapshot that does not measure asks about the windows only.
+    @Test func oneKernelCallPerProcess() throws {
+        final class Calls: @unchecked Sendable {
+            private let lock = NSLock()
+            private var list: [Int32] = []
+            func record(_ pid: Int32) { lock.lock(); list.append(pid); lock.unlock() }
+            var pids: [Int32] { lock.lock(); defer { lock.unlock() }; return list }
+            func reset() { lock.lock(); list = []; lock.unlock() }
+        }
+        let calls = Calls()
+        let monitor = ProcessMonitor(psOutput: { self.ps }, usage: { pid in
+            calls.record(pid)
+            return ProcessMonitor.Usage(footprint: Int64(pid) * Self.mb, startAbstime: UInt64(pid))
+        })
+        let measured = try monitor.snapshot(measuring: true)
+        #expect(calls.pids.count == Set(calls.pids).count, "\(calls.pids.sorted())")
+        #expect(Set(calls.pids) == [401, 402, 403, 404, 406, 407, 408, 409])
+        #expect(measured.mains.first { $0.pid == 403 }?.startAbstime == 403)
+        #expect(measured.footprints[403] == 403 * Self.mb)
+        calls.reset()
+        let plain = try monitor.snapshot()
+        #expect(calls.pids.sorted() == [401, 403, 404, 406])
+        #expect(plain.footprints.isEmpty)
+        #expect(plain.mains.first { $0.pid == 406 }?.startAbstime == 406)
+        let mine = try #require(ProcessMonitor.usage(of: getpid()))
+        #expect((mine.footprint ?? 0) > 0 && (mine.startAbstime ?? 0) > 0 && (mine.startAbstime ?? .max) <= mach_absolute_time())
+        #expect(ProcessMonitor.usage(of: 99_999_999) == nil)
+    }
+
     /// Other programs' command lines can hold anything: only Claude's are kept once parsed.
     @Test func argumentsOfOtherProcessesAreNotKept() {
         let snapshot = ProcessMonitor.snapshot(psOutput: ps + "\n  510 1 100 /usr/bin/curl -H secret\n")

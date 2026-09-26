@@ -8,13 +8,20 @@ import Foundation
 /// whereas the kernel's argument call (KERN_PROCARGS2) returns both together.
 public struct ProcessMonitor: Sendable {
     let psOutput: @Sendable () throws -> String
-    let footprint: @Sendable (Int32) -> Int64?
-    let startTime: @Sendable (Int32) -> UInt64?
+    /// One kernel call per process: its footprint and when it started (see `usage(of:)`). `measuring`: the footprint is
+    /// wanted too.
+    let usage: @Sendable (_ pid: Int32, _ measuring: Bool) -> Usage
+
+    /// What one kernel call says of a process: Activity Monitor's "Memory" and its start in mach absolute time.
+    public struct Usage: Equatable, Sendable {
+        public var footprint: Int64?
+        public var startAbstime: UInt64?
+        public init(footprint: Int64? = nil, startAbstime: UInt64? = nil) { self.footprint = footprint; self.startAbstime = startAbstime }
+    }
 
     public init(shell: Shell = Shell()) {
         self.psOutput = { try shell.check("/bin/ps", ["-axo", "pid=,ppid=,rss=,args="]) }
-        self.footprint = { ProcessMonitor.footprint(of: $0) }
-        self.startTime = { ProcessMonitor.startAbstime(of: $0) }
+        self.usage = { pid, _ in ProcessMonitor.usage(of: pid) ?? Usage() }
     }
 
     /// For tests: a supplied `ps` output (`pid ppid rss args`). No footprint by default, so a fake pid that happens to
@@ -22,8 +29,13 @@ public struct ProcessMonitor: Sendable {
     public init(psOutput: @escaping @Sendable () throws -> String, footprint: @escaping @Sendable (Int32) -> Int64? = { _ in nil },
                 startTime: @escaping @Sendable (Int32) -> UInt64? = { _ in nil }) {
         self.psOutput = psOutput
-        self.footprint = footprint
-        self.startTime = startTime
+        self.usage = { pid, measuring in Usage(footprint: measuring ? footprint(pid) : nil, startAbstime: startTime(pid)) }
+    }
+
+    /// For tests: a supplied `ps` output and what the kernel would say of each process, asked once per process.
+    init(psOutput: @escaping @Sendable () throws -> String, usage: @escaping @Sendable (Int32) -> Usage) {
+        self.psOutput = psOutput
+        self.usage = { pid, _ in usage(pid) }
     }
 
     public struct Running: Equatable, Sendable {
@@ -137,34 +149,30 @@ public struct ProcessMonitor: Sendable {
     /// `measuring`: also asks the kernel for the footprint of every process in Claude's trees (a few dozen calls),
     /// for the RAM figures. Checking what runs, or quitting, does not need it.
     public func snapshot(measuring: Bool = false) throws -> Snapshot {
-        var plain = Self.snapshot(psOutput: try psOutput())
-        // The start of each window, from the same kernel call as the footprint: tells a window older than Claude's update.
-        plain = Snapshot(mains: plain.mains.map { var main = $0; main.startAbstime = startTime($0.pid); return main }, all: plain.all)
-        guard measuring else { return plain }
-        var footprints: [Int32: Int64] = [:]
-        for pid in plain.claudePids { if let bytes = footprint(pid) { footprints[pid] = bytes } }
-        return Snapshot(mains: plain.mains, all: plain.all, footprints: footprints)
+        let plain = Self.snapshot(psOutput: try psOutput())
+        // One kernel call per process: the windows always (their start tells a window older than Claude's update), and
+        // every process of Claude's trees when measuring, a window's footprint coming from the call that gave its start.
+        let windows = Set(plain.mains.map(\.pid))
+        var asked: [Int32: Usage] = [:]
+        for pid in measuring ? plain.claudePids.union(windows) : windows { asked[pid] = usage(pid, measuring) }
+        let mains = plain.mains.map { var main = $0; main.startAbstime = asked[$0.pid]?.startAbstime; return main }
+        guard measuring else { return Snapshot(mains: mains, all: plain.all) }
+        return Snapshot(mains: mains, all: plain.all, footprints: asked.compactMapValues(\.footprint))
     }
 
     /// Activity Monitor's "Memory" column for one process (phys_footprint): it counts GPU and IOKit memory, which the
     /// resident size misses, and pages shared between Electron processes once. Nil for a process that exited or is not ours.
-    public static func footprint(of pid: Int32) -> Int64? {
+    public static func footprint(of pid: Int32) -> Int64? { usage(of: pid)?.footprint }
+
+    /// A process's footprint and its start in mach absolute time (ri_proc_start_abstime), from one call for the smallest
+    /// record that holds both. Nil for a process that exited or is not ours.
+    public static func usage(of pid: Int32) -> Usage? {
         var info = rusage_info_v0()
         let result = withUnsafeMutablePointer(to: &info) { pointer in
             pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V0, $0) }
         }
         guard result == 0 else { return nil }
-        return Int64(clamping: info.ri_phys_footprint)
-    }
-
-    /// When a process started, in mach absolute time (ri_proc_start_abstime), from the call that gives its footprint.
-    public static func startAbstime(of pid: Int32) -> UInt64? {
-        var info = rusage_info_v2()
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V2, $0) }
-        }
-        guard result == 0 else { return nil }
-        return info.ri_proc_start_abstime
+        return Usage(footprint: Int64(clamping: info.ri_phys_footprint), startAbstime: info.ri_proc_start_abstime)
     }
 
     /// Claude Code, however it was started: its native binary from PATH or by path, or its npm package run by node or bun.
