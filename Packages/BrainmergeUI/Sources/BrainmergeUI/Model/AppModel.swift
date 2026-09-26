@@ -217,6 +217,8 @@ public final class AppModel {
     public internal(set) var saveStatuses: [String: SaveStatus] = [:]
     /// When each account whose last save failed last saved in its memory, from its history.
     public internal(set) var lastSaves: [String: Date] = [:]
+    /// Your own edits' latest save in each memory, by memory id (see `saveOwnEditsIfQuiet`).
+    public internal(set) var ownEditsStatuses: [String: SaveStatus] = [:]
     /// The doctor's run, replaced in tests.
     @ObservationIgnored var runHealth: @Sendable (Doctor) -> [Doctor.Finding] = { $0.run() }
     @ObservationIgnored var healthBudget: Duration = .seconds(10)
@@ -1725,17 +1727,31 @@ public final class AppModel {
                 // Not knowing what runs counts as a session running: the edits wait for the next minute. Not asked
                 // with the setting off.
                 let running = !state.saveOwnEdits || ((try? monitor.snapshot())?.hasClaudeCodeSession ?? true)
+                let statuses = SaveStatusStore(paths: paths)
                 var any = false
                 for folder in state.brains {
                     let brain = Brain(root: folder.url)
                     guard brain.isInitialized else { continue }
                     let repo = BrainGit(brain: brain, availability: git)
                     let edits = OwnEdits(brain: brain, git: repo, held: HeldStore(paths: paths, memoryID: folder.id))
-                    let outcome = try? repo.withLock(timeout: 0) { () throws -> OwnEdits.Outcome in
-                        guard state.saveOwnEdits else { try? repo.catchUpIndex(); return .nothing }
-                        // Every account, since one may write in a memory other than its own: a list no turn will
-                        // save goes under its account's name.
-                        return try edits.save(now: now, sessionRunning: running, accounts: state.identities)
+                    let outcome: OwnEdits.Outcome?
+                    do {
+                        outcome = try repo.withLock(timeout: 0) { () throws -> OwnEdits.Outcome in
+                            guard state.saveOwnEdits else { try? repo.catchUpIndex(); return .nothing }
+                            // Every account, since one may write in a memory other than its own: a list no turn will
+                            // save goes under its account's name.
+                            return try edits.save(now: now, sessionRunning: running, accounts: state.identities)
+                        }
+                    } catch BrainmergeError.lockTimeout {
+                        // A save holds the memory: the next minute tries again, nothing failed.
+                        outcome = nil
+                    } catch {
+                        statuses.writeOwnEdits(SaveStatus(date: Date(), outcome: .failed, reason: SaveStatus.Reason(error)), memoryID: folder.id)
+                        outcome = nil
+                    }
+                    if let outcome, outcome != .tooRecent, outcome != .sessionRunning {
+                        let saved: Bool = { if case .saved = outcome { return true }; return false }()
+                        statuses.writeOwnEdits(SaveStatus(date: Date(), outcome: saved ? .committed : .nothing), memoryID: folder.id)
                     }
                     if case .saved = outcome { any = true }
                 }

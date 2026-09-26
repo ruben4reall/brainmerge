@@ -65,6 +65,10 @@ public struct SaveStatusStore: Sendable {
     /// Never fails a save: a status that cannot be written is only missing.
     public func write(_ status: SaveStatus, slug: String) {
         guard let file = file(slug: slug) else { return }
+        write(status, to: file)
+    }
+
+    func write(_ status: SaveStatus, to file: URL) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -73,9 +77,24 @@ public struct SaveStatusStore: Sendable {
         try? data.write(to: file, options: .atomic)
     }
 
+    /// Your own edits' save in a memory (the app's minute pass): a name no account's slug can take.
+    func ownEditsFile(memoryID: String) -> URL? {
+        guard file(slug: memoryID) != nil else { return nil }
+        return directory.appending(path: "_you.\(memoryID).json")
+    }
+
+    public func writeOwnEdits(_ status: SaveStatus, memoryID: String) {
+        guard let file = ownEditsFile(memoryID: memoryID) else { return }
+        write(status, to: file)
+    }
+
+    public func readOwnEdits(memoryID: String) -> SaveStatus? { ownEditsFile(memoryID: memoryID).flatMap(read(file:)) }
+
     /// Nil when there is none, or when it cannot be read.
-    public func read(slug: String) -> SaveStatus? {
-        guard let file = file(slug: slug), let data = try? Data(contentsOf: file) else { return nil }
+    public func read(slug: String) -> SaveStatus? { file(slug: slug).flatMap(read(file:)) }
+
+    func read(file: URL) -> SaveStatus? {
+        guard let data = try? Data(contentsOf: file) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try? decoder.decode(SaveStatus.self, from: data)
