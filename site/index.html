@@ -75,7 +75,7 @@
         <h1 id="hero-title">Every Claude account,<br class="br-wide"> side by&nbsp;side.</h1>
         <p class="hero-sub">A free Mac app that opens each of your Claude accounts in its own window of the official Claude app, and gives them one memory of your projects, or one&nbsp;each.</p>
         <div class="actions">
-          <a class="btn btn-primary" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg">Download for Mac</a>
+          <a class="btn btn-primary btn-dl" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg"><span>Download for Mac</span><svg class="dl-ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path class="dl-arrow" d="M8 2.25v7.5M4.75 6.75 8 10l3.25-3.25" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.25 13.25h9.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></a>
           <a class="btn btn-ghost" href="https://github.com/ruben4reall/brainmerge">View on GitHub</a>
         </div>
         <p class="fine hero-fine"><span class="nw">Version 0.6.0</span> <span aria-hidden="true">·</span> <span class="nw">macOS 26 or later</span> <span aria-hidden="true">·</span> <span class="nw">Free and open source</span><span class="sep-wide" aria-hidden="true"> · </span><br class="br-narrow"> <span class="nw">Works with Claude.</span> <span class="nw">Not made by Anthropic.</span></p>
@@ -116,21 +116,67 @@
       <div class="wrap">
         <h2 class="h2 center reveal" id="apps-title">Each account is an app of its&nbsp;own.</h2>
         <div class="dock-stage reveal">
-          <div class="dock" role="img" aria-label="A Mac Dock with Brainmerge and four account apps, each in its own color: Personal in orange, Studio in pink, Work in blue and Client in purple. Personal and Studio are running.">
-            <span class="dock-item"><img src="assets/icon-512.webp" alt="" width="512" height="512" loading="lazy"></span>
+          <div class="dock" role="img" aria-label="A Mac Dock with Brainmerge and four account apps, each in its own color: Personal in orange, Studio in pink, Work in blue and Client in purple. Studio is running.">
+            <span class="dock-item"><span class="tip">Brainmerge</span><img src="assets/icon-512.webp" alt="" width="512" height="512" loading="lazy"></span>
             <span class="dock-sep"></span>
-            <span class="dock-item acc-p"><span class="tile">P</span><span class="run"></span></span>
+            <span class="dock-item acc-p"><span class="tip">Personal</span><span class="tile">P</span></span>
             <span class="dock-item acc-s"><span class="tip">Studio</span><span class="tile">S</span><span class="run"></span></span>
-            <span class="dock-item acc-w"><span class="tile">W</span></span>
-            <span class="dock-item acc-c"><span class="tile">C</span></span>
+            <span class="dock-item acc-w"><span class="tip">Work</span><span class="tile">W</span></span>
+            <span class="dock-item acc-c"><span class="tip">Client</span><span class="tile">C</span></span>
           </div>
           <p class="dock-path"><code>~/Applications/Brainmerge</code></p>
         </div>
         <div class="apps-copy reveal">
-          <p>Every account gets its own small app, with its name and its color or photo. Open it from the Dock, from Launchpad or from Brainmerge, like any other&nbsp;app.</p>
+          <p>Every account gets its own small app, with its name and its color or photo. Open it from the Dock or from Brainmerge, like any other&nbsp;app.</p>
           <p class="apps-optional">Optional: its own icon in the Dock while it runs. It is a local, tinted copy of Claude, made on your Mac and rebuilt after each Claude&nbsp;update.</p>
           <p class="apps-optional">Your first account is Claude itself, which Brainmerge never changes. Switch on its own app to keep one in its color in the Dock, in place of&nbsp;Claude.</p>
         </div>
+      </div>
+
+      <div class="wrap anywhere">
+        <figure class="scene scene-menu reveal" data-scene="menu">
+          <div class="screen" role="img" aria-label="The creature in the Mac’s menu bar, its menu open: Show Personal, Show Studio, Open Work and Open Client, the Mac’s RAM, then Open Brainmerge, Settings, Star on GitHub and Quit Brainmerge. The pointer is on Open Work.">
+            <div class="mb-bar" aria-hidden="true">
+              <span class="mb-left"><b>Notes</b><span>File</span><span>Edit</span><span>View</span></span>
+              <span class="mb-right"><span class="mb-icon"><svg viewBox="0 0 16 11" shape-rendering="crispEdges"><path d="M2 0h12v1h-12zM2 1h12v1h-12zM2 2h12v1h-12zM0 3h16v1h-16zM0 4h16v1h-16zM0 5h16v1h-16zM2 6h12v1h-12zM2 7h12v1h-12zM2 8h1v1h-1zM5 8h1v1h-1zM10 8h1v1h-1zM13 8h1v1h-1zM2 9h1v1h-1zM5 9h1v1h-1zM10 9h1v1h-1zM13 9h1v1h-1zM2 10h1v1h-1zM5 10h1v1h-1zM10 10h1v1h-1zM13 10h1v1h-1z" fill="currentColor"/><path d="M4 1h1v1H4zM11 1h1v1h-1z" fill="#2A2730"/></svg></span><span class="mb-clock">Tue 9:41</span></span>
+            </div>
+            <div class="mb-app" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="mb-menu" aria-hidden="true">
+              <p class="mb-head">Accounts</p>
+              <div class="mb-accounts">
+                <span class="mb-hl"></span>
+                <p class="mb-item acc-p"><i class="dot"></i>Show Personal</p>
+                <p class="mb-item acc-s"><i class="dot"></i>Show Studio</p>
+                <p class="mb-item acc-w"><i class="dot"></i>Open Work</p>
+                <p class="mb-item acc-c"><i class="dot"></i>Open Client</p>
+              </div>
+              <p class="mb-info">RAM: 11.2 GB of 16 GB used (70%)</p>
+              <hr>
+              <p class="mb-item">Open Brainmerge</p>
+              <p class="mb-item">Settings…<kbd>⌘,</kbd></p>
+              <p class="mb-item">Star on GitHub</p>
+              <hr>
+              <p class="mb-item">Quit Brainmerge<kbd>⌘Q</kbd></p>
+            </div>
+            <svg class="mb-cursor" aria-hidden="true" viewBox="0 0 12 18"><path d="M1 1v14.5l3.6-3.4 2.3 5.2 2.4-1-2.3-5.1H12z" fill="#111" stroke="#fff" stroke-width="1.1" stroke-linejoin="round"/></svg>
+          </div>
+          <figcaption><strong>In the menu bar.</strong> Open or show any account from the top of your screen, and see how much of your Mac’s RAM is in&nbsp;use.</figcaption>
+        </figure>
+        <figure class="scene scene-opener reveal" data-scene="opener">
+          <div class="screen" role="img" aria-label="Over another app, the quick opener’s shortcut brings up a small panel of accounts. Typing w and o leaves Work, whose name starts with them, and Client, whose note says Client work. Work is picked: Return opens it in its own window.">
+            <div class="qo-app" aria-hidden="true"><i></i><i></i><i></i></div>
+            <div class="qo-panel" aria-hidden="true">
+              <p class="qo-search"><svg viewBox="0 0 16 16"><circle cx="6.8" cy="6.8" r="4.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.3 10.3 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="qo-field"><span class="qo-typed"><span class="qo-k1">w</span><span class="qo-k2">o</span></span><i class="qo-caret"></i><span class="qo-ph">Open an account</span></span></p>
+              <div class="qo-lists">
+                <ul class="qo-rows qo-all"><li class="acc-p pick"><i class="orb">P</i><span class="qo-nm">Personal<small>Primary</small></span><span class="qo-word">Show</span></li><li class="acc-s"><i class="orb">S</i><span class="qo-nm">Studio<small>Design studio</small></span><span class="qo-word">Show</span></li><li class="acc-w"><i class="orb">W</i><span class="qo-nm">Work<small>Day job</small></span><span class="qo-word">Open</span></li><li class="acc-c"><i class="orb">C</i><span class="qo-nm">Client<small>Client work</small></span><span class="qo-word">Open</span></li></ul>
+                <ul class="qo-rows qo-found"><li class="acc-w pick"><i class="orb">W</i><span class="qo-nm">Work<small>Day job</small></span><span class="qo-word">Open</span></li><li class="acc-c"><i class="orb">C</i><span class="qo-nm">Client<small>Client work</small></span><span class="qo-word">Open</span></li></ul>
+              </div>
+              <p class="qo-foot">Return opens or shows · ⌘Return its memory · ⌘U its usage · Esc closes</p>
+            </div>
+          </div>
+          <p class="qo-keys" aria-hidden="true"><kbd class="k-ctrl">⌃</kbd><kbd class="k-opt">⌥</kbd><kbd class="k-space">Space</kbd><span class="qo-plus">then</span><kbd class="k-w">W</kbd><kbd class="k-o">O</kbd><span class="qo-plus">then</span><kbd class="k-ret">Return</kbd></p>
+          <figcaption><strong>From any app.</strong> Turn on the quick opener and pick a shortcut: a small panel lists your accounts over whatever app you are in. It needs no special&nbsp;permission.</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -147,6 +193,15 @@
             <li>Its Dock icon</li>
             <li>Its browser profile, connectors and MCP&nbsp;servers</li>
           </ul>
+          <figure class="scene scene-conn" data-scene="conn">
+            <div class="card conn-card acc-s" role="img" aria-label="Connections, in Studio’s edit sheet: Studio is paired with a Chrome profile of its own. Open Chrome (Studio) starts that profile, and Manage connectors opens Studio’s connectors there. Its 3 MCP servers are listed by name: github, linear, and figma, which only Studio has.">
+              <p class="card-label" aria-hidden="true">Connections</p>
+              <p class="conn-pair" aria-hidden="true"><span class="conn-acc"><i class="orb">S</i>Studio</span><span class="conn-line"><i></i></span><span class="conn-prof">Chrome (Studio)</span></p>
+              <p class="conn-btns" aria-hidden="true"><span class="chip-btn">Open Chrome (Studio)</span><span class="chip-btn">Manage connectors</span></p>
+              <div class="conn-mcp" aria-hidden="true"><p class="conn-mcp-title">3 MCP servers</p><p class="conn-group">Claude Code, all projects</p><ul><li>github</li><li>linear</li><li>figma <span class="conn-only">Only here</span></li></ul></div>
+            </div>
+            <figcaption><strong>Connections.</strong> Pair an account with a browser profile of its own: its connectors open there. Its MCP servers are listed by name, and nothing is copied between&nbsp;accounts.</figcaption>
+          </figure>
         </div>
         <figure class="edit-shot reveal">
           <img class="window" src="assets/crops/edit-sheet-1x.webp" srcset="assets/crops/edit-sheet-1x.webp 1x, assets/crops/edit-sheet.webp 2x" width="478" height="562" loading="lazy" alt="The Edit Studio sheet: the name Studio, a row of colors with Use a photo, the note Design studio, the memory set to Shared, the Own icon in the Dock switch, and the account’s app in ~/Applications/Brainmerge with Show in Finder.">
@@ -333,6 +388,7 @@
           </div>
           <div class="flow-bar">
             <div class="flow-toggle" role="group" aria-label="Memory">
+              <span class="flow-pill" aria-hidden="true"></span>
               <button type="button" class="flow-opt" data-mode="shared" aria-pressed="true">One memory</button>
               <button type="button" class="flow-opt" data-mode="each" aria-pressed="false">One each</button>
             </div>
@@ -349,7 +405,7 @@
           </figure>
           <div class="memory-rule">
             <p class="rule-big">Give any account a memory of its own in one click, and work or client things stay&nbsp;apart.</p>
-            <p class="rule-small">Every account writes to exactly one memory. Switching never moves or deletes a&nbsp;note.</p>
+            <p class="rule-small">Every account writes to exactly one memory. Changing an account’s memory never moves or deletes a&nbsp;note.</p>
           </div>
         </div>
         <p class="apps-line reveal">Open it in <b>Finder</b>, <b>Obsidian</b>, <b>Logseq</b>, <b>iA&nbsp;Writer</b>, <b>Typora</b>, <b>VS&nbsp;Code</b>, <b>Cursor</b>, <b>Zed</b>, or any other&nbsp;app.</p>
@@ -404,7 +460,30 @@
               <p class="said-meta"><span>client-site · MEMORY.md</span><span>just now</span></p>
             </li>
           </ol>
-          <p class="timeline-foot">Each memory is a git repository, saved apart from your own git setup. Each account signs only what it wrote, and your own edits are saved as&nbsp;You. A save that fails says when and&nbsp;why. The Tidy tab lists the notes no session will load, and files them where the next one looks, on your&nbsp;click.</p>
+          <p class="timeline-foot">Each memory is a git repository, saved apart from your own git setup. Each account signs only what it wrote, and your own edits are saved as&nbsp;You. A save that fails says when and&nbsp;why.</p>
+        </div>
+
+        <div class="tidy">
+          <div class="tidy-copy reveal">
+            <h3 class="tidy-title">Notes Claude will actually&nbsp;load.</h3>
+            <p>The Tidy tab lists the notes no session will load: a project with no index, an index past the 200 lines Claude Code reads, notes left in a quick session’s folder. It files them where the next session looks, one click and one commit at a&nbsp;time.</p>
+          </div>
+          <figure class="scene scene-tidy reveal" data-scene="tidy">
+            <div class="card tidy-card" role="img" aria-label="The Tidy tab: 2 notes sit in a quick session’s folder that no later session reads. File under moves them into the website project’s folder, and the memory’s history reads: You filed 2 notes under website. Then there is nothing to tidy.">
+              <p class="td-tabs" aria-hidden="true"><span>Graph</span><span>Timeline</span><span class="on">Tidy<span class="td-count"> (1)</span></span></p>
+              <div class="td-body" aria-hidden="true">
+                <p class="td-line"><span class="td-before">2 notes sit in a quick session’s folder that no later session&nbsp;reads.</span><span class="td-after">Nothing to tidy. Every note is where the next session will find&nbsp;it.</span></p>
+                <div class="td-stage">
+                  <p class="td-folder td-from"><svg class="td-ico" viewBox="0 0 28 22" aria-hidden="true"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3h6l2.5 2.5h10.5A2.5 2.5 0 0 1 26 8v10.5a2.5 2.5 0 0 1-2.5 2.5h-19A2.5 2.5 0 0 1 2 18.5z" fill="#A06BE0" fill-opacity="0.22" stroke="#A06BE0" stroke-opacity="0.75" stroke-width="1.2"/></svg><code>scratch-2026-09-23-5050ce</code></p>
+                  <p class="td-folder td-to"><svg class="td-ico" viewBox="0 0 28 22" aria-hidden="true"><path d="M2 5.5A2.5 2.5 0 0 1 4.5 3h6l2.5 2.5h10.5A2.5 2.5 0 0 1 26 8v10.5a2.5 2.5 0 0 1-2.5 2.5h-19A2.5 2.5 0 0 1 2 18.5z" fill="#A06BE0" fill-opacity="0.22" stroke="#A06BE0" stroke-opacity="0.75" stroke-width="1.2"/></svg><code>website</code></p>
+                  <span class="td-note td-n1"><span class="td-arc"><svg viewBox="-7.5 -9 15 18"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#F4EFE6"/><path d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#1A1918" fill-opacity="0.35"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#1A1918" fill-opacity="0.35"/></svg></span></span>
+                  <span class="td-note td-n2"><span class="td-arc"><svg viewBox="-7.5 -9 15 18"><path d="M-4.5 -8.5H3L7 -4.5V6A2.5 2.5 0 0 1 4.5 8.5H-4.5A2.5 2.5 0 0 1 -7 6V-6A2.5 2.5 0 0 1 -4.5 -8.5z" fill="#F4EFE6"/><path d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/><rect x="-4" y="-4" width="8" height="1.5" rx="0.75" fill="#1A1918" fill-opacity="0.35"/><rect x="-4" y="-0.5" width="6" height="1.5" rx="0.75" fill="#1A1918" fill-opacity="0.35"/></svg></span></span>
+                </div>
+                <p class="td-actions"><span class="td-btn">File under…</span></p>
+                <p class="td-done">You filed 2 notes under website</p>
+              </div>
+            </div>
+          </figure>
         </div>
       </div>
     </section>
@@ -434,7 +513,7 @@
             <p class="eyebrow">Usage</p>
             <h2 class="h2" id="usage-title">What each account&nbsp;spent.</h2>
           </div>
-          <p class="lead">Read from Claude Code’s own transcripts on your Mac: today, seven days and thirty days, by project and by&nbsp;model. Above them, your Mac’s RAM, and the RAM and disk each account&nbsp;takes.</p>
+          <p class="lead">Read from Claude Code’s own transcripts on your Mac: today, seven days and thirty days, by project and by&nbsp;model. The same screen shows your Mac’s RAM, and the RAM and disk each account&nbsp;takes.</p>
         </div>
         <figure class="usage-shot reveal">
           <picture>
@@ -443,7 +522,36 @@
           </picture>
         </figure>
         <p class="usage-figure reveal"><b>Eight gigabytes</b> of transcripts, read in <b>under twenty seconds</b> with about <b>seventy megabytes</b> of RAM. The next read takes <b>under a&nbsp;second</b>.</p>
-        <p class="usage-note">Informative only: Brainmerge never switches accounts for you and never reads limits by itself. When you click “Check limits”, it asks that account’s own Claude Code, the same as typing /usage. It also shows how much RAM each open Claude window uses, with a quiet warning when your Mac runs&nbsp;low.</p>
+        <div class="usage-more">
+          <figure class="scene scene-ram reveal" data-scene="ram">
+            <div class="card ram-card" role="img" aria-label="RAM and disk, as the Usage screen shows them. This Mac: 11.2 GB of 16 GB of RAM in use, 70%. Personal uses 1.9 GB, 12% of this Mac, and takes 2.4 GB on disk; Studio 1.2 GB, 8%, and 1.1 GB on disk; Work and Client are closed and take 0.9 GB and 0.8 GB on disk; Claude Code in a terminal, 1 session for all accounts together, uses 0.6 GB, 4%; other apps use 7.5 GB, 47%. Claude uses 3.7 GB of RAM, 23%, and the accounts take 5.2 GB on disk.">
+              <p class="card-label" aria-hidden="true">RAM and disk</p>
+              <p class="ram-mac" aria-hidden="true"><span>This Mac</span><span><b>11.2 GB</b> of 16 GB used · 70%</span></p>
+              <p class="meter" aria-hidden="true"><i></i></p>
+              <ul class="ram-rows" aria-hidden="true">
+                <li class="acc-p"><i class="dot"></i><span class="nm">Personal</span><span class="ram">1.9 GB<small>12% of this Mac</small></span><span class="rbar"><i></i></span><span class="disk">2.4 GB</span></li>
+                <li class="acc-s"><i class="dot"></i><span class="nm">Studio</span><span class="ram">1.2 GB<small>8% of this Mac</small></span><span class="rbar"><i></i></span><span class="disk">1.1 GB</span></li>
+                <li class="acc-w"><i class="dot"></i><span class="nm">Work</span><span class="ram is-off">Closed</span><span class="rbar"><i></i></span><span class="disk">0.9 GB</span></li>
+                <li class="acc-c"><i class="dot"></i><span class="nm">Client</span><span class="ram is-off">Closed</span><span class="rbar"><i></i></span><span class="disk">0.8 GB</span></li>
+                <li class="term"><i class="dot"></i><span class="nm">Claude Code in a terminal<small>1 session, all accounts together</small></span><span class="ram">0.6 GB<small>4% of this Mac</small></span><span class="rbar"><i></i></span><span class="disk"></span></li>
+                <li class="other"><i class="dot"></i><span class="nm">Other apps</span><span class="ram">7.5 GB<small>47% of this Mac</small></span><span class="rbar"><i></i></span><span class="disk"></span></li>
+              </ul>
+              <p class="card-foot" aria-hidden="true">Claude uses 3.7 GB of RAM, 23%. Your accounts take 5.2 GB on&nbsp;disk.</p>
+            </div>
+            <figcaption><strong>RAM and disk.</strong> Your Mac’s RAM counted like Activity Monitor, what each account’s Claude takes with everything it runs, and the disk space of its folders and app. A quiet warning shows when your Mac runs&nbsp;low.</figcaption>
+          </figure>
+          <figure class="scene scene-limits reveal" data-scene="limits">
+            <div class="card limits-card acc-w" role="img" aria-label="Check limits on Work’s card: once clicked, Brainmerge asks Work’s Claude Code, and shows its limits as bars in Work’s color. Current session: 17% used, resets 3pm. Current week, all models: 42% used, resets Oct 2, 9am. Checked at 14:02.">
+              <p class="lim-head" aria-hidden="true"><i class="orb">W</i><span class="lim-name">Work</span><span class="lim-state"><span class="lim-asking"><i class="lim-spin"></i>Asking Claude Code…</span><span class="lim-when">Checked at 14:02</span></span><span class="lim-btn">Check limits</span></p>
+              <div class="lim-bars" aria-hidden="true">
+                <div class="lim lim-a"><p class="lim-row"><span>Current session</span><b>17%</b></p><p class="bar"><i></i></p><p class="lim-reset">Resets 3pm (Europe/Paris)</p></div>
+                <div class="lim lim-b"><p class="lim-row"><span>Current week (all models)</span><b>42%</b></p><p class="bar"><i></i></p><p class="lim-reset">Resets Oct 2, 9am (Europe/Paris)</p></div>
+              </div>
+            </div>
+            <figcaption><strong>Limits, when you ask.</strong> “Check limits” asks that account’s own Claude Code, the same as typing /usage, and shows the limits it prints as&nbsp;bars.</figcaption>
+          </figure>
+        </div>
+        <p class="usage-note">Informative only: Brainmerge never switches accounts for you, and never reads limits by&nbsp;itself.</p>
       </div>
     </section>
 
@@ -463,12 +571,25 @@
             <li>An optional second account, with shared memory or its own. The login is&nbsp;guided.</li>
             <li>A checklist of what is&nbsp;ready.</li>
           </ol>
-          <figure class="setup-shot">
-            <picture>
-              <source media="(max-width: 600px) and (max-device-width: 600px)" srcset="assets/crops/setup-phone-1x.webp 1x, assets/crops/setup-phone.webp 2x" width="475" height="272">
-              <img class="window" src="assets/crops/setup-1x.webp" srcset="assets/crops/setup-1x.webp 1x, assets/crops/setup.webp 2x" width="560" height="450" loading="lazy" alt="Step two of the setup, How it works: the Personal, Work and Client accounts all lead to one Memory, which Claude Code reads and writes.">
-            </picture>
-            <figcaption>Step 2, How it works.</figcaption>
+          <figure class="setup-shot scene scene-allset" data-scene="allset">
+            <div class="as-window" role="img" aria-label="The last step of the setup, All set: six green checks, for the Claude app, the memory folder, the accounts, git, Claude Code and the command line, then the creature beside Open Brainmerge. Later, Settings opens on Health: Everything is in place.">
+              <p class="as-title" aria-hidden="true">All set</p>
+              <ul class="as-checks" aria-hidden="true">
+                <li><svg class="as-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#8FC7A6"/><path d="M4.9 8.3l2.1 2.1 4.2-4.3" fill="none" stroke="#1A1918" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Claude app 2.7032.0</span></li>
+                <li><svg class="as-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#8FC7A6"/><path d="M4.9 8.3l2.1 2.1 4.2-4.3" fill="none" stroke="#1A1918" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Memory folder: ~/Brain · opens in Obsidian</span></li>
+                <li><svg class="as-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#8FC7A6"/><path d="M4.9 8.3l2.1 2.1 4.2-4.3" fill="none" stroke="#1A1918" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>2 accounts: Personal, Work</span></li>
+                <li><svg class="as-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#8FC7A6"/><path d="M4.9 8.3l2.1 2.1 4.2-4.3" fill="none" stroke="#1A1918" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>git: Found</span></li>
+                <li><svg class="as-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#8FC7A6"/><path d="M4.9 8.3l2.1 2.1 4.2-4.3" fill="none" stroke="#1A1918" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Claude Code: Found</span></li>
+                <li><svg class="as-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#8FC7A6"/><path d="M4.9 8.3l2.1 2.1 4.2-4.3" fill="none" stroke="#1A1918" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Command line linked at ~/.local/bin/brainmerge</span></li>
+              </ul>
+              <p class="as-foot" aria-hidden="true">
+                <svg class="creature cv cv-allset" viewBox="-2 -6 20 18" shape-rendering="crispEdges"><g class="cv-body"><path class="cv-cells" d="M2 0h12v1h-12zM2 1h12v1h-12zM2 2h12v1h-12zM0 3h16v1h-16zM0 4h16v1h-16zM0 5h16v1h-16zM2 6h12v1h-12zM2 7h12v1h-12zM2 8h1v1h-1zM5 8h1v1h-1zM10 8h1v1h-1zM13 8h1v1h-1zM2 9h1v1h-1zM5 9h1v1h-1zM10 9h1v1h-1zM13 9h1v1h-1zM2 10h1v1h-1zM5 10h1v1h-1zM10 10h1v1h-1zM13 10h1v1h-1z" fill="#A06BE0"/><g class="cv-eyes" fill="#1E1430"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g></g></svg>
+                <span class="as-btn">Open Brainmerge</span>
+                <span class="as-spacer"></span>
+              </p>
+              <p class="health" aria-hidden="true"><span class="health-where">Settings, Health</span><span class="health-state"><span class="h-checking">Checking…</span><span class="h-ok"><svg class="as-ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="#8FC7A6"/><path d="M4.9 8.3l2.1 2.1 4.2-4.3" fill="none" stroke="#1A1918" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Everything is in place.</span></span></p>
+            </div>
+            <figcaption>The last step, All set. Later, Settings opens on&nbsp;Health.</figcaption>
           </figure>
         </div>
         <p class="cli">For those who want one, the <code>brainmerge</code> command sets up accounts and memories, checks them and reads usage from a terminal, and <code>brainmerge code work</code> starts Claude Code on that account with its memory. It is never&nbsp;required.</p>
@@ -481,13 +602,13 @@
         <div class="safety-head">
           <p class="eyebrow">Safety</p>
           <h2 class="h2" id="safety-title">Safe for<br class="br-split"> your accounts,<br class="br-split"> by&nbsp;design.</h2>
-          <p class="lead">Of Anthropic's software, Brainmerge only starts the official Claude app and the official Claude Code you already have. On your click it can also start Apple's own installer for its Command Line Tools, or your browser (in the profile you picked, if any). Each account logs in by itself, inside&nbsp;Claude.</p>
+          <p class="lead">Of Anthropic’s software, Brainmerge only starts the official Claude app and the official Claude Code you already have. On your click it can also start Apple’s own installer for its Command Line Tools, or your browser (in the profile you picked, if any). Each account logs in by itself, inside&nbsp;Claude.</p>
           <a class="more" href="https://github.com/ruben4reall/brainmerge/blob/main/SECURITY.md">Read SECURITY.md</a>
         </div>
         <ul class="promises reveal-group">
           <li>
             <h3>No passwords, tokens or cookies.</h3>
-            <p>Brainmerge never stores or sends a password, a token or a cookie, and never goes looking for&nbsp;one. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it&nbsp;nowhere. A note that looks like it holds a key is kept out of the memory's history, and the key is never shown or&nbsp;kept.</p>
+            <p>Brainmerge never stores or sends a password, a token or a cookie, and never goes looking for&nbsp;one. To tell your accounts apart, it only shows the email Claude Code records for each one, and stores it&nbsp;nowhere. A note that looks like it holds a key is kept out of the memory’s history, and the key is never shown or&nbsp;kept.</p>
           </li>
           <li>
             <h3>No switching, no rotation.</h3>
@@ -530,9 +651,13 @@
     <!-- Download -->
     <section class="download" id="download" aria-labelledby="download-title">
       <div class="wrap download-head">
+        <svg class="creature cv cv-finale" viewBox="-2 -6 20 18" role="img" aria-label="The Brainmerge creature, standing on its shadow." shape-rendering="crispEdges">
+              <rect class="cv-shadow" x="2" y="11" width="12" height="1" fill="#A06BE0" fill-opacity="0.18"/>
+              <g class="cv-body"><path class="cv-cells" d="M2 0h12v1h-12zM2 1h12v1h-12zM2 2h12v1h-12zM0 3h16v1h-16zM0 4h16v1h-16zM0 5h16v1h-16zM2 6h12v1h-12zM2 7h12v1h-12zM2 8h1v1h-1zM5 8h1v1h-1zM10 8h1v1h-1zM13 8h1v1h-1zM2 9h1v1h-1zM5 9h1v1h-1zM10 9h1v1h-1zM13 9h1v1h-1zM2 10h1v1h-1zM5 10h1v1h-1zM10 10h1v1h-1zM13 10h1v1h-1z" fill="#A06BE0"/><g class="cv-eyes" fill="#1E1430"><rect x="4" y="1" width="1" height="1"/><rect x="11" y="1" width="1" height="1"/></g></g>
+            </svg>
         <h2 class="h2-xl" id="download-title">Get Brainmerge.</h2>
         <div class="actions">
-          <a class="btn btn-primary" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg">Download for Mac</a>
+          <a class="btn btn-primary btn-dl" href="https://github.com/ruben4reall/brainmerge/releases/latest/download/Brainmerge.dmg"><span>Download for Mac</span><svg class="dl-ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path class="dl-arrow" d="M8 2.25v7.5M4.75 6.75 8 10l3.25-3.25" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.25 13.25h9.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span class="btn-ring" aria-hidden="true"></span></a>
           <a class="btn btn-ghost" href="https://github.com/ruben4reall/brainmerge">View on GitHub</a>
         </div>
         <!-- install-note -->
