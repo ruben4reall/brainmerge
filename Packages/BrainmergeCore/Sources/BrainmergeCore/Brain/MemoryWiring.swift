@@ -159,8 +159,9 @@ public struct MemoryWiring: Sendable {
         return fm.fileExists(atPath: resolved.path) ? .external(resolved.path) : .broken
     }
 
-    /// Moves the files from `from` into `into`. A duplicate keeps the brain's version;
-    /// the other one is renamed `<name>.<suffix>.<ext>` and reported. `moved`: where each item went.
+    /// Moves the files from `from` into `into`. A duplicate keeps the brain's version; the other one is renamed
+    /// `<name>.<suffix>.<ext>` (`<name>.<suffix>-2.<ext>` and so on when taken) and reported. An item identical to one
+    /// already there (a copy the uninstaller left) stays out: it would only be a second copy. `moved`: where each item went.
     static func adopt(from: URL, into: URL, suffix: String) throws -> (conflicts: [String], moved: [URL]) {
         let fm = FileManager.default
         var conflicts: [String] = []
@@ -168,9 +169,15 @@ public struct MemoryWiring: Sendable {
         for item in try fm.contentsOfDirectory(at: from, includingPropertiesForKeys: nil) {
             var destination = into.appending(path: item.lastPathComponent)
             if fm.fileExists(atPath: destination.path) {
+                if fm.contentsEqual(atPath: item.path, andPath: destination.path) { continue }
                 let base = item.deletingPathExtension().lastPathComponent
                 let ext = item.pathExtension.isEmpty ? "" : ".\(item.pathExtension)"
-                destination = into.appending(path: "\(base).\(suffix)\(ext)")
+                var n = 1
+                repeat {
+                    destination = into.appending(path: "\(base).\(suffix)\(n == 1 ? "" : "-\(n)")\(ext)")
+                    n += 1
+                } while fm.fileExists(atPath: destination.path) && !fm.contentsEqual(atPath: item.path, andPath: destination.path)
+                if fm.fileExists(atPath: destination.path) { continue }
                 conflicts.append(destination.lastPathComponent)
             }
             try fm.moveItem(at: item, to: destination)

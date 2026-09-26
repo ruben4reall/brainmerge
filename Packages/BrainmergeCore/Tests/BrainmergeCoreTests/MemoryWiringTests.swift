@@ -282,4 +282,30 @@ import BrainmergeTestSupport
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: e.profile.projectsDir.path) == [ProjectSlug.slug(forPath: e.atelier)])
     }
+
+    /// Setting up again after an uninstall adopts real folders holding copies of the memory: a copy never becomes a second
+    /// note, and a conflict name already taken gets the next free one instead of failing.
+    @Test func adoptingCopiesOfTheMemoryNeverDuplicatesANote() throws {
+        let e = try env(); defer { e.home.remove() }
+        let fm = FileManager.default
+        let target = e.brain.memoryDir(forProject: "atelier")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data("index\n".utf8).write(to: target.appending(path: "MEMORY.md"))
+        try Data("brain deploy\n".utf8).write(to: target.appending(path: "deploy.md"))
+        try Data("old local\n".utf8).write(to: target.appending(path: "deploy.perso.md"))
+        let real = e.link(e.atelier)
+        try fm.createDirectory(at: real, withIntermediateDirectories: true)
+        try Data("index\n".utf8).write(to: real.appending(path: "MEMORY.md"))
+        try Data("new local\n".utf8).write(to: real.appending(path: "deploy.md"))
+        try Data("old local\n".utf8).write(to: real.appending(path: "deploy.perso.md"))
+
+        let result = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(result.conflicts == ["deploy.perso-2.md"])
+        #expect(try fm.contentsOfDirectory(atPath: target.path).sorted() == ["MEMORY.md", "deploy.md", "deploy.perso-2.md", "deploy.perso.md"])
+        #expect(try String(contentsOf: target.appending(path: "deploy.perso-2.md"), encoding: .utf8) == "new local\n")
+        #expect(try String(contentsOf: target.appending(path: "deploy.md"), encoding: .utf8) == "brain deploy\n")
+        #expect(try fm.destinationOfSymbolicLink(atPath: real.path) == target.path)
+        let ledger = try String(contentsOf: TouchedLedger(brain: e.brain, slug: "perso").file, encoding: .utf8)
+        #expect(ledger.contains("memory/atelier/deploy.perso-2.md") && !ledger.contains("MEMORY") && !ledger.contains("deploy.perso.md"))
+    }
 }
