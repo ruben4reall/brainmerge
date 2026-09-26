@@ -2,6 +2,13 @@ import AppKit
 import Foundation
 import BrainmergeCore
 
+/// Where a declined move is remembered: the app's own defaults, a plain dictionary in tests (never a preferences file).
+public protocol DeclineStore: AnyObject {
+    func stringArray(forKey key: String) -> [String]?
+    func set(_ value: Any?, forKey key: String)
+}
+extension UserDefaults: DeclineStore {}
+
 /// "Move to Applications": offered when the app runs from a disk image, Downloads, or the Desktop,
 /// never from Applications, a working disk, or a build folder. A decline is remembered.
 public enum Installer {
@@ -28,10 +35,10 @@ public enum Installer {
     }
 
     static let declinedKey = "installer.declined"
-    public static func wasDeclined(bundlePath: String = bundlePath, defaults: UserDefaults = .standard) -> Bool {
+    public static func wasDeclined(bundlePath: String = bundlePath, defaults: any DeclineStore = UserDefaults.standard) -> Bool {
         (defaults.stringArray(forKey: declinedKey) ?? []).contains(bundlePath)
     }
-    public static func remember(declined bundlePath: String, defaults: UserDefaults = .standard) {
+    public static func remember(declined bundlePath: String, defaults: any DeclineStore = UserDefaults.standard) {
         var list = defaults.stringArray(forKey: declinedKey) ?? []
         if !list.contains(bundlePath) { list.append(bundlePath) }
         defaults.set(list, forKey: declinedKey)
