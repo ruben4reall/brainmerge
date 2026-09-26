@@ -149,4 +149,60 @@ import BrainmergeTestSupport
         let match = (0...240).first { y in HowItWorksViewTests.differing(page, alone, at: CGPoint(x: 40, y: y)) < 400 }
         #expect(match != nil, "the scene is not drawn at its own size in the page")
     }
+
+    // MARK: Filmed
+
+    /// The second account's step, as the guide shows it, over a first account already made: Personal, whose Claude window
+    /// `ps` shows open when `personalOpen` (at a pid above macOS's limit, 99,999: no real process is ever matched).
+    func secondAccountStep(personalOpen: Bool = false) throws -> (ManagerEnv, AppModel, OnboardingModel, CoreWorkTests.FakePS) {
+        let ps = CoreWorkTests.FakePS("")
+        let (e, app, onboarding) = try OnboardingModelTests().setup(withBrain: true, monitor: ProcessMonitor(psOutput: { ps.output }))
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        if personalOpen { ps.output = "4000001 1 120000 \(e.claude.executable.path)\n" }
+        app.reload()
+        // Never the Mac's own: a quit empties the fake list, a launch does nothing.
+        app.quitAccount = { _, _ in ps.output = "" }
+        app.launchAccount = { _, _ in }
+        onboarding.step = .secondAccount
+        onboarding.secondAccount.name = "Freelance"
+        return (e, app, onboarding, ps)
+    }
+
+    /// The second account's step alone, drawn again as the model changes (its body reads the model).
+    struct SecondAccountPage: View {
+        let model: OnboardingModel
+        var body: some View { OnboardingView(model: model).secondAccount.frame(width: 560).padding(20) }
+    }
+
+    /// As "Add account" is done, the form gives way to the account it made: "Skip for now" and "Add account" fade where
+    /// they are, and the row of buttons settles with the card once they have gone (the step's settle, after
+    /// SecondAccountSwap.hold). Back never moves on the 0.15 s dimming of "Add account", which slid it across "Skip for
+    /// now" while that one still faded: drawn before the hold, it is where it was, and it is still on its way to its new
+    /// place a quarter of a second after the add.
+    @Test func backMovesWithTheCardOnceTheFormsButtonsHaveGone() async throws {
+        let (e, _, onboarding, _) = try secondAccountStep(); defer { e.home.remove() }
+        let film = Film(SecondAccountPage(model: onboarding), size: CGSize(width: 600, height: 780))
+        defer { film.close() }
+        film.run(for: 0.4)
+        let before = film.shot()
+        // The row of buttons is the lowest black line (the words under it are cream); Back is its first word.
+        func back(_ shot: Film.Shot) -> Film.PixelRect? {
+            shot.darkLines().last.flatMap { shot.darkWords(in: $0, gap: Int(8 * shot.scale)).first }
+        }
+        let row = try #require(before.darkLines().last, "no row of buttons drawn")
+        #expect(before.darkWords(in: row, gap: Int(8 * before.scale)).count == 3, "Back, Skip for now, Add account")
+        let start = try #require(back(before)).x
+        // Filmed from the moment the account is added: the run loop has not drawn the change yet.
+        #expect(await onboarding.addSecondAccount())
+        let shots = film.shots(for: 0.9)
+        let end = try #require(shots.last.flatMap { back($0.shot) }).x
+        #expect(end - start > Int(20 * before.scale), "Back never moved: \(start) to \(end)")
+        for (time, shot) in shots where time < SecondAccountSwap.hold - 0.03 {
+            let x = back(shot)?.x
+            #expect(x.map { abs($0 - start) <= 2 } == true, "Back moved \(Int(time * 1000)) ms after the add: \(start) to \(x ?? -1)")
+        }
+        let quarter = shots.filter { $0.time >= 0.25 && $0.time <= 0.4 }.compactMap { back($0.shot)?.x }
+        #expect(!quarter.isEmpty && quarter.contains { $0 < end - Int(2 * before.scale) },
+                "Back had arrived before the form's words had gone and the card settled: \(quarter) for \(start) to \(end)")
+    }
 }

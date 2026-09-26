@@ -239,20 +239,23 @@ public struct OnboardingView: View {
             }
             // Its room is kept: the step never jumps as work starts and ends.
             WorkingLine(text: model.app.working, holdsPlace: true)
-            // One row for both: only its buttons change. "Add account" dims while work runs, in step with the line above.
+            // One row for both: only its buttons change. "Add account" dims while work runs, in step with the line above:
+            // its own fade, never the row's. The work ends as the account is added, and the row then settles with the
+            // card (the step's animation, after the form's words have gone): on the dimming's 0.15 s, Back slid across
+            // "Skip for now" while it still faded.
             navigation {
                 Button("Back") { model.back() }.buttonStyle(.glass)
                 if added == nil {
                     Button("Skip for now") { model.next() }.buttonStyle(.glass).transition(SecondAccountSwap.outgoing(reduceMotion))
                     Button("Add account") { Task { if await model.addSecondAccount() { model.error = nil } else { model.error = model.app.message; model.app.message = nil } } }
                         .buttonStyle(.glassProminent).tint(Theme.Colors.button).disabled(model.app.working != nil)
+                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.app.working == nil)
                         .transition(SecondAccountSwap.outgoing(reduceMotion))
                 } else {
                     Button("Continue") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
                         .transition(SecondAccountSwap.incoming(reduceMotion))
                 }
             }
-            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.app.working == nil)
             if added == nil {
                 Text("When it opens, macOS asks once to allow “Claude Safe Storage” (click Always Allow) and may ask to allow access to your Documents folder (click Allow).")
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
