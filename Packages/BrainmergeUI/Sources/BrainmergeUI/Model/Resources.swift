@@ -131,11 +131,14 @@ public struct ResourceSummary: Equatable, Sendable {
         }
         if let mac {
             // Footprints can add up to more than "used" (they count compressed pages at full size): never below zero.
+            // Everything in use that is not Claude's, macOS's own wired and compressed memory included: named for what it
+            // holds, so it never reads as more than the "Apps" of the Mac's line above it.
             let others = max(0, mac.used - accountsRAM - terminal.bytes)
-            rows.append(Row(kind: .otherApps, name: "Other apps", tint: nil, subtitle: nil, ram: ByteFormat.ram(others), ramDetail: share(others),
-                            ramHelp: "Everything else that runs on this Mac, Brainmerge included. Claude's virtual machine, when it runs, counts here too.",
+            let name = "macOS and other apps"
+            rows.append(Row(kind: .otherApps, name: name, tint: nil, subtitle: nil, ram: ByteFormat.ram(others), ramDetail: share(others),
+                            ramHelp: "Everything else in use on this Mac: macOS itself (its wired and compressed memory) and the other apps, Brainmerge included. Claude's virtual machine, when it runs, counts here too.",
                             fraction: fraction(others), disk: nil, diskIsFigure: false, diskHelp: nil,
-                            accessibilityLabel: "Other apps, \(ByteFormat.ram(others)) of RAM, \(share(others))"))
+                            accessibilityLabel: "\(name), \(ByteFormat.ram(others)) of RAM, \(share(others))"))
         }
 
         let claudeRAM = accountsRAM + terminal.bytes

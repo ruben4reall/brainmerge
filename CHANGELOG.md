@@ -9,7 +9,7 @@ Brainmerge 0.6 shows what each account takes on your Mac, puts your accounts in 
 - **RAM and disk per account.** The Usage screen now opens on your Mac's RAM, then each account's RAM and disk.
   - Your Mac's RAM in use is counted like Activity Monitor (apps, wired and compressed), out of its total, with the pressure word when macOS says it is short.
   - Each account's row shows the RAM its Claude uses with everything it runs, as a share of the Mac and a thin bar, and the disk space of its Claude data folder, its Claude Code profile and its app (the parts on hover). A closed account shows its disk only.
-  - Claude Code sessions started in a terminal are one row for all accounts together, since which account a session uses is only in its environment, which Brainmerge never reads; everything else is "Other apps".
+  - Claude Code sessions started in a terminal are one row for all accounts together, since which account a session uses is only in its environment, which Brainmerge never reads; everything else in use, macOS's own memory included, is "macOS and other apps".
   - An account's RAM is now the figure Activity Monitor shows (each process's footprint), on its card, in the Accounts subtitle and in the low RAM warning alike. It includes the RAM Claude's graphics use and counts RAM shared between Claude's processes once, so an account can read noticeably less than in 0.5.0.
   - Sizes read with a point whatever the Mac's language ("1.2 GB", never "1,2 GB").
   - Disk sizes are added up from file metadata, never file contents: no link followed, no other disk entered, a shared history or shared skills counted once with your first account, a tinted copy counted by the blocks it does not share with Claude.

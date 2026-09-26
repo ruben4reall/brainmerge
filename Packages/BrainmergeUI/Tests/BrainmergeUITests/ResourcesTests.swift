@@ -154,7 +154,7 @@ import BrainmergeCore
     /// Accounts in the sidebar's order, then Claude Code in a terminal, then everything else.
     @Test func rowsKeepTheAccountsOrderThenTheTerminalThenOtherApps() {
         let rows = Self.summary().rows
-        #expect(rows.map(\.name) == ["Ruben", "Client", "Studio", "Terminal", "Claude Code in a terminal", "Other apps"])
+        #expect(rows.map(\.name) == ["Ruben", "Client", "Studio", "Terminal", "Claude Code in a terminal", "macOS and other apps"])
         #expect(rows[0].ram == "2.0 GB" && rows[0].ramDetail == "11% of this Mac")
         #expect(abs(rows[0].fraction - 2.0 / 18) < 0.0001)
         #expect(rows[0].tint == .orange)
@@ -173,6 +173,16 @@ import BrainmergeCore
         let blind = Self.summary(mac: nil).rows
         #expect(!blind.contains { $0.kind == .otherApps })
         #expect(blind[0].ramDetail == "11% of this Mac")
+    }
+
+    /// The last row is all the RAM in use that is not Claude's: macOS's own (wired, compressed) with the other apps. Named
+    /// "Other apps", it read as more than the "Apps" of the line above it (which leaves wired and compressed out).
+    @Test func theLastRowSaysItHoldsMacOSToo() throws {
+        let rest = try #require(Self.summary().rows.last)
+        #expect(rest.kind == .otherApps)
+        #expect(rest.name == "macOS and other apps")
+        #expect(rest.accessibilityLabel == "macOS and other apps, 6.5 GB of RAM, 36% of this Mac")
+        #expect(rest.ramHelp?.contains("wired and compressed") == true)
     }
 
     /// Footprints count what the kernel attributes to each process and can add up to more than "used": other apps stop at zero.
