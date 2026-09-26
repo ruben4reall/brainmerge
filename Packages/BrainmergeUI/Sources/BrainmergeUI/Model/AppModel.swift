@@ -1763,7 +1763,9 @@ public final class AppModel {
         let manager = self.manager
         for slug in accounts.map(\.id) {
             guard !accountsBusy.contains(slug), let account = accounts.first(where: { $0.id == slug }),
-                  UpdatePolicy.shouldRebuild(identity: account.identity, installedVersion: claude.version, running: account.isRunning, autoRebuild: autoRebuild)
+                  UpdatePolicy.shouldRebuild(identity: account.identity, installedVersion: claude.version, running: account.isRunning, autoRebuild: autoRebuild,
+                                             pinned: LauncherConfig.pinnedExecutable(in: paths.launcherApp(name: account.identity.bundleDisplayName)),
+                                             installed: claude.executable.path)
             else { continue }
             rebuilding.insert(slug)
             defer { rebuilding.remove(slug) }

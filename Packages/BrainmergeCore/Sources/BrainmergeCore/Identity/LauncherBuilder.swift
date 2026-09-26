@@ -13,6 +13,12 @@ public struct LauncherConfig: Codable, Equatable, Sendable {
         self.configDir = configDir; self.dataDir = dataDir; self.claudeExecutable = claudeExecutable
     }
     public init(openApp: String) { self.openApp = openApp }
+
+    /// The Claude program a built account app starts, read from its bundle; nil without one.
+    public static func pinnedExecutable(in app: URL) -> String? {
+        (try? Data(contentsOf: app.appending(path: "Contents/Resources/brainmerge.json")))
+            .flatMap { try? JSONDecoder().decode(LauncherConfig.self, from: $0) }?.claudeExecutable
+    }
 }
 
 /// Builds `~/Applications/Brainmerge/<Name>.app`: a tiny, ad hoc signed bundle
