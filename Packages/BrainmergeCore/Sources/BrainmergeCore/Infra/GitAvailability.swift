@@ -31,6 +31,17 @@ public final class GitAvailability: @unchecked Sendable {
 
     public func invalidate() { lock.lock(); cached = nil; lock.unlock() }
 
+    /// Why git is there but cannot run, asked of `git --version` (only once the tools are there, so no dialog): an Xcode
+    /// whose license is not accepted yet after an update, or anything else it says. Nil when it runs.
+    public func runProblem() -> String? {
+        guard isAvailable else { return nil }
+        guard let result = try? shell.run("/usr/bin/git", ["--version"]) else { return "git could not be started." }
+        guard result.status != 0 else { return nil }
+        if SaveStatus.Reason.isLicense(result.stderr) { return "git waits for Xcode's license to be accepted. Run: sudo xcodebuild -license" }
+        let first = result.stderr.split(separator: "\n").first.map(String.init) ?? ""
+        return "git does not run: \(first)"
+    }
+
     /// Starts Apple's own installer for the Command Line Tools. The download comes from Apple.
     public func install() throws {
         _ = try shell.run("/usr/bin/xcode-select", ["--install"])

@@ -86,7 +86,7 @@ import BrainmergeTestSupport
     @Test func aClickAsksThatAccountsClaudeCode() async throws {
         let (e, m, fake) = try setUp(); defer { e.home.remove() }
         await m.checkLimits("client")
-        let environment = ["HOME": e.home.url.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        let environment = ["HOME": e.home.url.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "BRAINMERGE_HOOKS": "off",
                            "CLAUDE_CONFIG_DIR": e.home.url.appending(path: ".claude-client").path]
         #expect(fake.runs == [
             ClaudeCodeLimits.Invocation(executable: "/fake/claude", arguments: ["--version"], directory: e.home.paths.home, environment: environment, timeout: 20),
@@ -101,7 +101,7 @@ import BrainmergeTestSupport
     @Test func theFirstAccountRunsOnItsDefaultFolder() async throws {
         let (e, m, fake) = try setUp(); defer { e.home.remove() }
         await m.checkLimits("ruben")
-        #expect(fake.runs.map(\.environment) == Array(repeating: ["HOME": e.home.url.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"], count: 2))
+        #expect(fake.runs.map(\.environment) == Array(repeating: ["HOME": e.home.url.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "BRAINMERGE_HOOKS": "off"], count: 2))
     }
 
     /// Brainmerge's own environment can hold an API key, a token or another account's folder: none of it reaches Claude Code.
@@ -112,7 +112,8 @@ import BrainmergeTestSupport
         await m.checkLimits("client")
         #expect(fake.runs.count == 2)
         for run in fake.runs {
-            #expect(Set(run.environment.keys) == ["HOME", "PATH", "CLAUDE_CONFIG_DIR"])
+            // The hooks' switch is Brainmerge's own, for the account's hooks: never a value from its environment.
+            #expect(Set(run.environment.keys) == ["HOME", "PATH", "CLAUDE_CONFIG_DIR", "BRAINMERGE_HOOKS"])
             #expect(!run.environment.values.contains { $0.contains("sentinel") }, "\(run.environment)")
         }
     }

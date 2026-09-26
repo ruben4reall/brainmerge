@@ -82,10 +82,10 @@ import BrainmergeTestSupport
 
     @Test func onlyWhatClaudeCodeNeedsIsPassed() {
         let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
-        #expect(ClaudeCodeLimits.environment(home: home, configDir: nil) == ["HOME": "/Users/someone", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"])
+        #expect(ClaudeCodeLimits.environment(home: home, configDir: nil) == ["HOME": "/Users/someone", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "BRAINMERGE_HOOKS": "off"])
         let profile = URL(fileURLWithPath: "/Users/someone/.claude-client", isDirectory: true)
         #expect(ClaudeCodeLimits.environment(home: home, configDir: profile)
-                == ["HOME": "/Users/someone", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CLAUDE_CONFIG_DIR": "/Users/someone/.claude-client"])
+                == ["HOME": "/Users/someone", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CLAUDE_CONFIG_DIR": "/Users/someone/.claude-client", "BRAINMERGE_HOOKS": "off"])
     }
 
     /// `~/.claude` is Claude Code without CLAUDE_CONFIG_DIR: setting it to `~/.claude` would read another `.claude.json`.
@@ -142,7 +142,7 @@ import BrainmergeTestSupport
         let fake = FakeClaudeCode()
         let outcome = ClaudeCodeLimits.check(home: Self.home, configDir: Self.client, binary: .found(Self.binary), run: fake.run)
         #expect(outcome == .limits(ClaudeCodeLimits.parse(Self.full)))
-        let environment = ["HOME": "/Users/someone", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CLAUDE_CONFIG_DIR": "/Users/someone/.claude-client"]
+        let environment = ["HOME": "/Users/someone", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CLAUDE_CONFIG_DIR": "/Users/someone/.claude-client", "BRAINMERGE_HOOKS": "off"]
         #expect(fake.runs == [
             ClaudeCodeLimits.Invocation(executable: Self.binary, arguments: ["--version"], directory: Self.home, environment: environment, timeout: 20),
             ClaudeCodeLimits.Invocation(executable: Self.binary, arguments: ["-p", "/usage"], directory: Self.home, environment: environment, timeout: 20),

@@ -17,11 +17,6 @@ extension Tint: ExpressibleByArgument {}
 @main
 enum Entry {
     static func main() {
-        let argv = CommandLine.arguments
-        var slugs: Set<String> = []
-        if let first = argv.first, (first as NSString).lastPathComponent.hasPrefix(ClaudeCodeTerminal.linkPrefix) {
-            slugs = Set(((try? Context().store.load())?.identities ?? []).map(\.slug))
-        }
-        BrainmergeCLI.main(ClaudeCodeTerminal.dispatch(argv, slugs: slugs))
+        BrainmergeCLI.main(ClaudeCodeTerminal.dispatch(CommandLine.arguments))
     }
 }

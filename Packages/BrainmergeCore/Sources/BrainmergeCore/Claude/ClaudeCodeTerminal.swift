@@ -27,13 +27,14 @@ public enum ClaudeCodeTerminal {
     }
 
     /// The arguments for the parser. Called as `claude-<known slug>`, it is `code <slug>` with the rest untouched.
-    public static func dispatch(_ argv: [String], slugs: Set<String>) -> [String] {
+    public static func dispatch(_ argv: [String]) -> [String] {
         let rest = Array(argv.dropFirst())
         guard let first = argv.first else { return rest }
         let name = (first as NSString).lastPathComponent
         guard name.hasPrefix(linkPrefix) else { return rest }
-        let slug = String(name.dropFirst(linkPrefix.count))
-        return slugs.contains(slug) ? ["code", slug] + rest : rest
+        // Always `code`, whatever the state says: an account's command never runs one of brainmerge's own, and `code`
+        // says when the account is unknown or the state cannot be read.
+        return ["code", String(name.dropFirst(linkPrefix.count))] + rest
     }
 
     /// The terminal tab's title (OSC 2). Control characters of the name are dropped so it cannot end the sequence.

@@ -67,7 +67,8 @@ public struct MemoryWiring: Sendable {
     public func wireOne(projectPath: String, profile: CLIProfile, identitySlug: String) throws -> Result {
         var result = Result()
         guard projectPath.hasPrefix("/") else { return result }
-        let slug = ProjectSlug.slug(forPath: projectPath)
+        // A long path whose folder Claude Code has not made yet: linked at the next session start, once it is there.
+        guard let slug = ProjectSlug.folder(forPath: projectPath, in: profile.projectsDir) else { return result }
         let projectDir = profile.projectsDir.appending(path: slug, directoryHint: .isDirectory)
         if isLinkedIntoThisMemory(projectDir.appending(path: "memory")) { return result }
         var registry = try ProjectRegistry.load(brain.projectsFile)

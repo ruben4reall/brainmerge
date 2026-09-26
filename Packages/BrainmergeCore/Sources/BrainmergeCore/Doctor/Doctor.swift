@@ -73,8 +73,10 @@ public struct Doctor: Sendable {
                                     plain: "Brainmerge can't use the Claude app at \(shown(claudeAppURL.path)). Choose it under Where Claude is."))
         }
 
+        let gitProblem = git.runProblem()
         findings.append(git.isAvailable
-            ? Finding(level: .ok, title: "git", detail: "Apple's Command Line Tools are installed", plain: "Apple's Command Line Tools are installed.")
+            ? (gitProblem.map { Finding(level: .error, title: "git", detail: $0, plain: "git is installed but does not run, so the memory is not saved.") }
+               ?? Finding(level: .ok, title: "git", detail: "Apple's Command Line Tools are installed", plain: "Apple's Command Line Tools are installed."))
             : Finding(level: .error, title: "git", detail: "Apple's Command Line Tools are not installed. Run: xcode-select --install",
                       plain: "Apple's Command Line Tools are missing: the memory keeps its history with them.", fix: .installAppleTools))
 
@@ -149,7 +151,9 @@ public struct Doctor: Sendable {
                                         plain: "The last save of \(identity.name) failed: its card says why."))
             }
             let claudeMD = (try? String(contentsOf: profile.claudeMD, encoding: .utf8)) ?? ""
-            let blockOK = ManagedBlock.contains(claudeMD) && (brain.map { claudeMD.contains($0.root.path) } ?? true)
+            // The block Brainmerge would write now, exactly: the memory's path elsewhere in the file proves nothing.
+            let blockOK = brain.map { ManagedBlock.current(in: claudeMD) == ManagedBlock.render(identityName: identity.name, slug: identity.slug, brainPath: $0.root.path) }
+                ?? ManagedBlock.contains(claudeMD)
             findings.append(blockOK
                 ? Finding(level: .ok, title: "\(identity.name): CLAUDE.md", detail: "Managed block present",
                           plain: "The instructions of \(identity.name) point to its memory.")
@@ -232,6 +236,12 @@ public struct Doctor: Sendable {
             return Finding(level: .warning, title: title,
                            detail: "points to \(target), in \(root.path): a memory Brainmerge no longer knows, so the notes written there are not saved. Run: brainmerge brain add --name NAME \(Self.quoted(root.path)), then brainmerge identity edit \(identity.slug) --brain ID",
                            plain: "The notes of \(project) for \(identity.name) go to \(shown(root.path)), a memory Brainmerge no longer knows: they are not saved.")
+        }
+        // Into another memory Brainmerge knows: "brain wire" links it into this account's memory.
+        if case .external(let target) = state, let root = Self.memoryRoot(containing: target),
+           root.resolvingSymlinksInPath().path != brain.root.resolvingSymlinksInPath().path {
+            return Finding(level: .warning, title: title, detail: "points to \(target), in another memory. \(wire)",
+                           plain: "The notes of \(project) for \(identity.name) go to another memory than its own.", fix: repair)
         }
         return switch state {
         case .linked: Finding(level: .ok, title: title, detail: "linked to \(brain.memoryDir(forProject: project).path)",

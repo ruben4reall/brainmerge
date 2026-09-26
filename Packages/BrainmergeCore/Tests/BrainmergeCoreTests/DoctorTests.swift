@@ -294,6 +294,26 @@ import BrainmergeTestSupport
         #expect(findings.first { $0.title == "Memory: Work" }?.plain == "The memory Work is missing from ~/Brain-work.")
     }
 
+    /// The block must be the one Brainmerge would write now: a block that imports another memory whose path starts like
+    /// this one (~/Brain-work for ~/Brain), or the path only in the person's own text, is stale. A project linked into
+    /// another memory Brainmerge knows is relinked by "brain wire": said, not passed as fine.
+    @Test func aStaleBlockOrALinkIntoAnotherMemoryIsSaid() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        #expect(doctor(e).run().first { $0.title == "Perso: CLAUDE.md" }?.level == .ok)
+        let text = try String(contentsOf: e.primaryProfile.claudeMD, encoding: .utf8)
+        let other = ManagedBlock.render(identityName: "Perso", slug: "perso", brainPath: e.brain.root.path + "-work")
+        let stale = ManagedBlock.upsert(in: text, block: other) + "\nMy notes are in \(e.brain.root.path).\n"
+        try Data(stale.utf8).write(to: e.primaryProfile.claudeMD)
+        #expect(doctor(e).run().first { $0.title == "Perso: CLAUDE.md" }?.level == .warning)
+
+        let work = try e.manager.addBrain(name: "Work", path: nil, language: .en)
+        let finding = doctor(e).linkFinding(try #require(try e.store.load().primary), project: "atelier",
+                                            state: .external(Brain(root: work.url).memoryDir(forProject: "atelier").path),
+                                            brain: e.brain, memoryID: "shared", known: [e.brain.root, work.url])
+        #expect(finding.level == .warning && finding.fix == .repairLinks(brainID: "shared"))
+    }
+
     @Test func everyMemoryIsChecked() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")

@@ -21,6 +21,10 @@ import BrainmergeTestSupport
             (BrainmergeError.shellFailed(command: "/usr/bin/git update-ref", status: 128,
                                          stderr: "fatal: Unable to create '/Users/x/Brain/.git/HEAD.lock': File exists."), .locked),
             (BrainmergeError.gitUnavailable, .gitMissing),
+            (BrainmergeError.shellFailed(command: "/usr/bin/git add", status: 69,
+                                         stderr: "You have not agreed to the Xcode license agreements. Please run 'sudo xcodebuild -license' from within a Terminal window."), .gitLicense),
+            (BrainmergeError.shellFailed(command: "/usr/bin/git status", status: 128,
+                                         stderr: "fatal: detected dubious ownership in repository at '/Volumes/Disk/Brain'"), .noAccess),
             (BrainmergeError.shellFailed(command: "/usr/bin/git add", status: 1,
                                          stderr: "xcrun: error: invalid active developer path (/Library/Developer/CommandLineTools)"), .gitMissing),
             (BrainmergeError.shellFailed(command: "/usr/bin/git commit", status: 128,
@@ -90,6 +94,6 @@ import BrainmergeTestSupport
         let json = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(status)) as? [String: Any])
         #expect(Set(json.keys) == ["date", "outcome", "reason"])
         #expect(SaveStatus.Outcome.allCases.map(\.rawValue) == ["committed", "nothing", "failed", "held"])
-        #expect(SaveStatus.Reason.allCases.map(\.rawValue) == ["locked", "gitMissing", "diskFull", "notARepository", "heldBack", "gitStopped", "noAccess", "unknown"])
+        #expect(SaveStatus.Reason.allCases.map(\.rawValue) == ["locked", "gitMissing", "diskFull", "notARepository", "heldBack", "gitStopped", "noAccess", "gitLicense", "unknown"])
     }
 }

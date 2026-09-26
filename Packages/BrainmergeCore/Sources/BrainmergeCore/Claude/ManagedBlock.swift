@@ -18,6 +18,9 @@ public enum ManagedBlock {
 
     public static func contains(_ content: String) -> Bool { range(in: content) != nil }
 
+    /// The block as it stands in the file, markers included; nil without one.
+    public static func current(in content: String) -> String? { range(in: content).map { String(content[$0]) } }
+
     /// Replaces the existing block, or appends it at the end after a blank line.
     public static func upsert(in content: String, block: String) -> String {
         if let range = range(in: content) {

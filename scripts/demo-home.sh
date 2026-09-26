@@ -72,13 +72,24 @@ json.dump(state, open(path, "w"), indent=2)
 PY3
 # A few memories, committed by two accounts, for the Memory screen.
 BRAIN="$H/Brain"
+# What the PostToolUse hook does after an edit: the file goes on the account's list, and its next save commits exactly
+# that (a save commits nothing else).
+touched() {   # touched ACCOUNT FILE...
+  local account="$1"; shift
+  for file in "$@"; do
+    python3 -c 'import json, sys; print(json.dumps({"tool_input": {"file_path": sys.argv[1]}}))' "$file" | "$CLI" touched --identity "$account"
+  done
+}
 mkdir -p "$BRAIN/memory/website" "$BRAIN/memory/mobile-app"
 printf '# Pricing decision\n\nKeep the launch offer until October.\n' > "$BRAIN/memory/website/decision_pricing.md"
+touched studio "$BRAIN/memory/website/decision_pricing.md"
 "$CLI" sync --identity studio > /dev/null
 printf '# Memory\n\n- Tests run with swift test.\n' > "$BRAIN/memory/mobile-app/MEMORY.md"
 printf '# Feedback\n\nAlways run the suite before a commit.\n' > "$BRAIN/memory/mobile-app/feedback_tests.md"
+touched personal "$BRAIN/memory/mobile-app/MEMORY.md" "$BRAIN/memory/mobile-app/feedback_tests.md"
 "$CLI" sync --identity personal > /dev/null
 printf '\nLaunch offer extended to November.\n' >> "$BRAIN/memory/website/decision_pricing.md"
+touched studio "$BRAIN/memory/website/decision_pricing.md"
 "$CLI" sync --identity studio > /dev/null
 # A richer memory for the graph: notes linked to each other across projects, saved by different accounts.
 notes() {   # notes GROUP: writes one account's notes, so each save carries its own author
@@ -88,6 +99,7 @@ brain, work, group = sys.argv[1], sys.argv[2], sys.argv[3]
 def note(root, path, text):
     full = os.path.join(root, path); os.makedirs(os.path.dirname(full), exist_ok=True)
     open(full, "w").write(text)
+    print(full)   # for the edit hook's list (see touched)
 groups = {
   "studio": {
     "memory/website/MEMORY.md": "- [Pricing](decision_pricing.md)\n- [Brand voice](feedback_voice.md)\n- [Launch plan](project_launch_plan.md)\n- [Hosting](reference_hosting.md)\n",
@@ -120,9 +132,13 @@ if group == "work":
 else:
     for path, text in groups[group].items(): note(brain, path, text)
 PYNOTES
-"$CLI" sync --identity "$1" > /dev/null
 }
-for group in studio personal client work; do notes "$group"; done
+written() {   # written GROUP: its notes written, then noted and saved as that account would
+  local files=(); while IFS= read -r file; do files+=("$file"); done < <(notes "$1")
+  touched "$1" "${files[@]}"
+  "$CLI" sync --identity "$1" > /dev/null
+}
+for group in studio personal client work; do written "$group"; done
 # Demo transcripts (usage): a few assistant messages per day over two weeks, two projects, two models.
 python3 - "$H" <<'PY2'
 import json, os, sys, datetime, random

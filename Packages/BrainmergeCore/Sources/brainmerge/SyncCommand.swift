@@ -10,6 +10,7 @@ struct Sync: ParsableCommand {
     @Option var identity: String
 
     func run() {
+        if Context.hooksOff { return }
         let context = Context()
         let log = SyncLog(paths: context.paths)
         let start = Date()

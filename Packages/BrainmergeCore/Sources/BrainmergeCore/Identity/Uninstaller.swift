@@ -41,6 +41,7 @@ public struct Uninstaller: Sendable {
             removed.append("The terminal command\(commands.count > 1 ? "s" : "") \(names) in \(paths.localBin.path)")
         }
         removed.append("Brainmerge's settings, icons and usage cache in \(paths.appSupport.path)")
+        if FileManager.default.fileExists(atPath: paths.logsDir.path) { removed.append("Brainmerge's log of the saves in \(paths.logsDir.path)") }
         var kept: [String] = []
         for folder in state.brains { kept.append("The memory \(folder.name) at \(folder.path)") }
         kept.append("Each project keeps a copy of its notes next to its sessions, so Claude Code goes on remembering")

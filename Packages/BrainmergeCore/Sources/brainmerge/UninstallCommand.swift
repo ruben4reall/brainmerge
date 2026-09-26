@@ -20,6 +20,15 @@ struct UninstallCommand: ParsableCommand {
             throw ExitCode(1)
         }
         let report = try uninstaller.run()
-        print("Done: \(report.detachedAccounts) account(s) detached, \(report.copiedMemories) project memories copied next to their sessions, \(report.removedLaunchers) account app(s) removed. You can move Brainmerge.app to the Trash.")
+        // The quick opener's shortcut lives in the app's preferences on this Mac, not in its state: forgotten here too,
+        // except for a demo or a test home (BRAINMERGE_HOME), which never touches the real app's preferences.
+        if ProcessInfo.processInfo.environment["BRAINMERGE_HOME"]?.isEmpty ?? true {
+            let domain = "ch.rubencatalao.brainmerge" as CFString
+            for key in ["quickOpener.on", "quickOpener.keyCode", "quickOpener.modifiers", "quickOpener.key"] {
+                CFPreferencesSetAppValue(key as CFString, nil, domain)
+            }
+            CFPreferencesAppSynchronize(domain)
+        }
+        print("Done: \(report.detachedAccounts) account(s) detached, \(report.copiedMemories) project memories copied next to their sessions, \(report.removedLaunchers) account app(s) removed. Quit Brainmerge if it is open (its shortcut stays until it quits), then move Brainmerge.app to the Trash.")
     }
 }

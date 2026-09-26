@@ -47,7 +47,9 @@ import Testing
 
     @Test func noNetworkCode() throws {
         let hits = try offenders(["URLSession", "NWConnection", "import Network", "CFNetwork", "NSURLConnection", "URLProtocol", "WebSocket",
-                                  "contentsOf: URL(string", "getaddrinfo", "getStreamsToHost", "socket(", "connect("])
+                                  "contentsOf: URL(string", "getaddrinfo", "getStreamsToHost", "socket(", "connect(",
+                                  // A web view or a remote image would fetch on their own.
+                                  "AsyncImage", "WKWebView", "import WebKit"])
         #expect(hits.isEmpty, "\(hits)")
         // Git never talks to another machine: none of the subcommands that do is ever named.
         let git = try offenders(["\"push\"", "\"fetch\"", "\"pull\"", "\"clone\"", "\"ls-remote\"", "\"remote\"", "\"submodule\""])
@@ -91,14 +93,16 @@ import Testing
     @Test func noShellInterpreterAndOneProcessRunner() throws {
         let shells = try offenders(["/bin/sh", "/bin/bash", "/bin/zsh", "NSAppleScript", "osascript", "system(\"", "popen("])
         #expect(shells.isEmpty, "\(shells)")
-        let processes = try offenders(["Process()", "NSTask", "posix_spawn"], except: ["Shell.swift"])
+        let processes = try offenders(["Process()", "NSTask", "posix_spawn", "Process.run(", "launchedProcess", "launchctl"], except: ["Shell.swift"])
         #expect(processes.isEmpty, "\(processes)")
     }
 
     @Test func credentialStoresAreNamedNeverRead() throws {
         // Only DesktopSession may mention Claude's storage files, and it may only test their presence.
         let mentions = try offenders(["\"Cookies\"", "Local Storage", "IndexedDB", "Session Storage", "SecItemCopyMatching", "SecKeychain", ".credentials.json", "sessionKey",
-                                     "/usr/bin/security", "find-generic-password", "find-internet-password", "dump-keychain"], except: ["DesktopSession.swift"])
+                                     "/usr/bin/security", "find-generic-password", "find-internet-password", "dump-keychain",
+                                     // Nor written: no keychain item is added, changed or deleted.
+                                     "SecItemAdd", "SecItemUpdate", "SecItemDelete", "kSecClass"], except: ["DesktopSession.swift"])
         #expect(mentions.isEmpty, "\(mentions)")
         let session = try #require(try Self.sources().first { $0.0.lastPathComponent == "DesktopSession.swift" }).1
         for forbidden in ["Data(contentsOf", "String(contentsOf", "FileHandle", "contents(atPath", "InputStream"] {

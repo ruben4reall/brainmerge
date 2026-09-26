@@ -148,4 +148,15 @@ import BrainmergeTestSupport
         #expect(fm.fileExists(atPath: personsApp.path))
         #expect(fm.fileExists(atPath: e.claude.executable.path))
     }
+
+    /// The log of the saves goes with the rest: the plan says so before anything is removed.
+    @Test func thePlanNamesTheLog() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let uninstaller = Uninstaller(paths: e.home.paths, store: e.store, manager: e.manager)
+        #expect(!(try uninstaller.plan().removed.contains { $0.contains("Logs") }))
+        SyncLog(paths: e.home.paths).write("a line")
+        #expect(try uninstaller.plan().removed.contains("Brainmerge's log of the saves in \(e.home.paths.logsDir.path)"))
+    }
+
 }
