@@ -69,7 +69,7 @@ import BrainmergeTestSupport
     /// under them keep their gap in every frame. The words, in the primary color, were drawn apart from the rest of the
     /// row (vibrant, inside the glass: the capture does not see them) and ran ahead of their detail line, over it. The new
     /// save comes in once the room is made: it faded in at its place from the start, over the top row still leaving it.
-    @Test func eachRowSlidesDownWhole() throws {
+    @Test(.needsARealDisplay) func eachRowSlidesDownWhole() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         let personal = try e.manager.adoptPrimary(name: "Personal")
         let studio = try e.manager.add(IdentityManager.AddRequest(name: "Studio"))

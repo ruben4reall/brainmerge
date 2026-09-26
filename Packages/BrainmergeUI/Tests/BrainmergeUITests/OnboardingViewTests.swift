@@ -210,7 +210,7 @@ import BrainmergeTestSupport
     /// open): the old words go first, where they are, then the card settles to its new height, its edge with it (the
     /// step's settle, after SwapText.removal). The button fades out whole; the card's edge, which jumped to the new
     /// height at once, cut it in half as it faded.
-    @Test func theAddedCardHoldsItsHeightUntilItsButtonHasGone() async throws {
+    @Test(.needsARealDisplay) func theAddedCardHoldsItsHeightUntilItsButtonHasGone() async throws {
         let (e, _, onboarding, _) = try secondAccountStep(personalOpen: true); defer { e.home.remove() }
         #expect(await onboarding.addSecondAccount())
         #expect(onboarding.othersOpen.map(\.identity.name) == ["Personal"])

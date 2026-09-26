@@ -75,7 +75,7 @@ import Testing
         return nil
     }
 
-    @Test func aClockStartGivenAfterTheCreatureAppearsTakesOver() throws {
+    @Test(.needsARealDisplay) func aClockStartGivenAfterTheCreatureAppearsTakesOver() throws {
         // The hop stamped at 0 plays on appearance and is over after a second. Then the launch's landing time arrives, 0.1 s
         // ago: from the next frame the creature's clock starts there, so the same hop plays again (never the appearance
         // time kept, which leaves it at rest).

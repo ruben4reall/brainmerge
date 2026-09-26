@@ -58,7 +58,7 @@ import Testing
     /// The counts move with the capsule's new width, but never over a word: in every frame of the swap, both ways, the
     /// spaces between the counts' words stay empty. The status and its counts were one text rolling as numbers: the counts
     /// slid left at full strength across "Changed just now" while it still faded (and right across it as it came).
-    @Test func theCountsNeverSlideAcrossTheWords() throws {
+    @Test(.needsARealDisplay) func theCountsNeverSlideAcrossTheWords() throws {
         let status = Status()
         let film = Film(Capsule(status: status), size: CGSize(width: 480, height: 70))
         defer { film.close() }
