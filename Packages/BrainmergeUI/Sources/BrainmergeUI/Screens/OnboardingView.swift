@@ -202,6 +202,7 @@ public struct OnboardingView: View {
 
     var secondAccount: some View {
         let added = model.addedAccount
+        let card = added.map(addedCard)
         return VStack(spacing: 18) {
             Text(model.secondAccountTitle).font(Theme.Fonts.onboardingTitle)
             Text("Another Claude account, for work or a client? Give it a name and a color. It opens in its own Claude window where you log in as usual. You can also do this later from the Accounts screen.")
@@ -264,6 +265,10 @@ public struct OnboardingView: View {
         }
         // The form gives way to the account it created: the height waits for the form's words to go, then settles.
         .animation(Theme.Motion.layout(Theme.Motion.settle.delay(SecondAccountSwap.hold * Theme.Motion.slow), reduceMotion), value: model.addedSlug)
+        // The account's card as it opens, then connects: its old words go first (SwapText.removal), then the card, its
+        // edge and glass and the rows under it settle together to the new height. Keyed here, on the whole step: an
+        // animation inside the card moved its words while its edge jumped at once and cut the fading button.
+        .animation(Theme.Motion.layout(Theme.Motion.settle.delay(SwapText.removal * Theme.Motion.slow), reduceMotion), value: card)
     }
 
     var nameFields: some View {
@@ -279,8 +284,7 @@ public struct OnboardingView: View {
     /// what to do next, whole, and the button that opens it on a row of its own: the check never draws over the button it
     /// replaces, and a sentence that goes gives way before the next one comes (`SwappingText`).
     func addedDetails(_ added: Account) -> some View {
-        let card = AddedCard.of(name: added.identity.name, needsLogin: added.needsLogin, isRunning: added.isRunning,
-                                opened: model.openedAdded, othersOpen: model.othersOpen.map(\.identity.name))
+        let card = addedCard(added)
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(added.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
@@ -311,8 +315,12 @@ public struct OnboardingView: View {
             }
         }
         // The card's height follows its sentence and its button as the account opens, then connects: the old words go
-        // first, the height settles, the new ones come in.
-        .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: card)
+        // first, the height settles, the new ones come in (the step's animation keyed on the card, see `secondAccount`).
+    }
+
+    func addedCard(_ added: Account) -> AddedCard {
+        AddedCard.of(name: added.identity.name, needsLogin: added.needsLogin, isRunning: added.isRunning,
+                     opened: model.openedAdded, othersOpen: model.othersOpen.map(\.identity.name))
     }
 
     /// The added account's card: where it stands, what it says to do next, and its button while there is one to click.

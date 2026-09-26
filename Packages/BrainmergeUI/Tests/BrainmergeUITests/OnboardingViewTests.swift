@@ -205,4 +205,46 @@ import BrainmergeTestSupport
         #expect(!quarter.isEmpty && quarter.contains { $0 < end - Int(2 * before.scale) },
                 "Back had arrived before the form's words had gone and the card settled: \(quarter) for \(start) to \(end)")
     }
+
+    /// The added account's card as its button is clicked ("Quit Claude and open Freelance", Personal's Claude being
+    /// open): the old words go first, where they are, then the card settles to its new height, its edge with it (the
+    /// step's settle, after SwapText.removal). The button fades out whole; the card's edge, which jumped to the new
+    /// height at once, cut it in half as it faded.
+    @Test func theAddedCardHoldsItsHeightUntilItsButtonHasGone() async throws {
+        let (e, _, onboarding, _) = try secondAccountStep(personalOpen: true); defer { e.home.remove() }
+        #expect(await onboarding.addSecondAccount())
+        #expect(onboarding.othersOpen.map(\.identity.name) == ["Personal"])
+        let film = Film(SecondAccountPage(model: onboarding), size: CGSize(width: 600, height: 780))
+        defer { film.close() }
+        film.run(for: 0.8)
+        let before = film.shot()
+        // Black lines from the top: the title, the account's name, its button, then the row of buttons (Back, Continue).
+        let lines = before.darkLines()
+        #expect(lines.count == 4, "\(lines)")
+        let button = try #require(lines.dropLast().last)
+        let scale = before.scale
+        let area = button.grown(top: Int((SwapText.lift + 1) * scale), sides: Int(2 * scale))
+        /// The height of what shows in `area`, faded or not: the rows with a pixel at least a third as dark as its darkest.
+        func span(_ shot: Film.Shot) -> Int? {
+            var darkest: CGFloat = 0
+            for y in area.rows(in: shot) { for x in area.columns(in: shot) { darkest = max(darkest, shot.dark(x, y)) } }
+            guard darkest > 0.03 else { return nil }
+            let rows = shot.darkRows(in: area, threshold: darkest / 3)
+            return rows.isEmpty ? nil : rows.last! - rows.first! + 1
+        }
+        let whole = try #require(span(before), "the button is not drawn")
+        onboarding.openAddedAccount()
+        let shots = film.shots(for: 0.5)
+        // Its fade lasts SwapText.removal: in the first 30 ms it still shows, at a quarter of its strength at least.
+        let early = shots.filter { $0.time < 0.03 }
+        #expect(!early.isEmpty, "no frame drawn in the first 30 ms")
+        for (time, shot) in early {
+            #expect(span(shot) != nil, "the button was gone \(Int(time * 1000)) ms after the click: the card's edge hid it")
+        }
+        for (time, shot) in shots {
+            guard let height = span(shot) else { continue }
+            #expect(Double(height) >= 0.8 * Double(whole), "the button is cut \(Int(time * 1000)) ms after the click: \(height) of \(whole) rows show")
+        }
+        #expect(span(try #require(shots.last).shot) == nil, "the button never went")
+    }
 }

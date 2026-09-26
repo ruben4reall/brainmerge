@@ -97,7 +97,7 @@ import BrainmergeCore
             ("Screens/SettingsView.swift", "model.hooks?.sentence"), ("Screens/ResourcesSection.swift", "model.diskMeasuring"),
             ("Screens/RootView.swift", "account.isRunning"),
             ("Screens/OnboardingView.swift", "added.isRunning"), ("Screens/OnboardingView.swift", "added.needsLogin"),
-            ("Screens/OnboardingView.swift", "model.addedSlug"),
+            ("Screens/OnboardingView.swift", "model.addedSlug"), ("Screens/OnboardingView.swift", "card"),
         ]
         var offenders: [String] = []
         for (file, key) in layoutKeys {
