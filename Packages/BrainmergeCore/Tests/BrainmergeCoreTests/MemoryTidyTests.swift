@@ -147,6 +147,41 @@ import BrainmergeTestSupport
         #expect(try git.log(limit: 10).count == 1)
     }
 
+    /// A session adds a line to an index while the notes move: nothing overwrites it. File under stops, the notes go back
+    /// and the session's line stays; nothing is committed.
+    @Test func anIndexWrittenDuringTheMoveIsKept() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, tidy) = try memory(home)
+        let plan = try tidy.plan(filing: Self.scratch, under: "beehive")
+        let target = brain.root.appending(path: "memory/beehive/MEMORY.md")
+        var racing = tidy
+        racing.beforeIndexWrite = { try? Data("- [[route]]\n- [[fresh]]\n".utf8).write(to: target) }
+        #expect(throws: BrainmergeError.noteBeingWritten) { try racing.file(plan) }
+        #expect(try read("memory/beehive/MEMORY.md", in: brain) == "- [[route]]\n- [[fresh]]\n")
+        #expect(exists("memory/\(Self.scratch)/beehive-gear.md", in: brain) && !exists("memory/beehive/beehive-gear.md", in: brain))
+        #expect(try read("memory/\(Self.scratch)/MEMORY.md", in: brain).contains("beehive-gear.md"))
+        #expect(try git.log(limit: 10).count == 1)
+    }
+
+    /// An index that is a link (to a file outside the memory, maybe with keys in it) is never read, replaced or committed.
+    @Test func aLinkedIndexIsRefused() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let (brain, git, tidy) = try memory(home)
+        let outside = home.url.appending(path: "credentials")
+        try Data("key = secret\n".utf8).write(to: outside)
+        let target = brain.root.appending(path: "memory/beehive/MEMORY.md")
+        try FileManager.default.removeItem(at: target)
+        try FileManager.default.createSymbolicLink(at: target, withDestinationURL: outside)
+        try git.commitAll(authorName: "Setup", authorEmail: "setup@brainmerge.local", message: "Link")
+        try settle(brain)
+        let plan = try tidy.plan(filing: Self.scratch, under: "beehive")
+        #expect(throws: BrainmergeError.indexIsALink(project: "beehive")) { try tidy.file(plan) }
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: target.path) == outside.path)
+        #expect(try String(contentsOf: outside, encoding: .utf8) == "key = secret\n")
+        #expect(exists("memory/\(Self.scratch)/beehive-gear.md", in: brain))
+        #expect(try git.log(limit: 10).count == 2)
+    }
+
     /// A note of the same name already in the project: nothing moves.
     @Test func aNameTakenInTheProjectIsRefused() throws {
         let home = try TempHome(); defer { home.remove() }

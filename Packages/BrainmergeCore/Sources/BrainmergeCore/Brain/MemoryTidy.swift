@@ -18,6 +18,8 @@ public struct MemoryTidy: Sendable {
     public let git: BrainGit
     public let lockTimeout: TimeInterval
     public init(brain: Brain, git: BrainGit, lockTimeout: TimeInterval = 5) { self.brain = brain; self.git = git; self.lockTimeout = lockTimeout }
+    /// Tests: runs once the notes moved, just before the indexes are written (where a session's write would land).
+    var beforeIndexWrite: @Sendable () -> Void = {}
 
     // MARK: File under
 
@@ -62,17 +64,30 @@ public struct MemoryTidy: Sendable {
             for (_, destination) in moves where exists(destination) {
                 throw BrainmergeError.noteExists(name: (destination as NSString).lastPathComponent, project: plan.to)
             }
+            // A link would be read through, replaced by a copy of the file it points to and committed unscanned.
+            for (index, project) in [(sourceIndex, plan.from), (targetIndex, plan.to)] where !isRegularOrMissing(index) {
+                throw BrainmergeError.indexIsALink(project: project)
+            }
             let indexes = lines.isEmpty ? [] : [sourceIndex] + (exists(targetIndex) ? [targetIndex] : [])
             try refuseUnsettled(notes + indexes, now: now)
 
             let sourceData = contents(sourceIndex), targetData = contents(targetIndex)
             var done: [(String, String)] = []
+            // What File under wrote to each index: taken back on a failure only while it is still there.
+            var written: [String: Data] = [:]
             do {
                 for (from, to) in moves { try git.move(from, to: to); done.append((from, to)) }
                 if !lines.isEmpty {
+                    beforeIndexWrite()
                     let (kept, moved) = Self.split(source ?? "", taking: Set(lines))
-                    try write(kept, to: sourceIndex)
-                    try write(Self.appending(moved, to: targetData.map { String(decoding: $0, as: UTF8.self) } ?? ""), to: targetIndex)
+                    let target = Self.appending(moved, to: targetData.map { String(decoding: $0, as: UTF8.self) } ?? "")
+                    // Sessions write indexes without the memory's lock: one that changed since it was read is never
+                    // overwritten.
+                    for (path, text, before) in [(sourceIndex, kept, sourceData), (targetIndex, target, targetData)] {
+                        guard contents(path) == before else { throw BrainmergeError.noteBeingWritten }
+                        try write(text, to: path)
+                        written[path] = Data(text.utf8)
+                    }
                 }
                 let paths = moves.flatMap { [$0.0, $0.1] } + (lines.isEmpty ? [] : [sourceIndex, targetIndex])
                 return try git.commit(paths: paths, author: OwnEdits.author) { _ in
@@ -81,9 +96,8 @@ public struct MemoryTidy: Sendable {
             } catch {
                 // Everything back where it was: the notes (git's index with them) and both indexes as they were.
                 for (from, to) in done.reversed() { try? git.move(to, to: from) }
-                if !lines.isEmpty {
-                    restore(sourceIndex, sourceData)
-                    restore(targetIndex, targetData)
+                for (path, before) in [(sourceIndex, sourceData), (targetIndex, targetData)] where written[path] != nil && contents(path) == written[path] {
+                    restore(path, before)
                 }
                 throw error
             }
@@ -213,6 +227,12 @@ public struct MemoryTidy: Sendable {
             number += 1
         }
         return candidate
+    }
+
+    /// Not following a link: a regular file, or nothing there.
+    func isRegularOrMissing(_ path: String) -> Bool {
+        guard let type = (try? FileManager.default.attributesOfItem(atPath: brain.root.appending(path: path).path))?[.type] as? FileAttributeType else { return true }
+        return type == .typeRegular
     }
 
     func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: brain.root.appending(path: path).path) }
