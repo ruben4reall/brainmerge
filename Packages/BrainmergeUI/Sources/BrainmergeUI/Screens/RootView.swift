@@ -15,10 +15,15 @@ public struct RootView: View {
     @State private var section: Section = Section(rawValue: ProcessInfo.processInfo.environment["BRAINMERGE_SCREEN"] ?? "") ?? .accounts   // add opens accounts with the sheet
 
     public init(model: AppModel) {
+        // Only the first window of a process shows the splash: captures, demos and a window opened later find the load done.
+        self.init(model: model, launch: LaunchClock(finished: model.launchPhase == .ready))
+    }
+
+    /// With a given clock (tests read what the screens tell it).
+    init(model: AppModel, launch: LaunchClock) {
         self.model = model
         _onboarding = State(initialValue: OnboardingModel(app: model))
-        // Only the first window of a process shows the splash: captures, demos and a window opened later find the load done.
-        _launch = State(initialValue: LaunchClock(finished: model.launchPhase == .ready))
+        _launch = State(initialValue: launch)
     }
 
     public var body: some View {
@@ -128,9 +133,12 @@ public struct RootView: View {
 
     var sidebar: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Brainmerge").font(.system(size: 14, weight: .semibold, design: .serif)).padding(.horizontal, 10).padding(.top, 30).padding(.bottom, 8)
-            ForEach(Section.allCases) { s in navRow(s) }
-            Text("ACCOUNTS").font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint).padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 4)
+            // Every word and row here is an obstacle the launch's leap flies around, down to the footer.
+            Text("Brainmerge").font(.system(size: 14, weight: .semibold, design: .serif)).launchObstacle("sidebar.title")
+                .padding(.horizontal, 10).padding(.top, 30).padding(.bottom, 8)
+            ForEach(Section.allCases) { s in navRow(s).launchObstacle("sidebar.\(s.rawValue)") }
+            Text("ACCOUNTS").font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint).launchObstacle("sidebar.accounts")
+                .padding(.horizontal, 10).padding(.top, 16).padding(.bottom, 4)
             ScrollView { VStack(spacing: 2) { ForEach(model.accounts) { account in accountRow(account) } } }
             Spacer(minLength: 8)
             creatureFooter
@@ -169,6 +177,7 @@ public struct RootView: View {
                     if account.isRunning { Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4) }
                 }
             }
+            .launchObstacle("sidebar.row.\(account.id)")
             .padding(.horizontal, 10).padding(.vertical, 5)
         }
         .buttonStyle(SidebarRowStyle())
@@ -188,6 +197,7 @@ public struct RootView: View {
                              clockStart: launch.landed)
                     .launchTarget(launch, asleep: state == .asleep)
                 Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                    .launchObstacle("sidebar.line")
                     .contentTransition(.opacity)
                     .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.out(Theme.Motion.quick), value: line)
             }

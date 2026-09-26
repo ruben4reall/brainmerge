@@ -30,6 +30,16 @@ public final class LaunchClock {
     public private(set) var reduceMotion = false
     /// The window's size, to tell whether the All set creature is in sight when the guide ends.
     @ObservationIgnored public var windowSize: CGSize = .zero
+    /// Where the All set creature stands, kept for "Open Brainmerge": it moves on every scroll step, and outside
+    /// observation it never redraws the guide.
+    @ObservationIgnored public var allSetFrame: CGRect?
+    /// The words and rows on screen, by id: the leap flies around them. They follow the layout, except while a creature
+    /// is in the air (they would bend its arc).
+    @ObservationIgnored private var obstacleFrames: [String: CGRect] = [:]
+    /// The hand-off worked out for the last inputs: finding a clear way is too much work for every frame.
+    /// Two entries: the splash and the screens under it may ask with sizes that differ by a fraction of a point.
+    @ObservationIgnored private var launchPlans: [(input: LaunchInput, plan: LaunchDirector.Handoff?)] = []
+    @ObservationIgnored private var exitPlan: (key: [CGRect], source: LaunchTarget?, target: LaunchTarget?, reduce: Bool, plan: GuideExit.Plan?)?
     @ObservationIgnored let slow: Double
     @ObservationIgnored let capture: Bool
 
@@ -77,18 +87,67 @@ public final class LaunchClock {
         target = candidate
     }
 
+    /// Words or rows on screen at `frame` (nil: gone). Held while a leap is in the air.
+    public func offer(obstacle id: String, frame: CGRect?, at date: Date) {
+        if !finished, let hs = handoffStart, time(at: date) >= hs + Leap.anticipation { return }
+        obstacleFrames[id] = frame
+    }
+
+    /// What the leap flies around: the obstacles in the window, never an empty one.
+    var obstacles: [CGRect] {
+        let window = CGRect(origin: .zero, size: windowSize)
+        return obstacleFrames.keys.sorted().compactMap { id in
+            guard let frame = obstacleFrames[id], frame.width > 0, frame.height > 0 else { return nil }
+            let inside = windowSize == .zero ? frame : frame.intersection(window)
+            return inside.isNull || inside.isEmpty ? nil : inside
+        }
+    }
+
     func input(size: CGSize) -> LaunchInput {
-        LaunchInput(size: size, readyAt: readyAt, skippedAt: skippedAt, target: target, reduceMotion: reduceMotion)
+        LaunchInput(size: size, readyAt: readyAt, skippedAt: skippedAt, target: target, reduceMotion: reduceMotion, obstacles: obstacles)
     }
 
     /// The frame at a date.
     public func frame(at date: Date, size: CGSize) -> LaunchFrame {
         let t = time(at: date)
         switch mode {
-        case .launch: return AssembleScene.frame(at: t, input(size: size))
-        case .exit(let source): return GuideExit.frame(at: t, from: source, to: target, reduceMotion: reduceMotion)
+        case .launch:
+            let input = input(size: size)
+            return LaunchDirector.frame(at: t, input, plan: plan(for: input))
+        case .exit(let source):
+            return GuideExit.frame(at: t, from: source, to: target, plan: exit(from: source), reduceMotion: reduceMotion)
         }
     }
+
+    /// The launch's hand-off for these inputs, worked out once.
+    func plan(for input: LaunchInput) -> LaunchDirector.Handoff? {
+        if let cached = launchPlans.first(where: { $0.input == input }) { return cached.plan }
+        let plan = input.reduceMotion ? nil : LaunchDirector.handoff(input)
+        launchPlans = Array(([(input, plan)] + launchPlans).prefix(2))
+        return plan
+    }
+
+    /// The guide's last leap for the current source, target and obstacles, worked out once.
+    func exit(from source: LaunchTarget?) -> GuideExit.Plan? {
+        let obstacles = obstacles
+        if let c = exitPlan, c.key == obstacles, c.source == source, c.target == target, c.reduce == reduceMotion { return c.plan }
+        let plan = GuideExit.plan(from: source, to: target, obstacles: obstacles, reduceMotion: reduceMotion)
+        exitPlan = (obstacles, source, target, reduceMotion, plan)
+        return plan
+    }
+
+    /// The guide's first words on a first run (title, text, button, note: `index` 0 to 3): they wait for the welcome
+    /// creature to land, then come in one after the other (0.05 s apart, 0.30 s each, rising 6 pt), so its leap never
+    /// crosses them. At once with Reduce Motion, with nowhere to land, and in every later window.
+    public func words(_ index: Int, at date: Date) -> (opacity: Double, rise: CGFloat) {
+        let input = input(size: windowSize)
+        guard wordsRun, let touchdown = LaunchDirector.touchdown(input, plan: plan(for: input)) else { return (1, 0) }
+        let k = Ease.out(Ease.progress(time(at: date), from: touchdown + 0.05 * Double(index), over: Self.wordsFade))
+        return (k, CGFloat(6 * (1 - k)))
+    }
+    static let wordsFade = 0.30
+    /// The words still wait or come in: the launch is running.
+    public var wordsRun: Bool { !finished && mode == .launch && !reduceMotion }
 
     /// When the overlay goes, on the scene's clock; nil until the app is ready.
     public var finishTime: Double? {
@@ -150,7 +209,7 @@ public final class LaunchClock {
         guard !finished else { return (1, 1, true) }
         let f = frame(at: date, size: windowSize)
         if case .exit = mode, role == .guide { return (f.guideOpacity, 1, false) }
-        return (f.screensOpacity, f.screensScale, true)
+        return (f.screensOpacity, f.screensScale, !f.screensHeld)
     }
 }
 
@@ -188,7 +247,38 @@ struct LaunchTargetMark: ViewModifier {
     }
 }
 
+/// Words or rows a leap must not fly over: they tell the clock where they are, and that they are gone.
+struct LaunchObstacleMark: ViewModifier {
+    @Environment(LaunchClock.self) private var clock: LaunchClock?
+    let id: String
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(LaunchClock.space)) } action: { frame in
+                clock?.offer(obstacle: id, frame: frame, at: Date())
+            }
+            .onDisappear { clock?.offer(obstacle: id, frame: nil, at: Date()) }
+    }
+}
+
+/// One of the guide's first words on a first run: it waits for the welcome creature to land (see `LaunchClock.words`).
+struct LaunchWords: ViewModifier {
+    @Environment(LaunchClock.self) private var clock: LaunchClock?
+    let index: Int
+
+    func body(content: Content) -> some View {
+        TimelineView(.animation(paused: clock?.wordsRun != true)) { context in
+            let look: (opacity: Double, rise: CGFloat) = clock?.words(index, at: context.date) ?? (1, 0)
+            content.opacity(look.opacity).offset(y: look.rise)
+        }
+    }
+}
+
 extension View {
+    /// Words or rows on screen: the launch's leaps fly around them.
+    func launchObstacle(_ id: String) -> some View { modifier(LaunchObstacleMark(id: id)) }
+    /// One of the welcome's words, which come in once the launch's creature has landed above them.
+    func launchWords(_ index: Int) -> some View { modifier(LaunchWords(index: index)) }
     /// Screens that fade in under the launch's leap (or the guide that fades out under the last one).
     func launchReveal(_ clock: LaunchClock, role: LaunchClock.Role) -> some View { modifier(LaunchReveal(clock: clock, role: role)) }
     /// A creature the launch can land on.

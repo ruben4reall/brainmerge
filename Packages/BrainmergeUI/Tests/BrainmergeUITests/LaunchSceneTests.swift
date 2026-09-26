@@ -371,6 +371,109 @@ import Testing
         #expect(AssembleScene.shadowRect(feet: feet, inset: 6).width >= Theme.Launch.unit)
     }
 
+    // MARK: A way through empty space
+
+    /// The real window at 960 by 640 with four accounts (measured on the hosted RootView): the sidebar's words and its
+    /// rows' orbs, names and hints down to 383, the Accounts header and cards down to 256, the creature's line right of
+    /// its landing spot.
+    let footer = LaunchTarget(feet: CGPoint(x: 42, y: 618), unit: 2, asleep: true)
+    let busy = [CGRect(x: 20, y: 40, width: 206, height: 200), CGRect(x: 30, y: 249, width: 186, height: 134),
+                CGRect(x: 264, y: 20, width: 666, height: 236), CGRect(x: 66, y: 598, width: 100, height: 18)]
+
+    /// The creature's cells where they are drawn: squashed, stretched and leaning around the middle of its feet.
+    static func bodyCells(_ f: LaunchFrame) -> [CGRect] {
+        let g = Creature.geometry(for: f.pose, feet: f.feet, unit: f.unit, displayScale: 2)
+        let transform = CGAffineTransform(translationX: g.anchor.x, y: g.anchor.y)
+            .rotated(by: f.pose.rotation * .pi / 180).scaledBy(x: f.pose.scaleX, y: f.pose.scaleY)
+            .translatedBy(x: -g.anchor.x, y: -g.anchor.y)
+        return g.body.map { $0.rect.applying(transform) }
+    }
+    static func covers(_ f: LaunchFrame, _ obstacle: CGRect) -> Bool { bodyCells(f).contains { $0.intersects(obstacle) } }
+
+    @Test func theLaunchLeapGoesThroughEmptySpace() throws {
+        // The spec's arc crosses the account rows here: another shape of leap finds the way below them and comes down on
+        // the footer from above, never over its line.
+        let natural = input(0.2, target: footer)
+        let crossed = (0...240).contains { i in
+            let f = AssembleScene.frame(at: 0.56 + Double(i) / 480, natural)
+            return busy.contains { Self.covers(f, $0) }
+        }
+        #expect(crossed, "the natural arc should cross the rows in this window")
+        let inp = LaunchInput(size: size, readyAt: 0.2, target: footer, obstacles: busy)
+        let finish = try #require(LaunchDirector.finishTime(inp))
+        for i in 0...Int((finish - 0.48) * 480) {
+            let t = 0.48 + Double(i) / 480
+            let f = AssembleScene.frame(at: t, inp)
+            for o in busy { #expect(!Self.covers(f, o), "t \(t): feet \(f.feet) over \(o)") }
+        }
+        let landed = AssembleScene.frame(at: finish, inp)
+        #expect(landed.feet == footer.feet && landed.unit == footer.unit && landed.pose == .asleep && landed.finished)
+        // The same timing: only the shape changes.
+        #expect(LaunchDirector.finishTime(natural) == finish)
+    }
+
+    @Test func withNothingInTheWayTheLeapKeepsItsNaturalArc() {
+        let start = AssembleScene.splashFeet(in: size)
+        let natural = Leap(start: .rest, feet: start, unit: 7, startVelocityY: 0, target: footer)
+        #expect(natural.route == .natural)
+        #expect(Leap.routed(start: .rest, feet: start, unit: 7, startVelocityY: 0, target: footer, avoiding: []).route == .natural)
+        // Out of the way (the top right corner): still the natural arc.
+        let far = [CGRect(x: 800, y: 0, width: 160, height: 60)]
+        #expect(Leap.routed(start: .rest, feet: start, unit: 7, startVelocityY: 0, target: footer, avoiding: far).route == .natural)
+        #expect(LeapRoute.natural.apex == Theme.Launch.leapApex && LeapRoute.natural.travel == Ease.travel)
+    }
+
+    @Test func whenNoWayIsClearTheLeapTakesTheLeastCovered() {
+        // A wall of text between the splash and the sidebar: no shape of leap clears it; the one chosen covers the least.
+        let start = AssembleScene.splashFeet(in: size)
+        let wall = [CGRect(x: 200, y: 0, width: 60, height: 640), CGRect(x: 0, y: 380, width: 960, height: 40)]
+        let chosen = Leap.routed(start: .rest, feet: start, unit: 7, startVelocityY: 0, target: footer, avoiding: wall)
+        for route in LeapRoute.candidates {
+            let other = Leap(start: .rest, feet: start, unit: 7, startVelocityY: 0, target: footer, route: route)
+            #expect(chosen.cover(wall) <= other.cover(wall) + 1e-9)
+        }
+        #expect(chosen.cover(wall) > 0)
+        #expect(chosen.frame(at: chosen.touchdown).feet == footer.feet)
+    }
+
+    /// A crowded window (eight accounts at 960 by 640): the cards cover the splash's own spot and the rows fill the sidebar,
+    /// so no leap can stay clear. The screens then wait for the landing: the creature flies over the empty window, and the
+    /// screens come in around it once it is home. Until then the splash keeps the clicks (nothing to click is visible).
+    @Test func whenNoWayIsClearTheScreensWaitForTheLanding() throws {
+        let crowded = [CGRect(x: 20, y: 40, width: 206, height: 200), CGRect(x: 30, y: 249, width: 186, height: 270),
+                       CGRect(x: 264, y: 20, width: 666, height: 418), CGRect(x: 66, y: 598, width: 100, height: 18)]
+        let inp = LaunchInput(size: size, readyAt: 0.2, target: footer, obstacles: crowded)
+        let touchdown = 0.48 + 0.08 + 0.50
+        for i in 0..<Int((touchdown - 0.48) * 240) {
+            let f = AssembleScene.frame(at: 0.48 + Double(i) / 240, inp)
+            #expect(f.screensOpacity == 0 && f.screensHeld && f.handingOff, "t \(0.48 + Double(i) / 240)")
+        }
+        let after = AssembleScene.frame(at: touchdown + 0.15, inp)
+        #expect(after.screensOpacity > 0.5 && after.screensOpacity < 1 && !after.screensHeld)
+        #expect(AssembleScene.frame(at: touchdown + 0.30 + 1e-6, inp).screensOpacity == 1)
+        #expect(LaunchDirector.finishTime(inp) == LaunchDirector.finishTime(input(0.2, target: footer)))
+        // A clear way: the screens come in under the leap, as always.
+        let clear = LaunchInput(size: size, readyAt: 0.2, target: footer, obstacles: busy)
+        #expect(AssembleScene.frame(at: 0.60, clear).screensOpacity > 0.5 && !AssembleScene.frame(at: 0.60, clear).screensHeld)
+        // The guide's last leap too.
+        let byTheButton = LaunchTarget(feet: CGPoint(x: 381, y: 571), unit: 3, asleep: false)
+        let wall = crowded + [CGRect(x: 0, y: 450, width: 960, height: 140)]
+        #expect(GuideExit.frame(at: 0.3, from: byTheButton, to: footer, obstacles: wall, reduceMotion: false).screensOpacity == 0)
+        #expect(GuideExit.frame(at: 0.3, from: byTheButton, to: footer, obstacles: busy, reduceMotion: false).screensOpacity > 0.99)
+    }
+
+    @Test func theGuideLeapGoesThroughEmptySpace() {
+        // The All set creature stands beside "Open Brainmerge", low in the window: from there, clear of the main window's
+        // words and rows all the way to the footer.
+        let byTheButton = LaunchTarget(feet: CGPoint(x: 381, y: 571), unit: 3, asleep: false)
+        let end = GuideExit.finishTime(from: byTheButton, to: footer, reduceMotion: false)
+        for i in 0...Int(end * 480) {
+            let f = GuideExit.frame(at: Double(i) / 480, from: byTheButton, to: footer, obstacles: busy, reduceMotion: false)
+            for o in busy { #expect(!Self.covers(f, o), "tau \(Double(i) / 480): over \(o)") }
+        }
+        #expect(GuideExit.frame(at: end, from: byTheButton, to: footer, obstacles: busy, reduceMotion: false).feet == footer.feet)
+    }
+
     // MARK: The end of the guided setup (audit M14)
 
     /// The All set creature (48 pt, 3 pt cells) in the middle of the guide.

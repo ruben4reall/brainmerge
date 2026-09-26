@@ -6,7 +6,6 @@ public struct OnboardingView: View {
     /// The launch lands on the welcome creature; "Open Brainmerge" leaps the All set creature into the sidebar.
     @Environment(LaunchClock.self) private var launch: LaunchClock?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var allSetFrame: CGRect?
     /// The second account's orb, from the form to the card of the account it created.
     @Namespace private var orbSpace
     public init(model: OnboardingModel) { self.model = model }
@@ -56,22 +55,24 @@ public struct OnboardingView: View {
     /// The progress dots: the current one widens into a capsule as its neighbors make room.
     static var dotSpring: Animation { .spring(response: 0.35 * Theme.Motion.slow, dampingFraction: 0.8) }
 
+    /// On a first run the launch's creature leaps up onto this one: the words under it come in once it has landed, one
+    /// after the other, so it never flies over them.
     var welcome: some View {
         VStack(spacing: 20) {
             CreatureView(state: .awake, size: 64, profile: .stage, clockStart: launch?.landed)
                 .launchTarget(launch, asleep: false)
             if let missing = model.missingBrainPath {
-                Text("Your memory folder is missing.").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center)
+                Text("Your memory folder is missing.").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center).launchWords(0)
                 Text("It was at \(missing). Choose where it lives now, or create it again. Your accounts will be attached to it.")
-                    .font(.system(size: 16.5)).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
-                Button("Choose the folder") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
+                    .font(.system(size: 16.5)).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center).launchWords(1)
+                Button("Choose the folder") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large).launchWords(2)
             } else {
-                Text("Every Claude account, side by side").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center)
+                Text("Every Claude account, side by side").font(Theme.Fonts.onboardingTitle).multilineTextAlignment(.center).launchWords(0)
                 Text("The Claude app knows one account at a time: with two, you log out and back in all day, and what one learns is lost to the other. Brainmerge opens each account in its own window and gives them one memory of your projects, or one each. Claude itself stays exactly as it is.")
-                    .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
-                Button("Continue") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
+                    .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center).launchWords(1)
+                Button("Continue") { model.next() }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large).launchWords(2)
             }
-            Text("Works with Claude. Not made by Anthropic.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
+            Text("Works with Claude. Not made by Anthropic.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).launchWords(3)
         }
     }
 
@@ -250,10 +251,6 @@ public struct OnboardingView: View {
 
     var allSet: some View {
         VStack(spacing: 14) {
-            // A hop with sparkles, 350 ms after the step appears: the setup is done.
-            CreatureView(state: .awake, size: 48, profile: .stage, events: [CreatureStamp(.memorySaved, at: 0.35)])
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(LaunchClock.space)) } action: { allSetFrame = $0 }
-                .opacity(launch?.hidesSource == true ? 0 : 1)
             Text("All set").font(Theme.Fonts.onboardingTitle)
             GlassCard {
                 VStack(alignment: .leading, spacing: 8) {
@@ -281,10 +278,20 @@ public struct OnboardingView: View {
                 tip("Give a work or client account its own memory: what it learns stays there.")
             }
             .frame(maxWidth: 520)
-            Button("Open Brainmerge") {
-                launch?.leave(from: allSetFrame, reduceMotion: reduceMotion, at: Date())
-                model.complete()
-            }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
+            // The creature waits beside the way in: it hops with sparkles 350 ms after the step appears (the setup is done),
+            // and "Open Brainmerge" sends it leaping into the sidebar from here, low in the window, where no words or rows
+            // lie in its way. The button stays centered: an empty spot as wide as the creature balances it.
+            HStack(alignment: .bottom, spacing: 16) {
+                CreatureView(state: .awake, size: 48, profile: .stage, events: [CreatureStamp(.memorySaved, at: 0.35)])
+                    // Kept on the clock, outside observation: a scroll never redraws the guide for it.
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(LaunchClock.space)) } action: { launch?.allSetFrame = $0 }
+                    .opacity(launch?.hidesSource == true ? 0 : 1)
+                Button("Open Brainmerge") {
+                    launch?.leave(from: launch?.allSetFrame, reduceMotion: reduceMotion, at: Date())
+                    model.complete()
+                }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
+                Color.clear.frame(width: 48, height: 1).accessibilityHidden(true)
+            }
             // A quiet link under the last button, never a prompt of its own.
             Link(MenuBarMenu.starTitle, destination: BrainmergeLinks.repository).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
         }

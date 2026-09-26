@@ -42,6 +42,8 @@ public struct AccountsView: View {
                     Text("No account matches “\(query)”.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
+            // The header and the cards: the launch's leap flies around them.
+            .launchObstacle("accounts")
             .padding(Theme.Layout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

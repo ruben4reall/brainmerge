@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import Observation
 import Testing
 @testable import BrainmergeUI
 
@@ -125,6 +126,65 @@ import Testing
             #expect(clock.mode == .exit(source: nil) || reduce)
             #expect(!clock.hidesSource && !clock.hidesTarget && clock.leavingGuide)
         }
+    }
+
+    /// The words and rows on screen reach the leap, which finds its way around them; once the creature is in the air they
+    /// hold (a new layout would bend its arc), and they follow the layout again once it has landed.
+    @Test func itPassesTheWordsAndRowsToTheLeapAndHoldsThemInFlight() {
+        let clock = started()
+        clock.windowSize = size
+        clock.ready(at: at(0.2))
+        clock.offer(sidebar, at: at(0.25))
+        let rows = CGRect(x: 20, y: 40, width: 206, height: 348), cards = CGRect(x: 264, y: 20, width: 666, height: 236)
+        clock.offer(obstacle: "rows", frame: rows, at: at(0.3))
+        clock.offer(obstacle: "cards", frame: cards, at: at(0.3))
+        clock.offer(obstacle: "rows", frame: rows.insetBy(dx: 0, dy: 10), at: at(0.4))
+        #expect(Set(clock.input(size: size).obstacles) == [rows.insetBy(dx: 0, dy: 10), cards])
+        // In flight (0.48 + 0.08 on): held.
+        clock.offer(obstacle: "cards", frame: nil, at: at(0.7))
+        clock.offer(obstacle: "late", frame: rows, at: at(0.7))
+        #expect(Set(clock.input(size: size).obstacles) == [rows.insetBy(dx: 0, dy: 10), cards])
+        // Landed: the layout again (the guide's last leap measures the main window long after the launch).
+        clock.finish()
+        clock.offer(obstacle: "cards", frame: nil, at: at(3))
+        #expect(clock.input(size: size).obstacles == [rows.insetBy(dx: 0, dy: 10)])
+        // Only what is in the window counts, and nothing empty.
+        clock.offer(obstacle: "below", frame: CGRect(x: 20, y: 700, width: 100, height: 40), at: at(3))
+        clock.offer(obstacle: "empty", frame: .zero, at: at(3))
+        #expect(clock.input(size: size).obstacles == [rows.insetBy(dx: 0, dy: 10)])
+    }
+
+    /// The All set creature's frame changes on every scroll step: kept outside observation, it never redraws the guide.
+    @Test func theAllSetFrameIsKeptOutOfObservation() {
+        let clock = LaunchClock(finished: true, slow: 1, capture: false)
+        let changed = Flag()
+        withObservationTracking { _ = clock.allSetFrame } onChange: { changed.raise() }
+        clock.allSetFrame = CGRect(x: 333, y: 538, width: 48, height: 33)
+        #expect(!changed.raised && clock.allSetFrame == CGRect(x: 333, y: 538, width: 48, height: 33))
+    }
+    final class Flag: @unchecked Sendable { var raised = false; func raise() { raised = true } }
+
+    /// On a first run the welcome creature lands above the guide's first words: they come in once it has landed, one after
+    /// the other, so its leap never crosses them. Reduce Motion, and every later window, shows them at once.
+    @Test func theWelcomeWordsWaitForTheLanding() {
+        let welcome = LaunchTarget(feet: CGPoint(x: 480, y: 188), unit: 4, asleep: false)
+        let clock = started()
+        clock.windowSize = size
+        clock.ready(at: at(0.2))
+        clock.offer(welcome, at: at(0.25))
+        let touchdown = 0.48 + 0.08 + 0.50
+        for i in 0..<4 { #expect(clock.words(i, at: at(touchdown - 0.001)).opacity == 0, "\(i)") }
+        let first = clock.words(0, at: at(touchdown + 0.1)), second = clock.words(1, at: at(touchdown + 0.1))
+        #expect(first.opacity > second.opacity && first.opacity > 0 && first.rise < 6 && first.rise > 0)
+        for i in 0..<4 { #expect(clock.words(i, at: at(touchdown + 0.5)) == (1, 0), "\(i)") }
+        #expect(clock.wordsRun)
+        clock.finish()
+        #expect(clock.words(0, at: at(touchdown)) == (1, 0) && !clock.wordsRun)
+        let reduced = LaunchClock(slow: 1, capture: false)
+        reduced.begin(at: t0, reduceMotion: true)
+        reduced.ready(at: at(0.2))
+        reduced.offer(welcome, at: at(0.25))
+        #expect(reduced.words(0, at: at(0.5)) == (1, 0))
     }
 
     @Test func capturesNeverPlayTheHandOffs() {

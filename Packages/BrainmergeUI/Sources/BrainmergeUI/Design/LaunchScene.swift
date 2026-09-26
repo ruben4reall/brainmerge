@@ -25,15 +25,19 @@ public struct LaunchTarget: Equatable, Sendable {
 }
 
 /// The splash's inputs, all on its own clock (seconds from its first frame): the window, when the app became ready, when
-/// the person clicked or pressed a key, and where the creature lives in the window (nil: nowhere to go).
-public struct LaunchInput: Sendable {
+/// the person clicked or pressed a key, where the creature lives in the window (nil: nowhere to go), and the words and
+/// rows on screen under the leap, which it flies around.
+public struct LaunchInput: Equatable, Sendable {
     public var size: CGSize
     public var readyAt: Double?
     public var skippedAt: Double?
     public var target: LaunchTarget?
     public var reduceMotion: Bool
-    public init(size: CGSize, readyAt: Double?, skippedAt: Double? = nil, target: LaunchTarget? = nil, reduceMotion: Bool = false) {
+    public var obstacles: [CGRect]
+    public init(size: CGSize, readyAt: Double?, skippedAt: Double? = nil, target: LaunchTarget? = nil, reduceMotion: Bool = false,
+                obstacles: [CGRect] = []) {
         self.size = size; self.readyAt = readyAt; self.skippedAt = skippedAt; self.target = target; self.reduceMotion = reduceMotion
+        self.obstacles = obstacles
     }
 }
 
@@ -59,6 +63,9 @@ public struct LaunchFrame: Equatable, Sendable {
     public var guideOpacity = 1.0
     /// The hand-off has started: the splash takes no more clicks, the screens take them.
     public var handingOff = false
+    /// The screens wait for the landing: no leap could keep clear of their words and rows (a crowded window), so the
+    /// creature flies over the empty window and they come in around it once it is home. The splash keeps the clicks.
+    public var screensHeld = false
     /// The overlay can go: the creature underneath is exactly this one.
     public var finished = false
 
@@ -255,10 +262,20 @@ public enum LaunchDirector {
         let leap: Leap?
         /// With nowhere to go: when it starts fading out (its touchdown).
         let fadeFrom: Double?
+        /// No way was clear of the words and rows: the screens come in once the creature has landed.
+        var held = false
         var finish: Double { fadeFrom.map { $0 + fadeWithoutTarget } ?? leapStart + (leap?.end ?? 0) }
+        /// When the screens start coming in: 0.04 s into the hand-off, or at the landing when held.
+        var screensStart: Double { held ? leapStart + (leap?.touchdown ?? 0) : start + screensDelay }
     }
 
     static func handoff(_ input: LaunchInput) -> Handoff? {
+        guard var plan = plan(input) else { return nil }
+        if let leap = plan.leap, input.target != nil, !input.obstacles.isEmpty { plan.held = leap.cover(input.obstacles) > 0 }
+        return plan
+    }
+
+    private static func plan(_ input: LaunchInput) -> Handoff? {
         guard let hs = handoffStart(readyAt: input.readyAt, skippedAt: input.skippedAt) else { return nil }
         let airborne = hs >= AssembleScene.hopTakeoff && hs < AssembleScene.hopLand
         if airborne {
@@ -289,13 +306,25 @@ public enum LaunchDirector {
         var pose = start.pose
         pose.pixels = nil
         let ground = LaunchTarget(feet: AssembleScene.splashFeet(in: input.size), unit: AssembleScene.unit, asleep: false)
-        return Leap(start: pose, feet: start.feet, unit: start.unit, startVelocityY: landed ? 0 : (start.feet.y - before.feet.y) * 240,
-                    target: target ?? ground, crouch: crouch)
+        return Leap.routed(start: pose, feet: start.feet, unit: start.unit, startVelocityY: landed ? 0 : (start.feet.y - before.feet.y) * 240,
+                           target: target ?? ground, crouch: crouch, avoiding: target == nil ? [] : input.obstacles)
+    }
+
+    /// When the leap lands, on the splash's clock: the guide's first words wait for it (nil: no leap to wait for).
+    static func touchdown(_ input: LaunchInput, plan: Handoff?) -> Double? {
+        guard !input.reduceMotion, input.target != nil, let plan, let leap = plan.leap else { return nil }
+        return plan.leapStart + leap.touchdown
     }
 
     public static func frame(at t: Double, _ input: LaunchInput) -> LaunchFrame {
+        frame(at: t, input, plan: input.reduceMotion ? nil : handoff(input))
+    }
+
+    /// A frame with the hand-off already worked out (`handoff(input)`): the clock keeps it, the search for a clear way
+    /// runs once per change of its inputs, never per frame.
+    static func frame(at t: Double, _ input: LaunchInput, plan: Handoff?) -> LaunchFrame {
         if input.reduceMotion { return reducedFrame(at: t, input) }
-        guard let plan = handoff(input), t >= plan.start else { return splash(at: t, size: input.size) }
+        guard let plan, t >= plan.start else { return splash(at: t, size: input.size) }
         let hs = plan.start, tau = t - hs
         var f: LaunchFrame
         if let leap = plan.leap, t >= plan.leapStart {
@@ -325,7 +354,8 @@ public enum LaunchDirector {
         f.wordmarkRise = before.wordmarkRise
         f.wordmarkBlur = before.wordmarkBlur
         f.captionOpacity = before.captionOpacity * (1 - out)
-        screens(&f, tau: tau)
+        screens(&f, tau: t - plan.screensStart + screensDelay)
+        f.screensHeld = plan.held && t < plan.screensStart
 
         if let fade = plan.fadeFrom { f.pose.opacity = 1 - Ease.out(Ease.progress(t, from: fade, over: fadeWithoutTarget)) }
         f.finished = t >= plan.finish
@@ -374,10 +404,37 @@ public enum LaunchDirector {
 
 // MARK: - The leap
 
+/// The shape of a leap's flight: how high its apex rises above the higher end, how it covers the ground (its horizontal
+/// timing, a curve of the motion library) and how much it stretches as it pushes off. A leap never flies over the words
+/// and rows on screen when a shape can avoid them (`Leap.routed`): the natural arc first, then flatter ones that take off
+/// lower and move over later, down to a dive that slides off the splash with no push upward.
+public struct LeapRoute: Equatable, Sendable {
+    public var apex: CGFloat
+    public var travel: Ease.Bezier
+    /// The takeoff stretch, from the full 0.14 (1) to none (0).
+    public var stretch: Double
+    public init(apex: CGFloat, travel: Ease.Bezier, stretch: Double) { self.apex = apex; self.travel = travel; self.stretch = stretch }
+
+    /// The spec's arc: 12 pt above the higher end, `Ease.travel`.
+    public static let natural = LeapRoute(apex: Theme.Launch.leapApex, travel: Ease.travel, stretch: 1)
+    /// In order of preference: the higher and earlier, the more natural.
+    public static let candidates: [LeapRoute] = [
+        natural,
+        LeapRoute(apex: Theme.Launch.leapApex, travel: Ease.breath, stretch: 1),
+        LeapRoute(apex: Theme.Launch.leapApex, travel: Ease.inOut, stretch: 1),
+        LeapRoute(apex: Theme.Launch.leapApex / 2, travel: Ease.travel, stretch: 0.5),
+        LeapRoute(apex: Theme.Launch.leapApex / 2, travel: Ease.breath, stretch: 0.5),
+        LeapRoute(apex: Theme.Launch.leapApex / 2, travel: Ease.inOut, stretch: 0.5),
+        LeapRoute(apex: 0, travel: Ease.travel, stretch: 0),
+        LeapRoute(apex: 0, travel: Ease.breath, stretch: 0),
+        LeapRoute(apex: 0, travel: Ease.inOut, stretch: 0),
+    ]
+}
+
 /// From whatever pose it is in, the creature crouches, leaps along a ballistic arc to its home, shrinking to the target's
 /// cell, lands with a squash, looks back at you, blinks, and takes the target's state. Pure: a function of the time since
 /// the hand-off. The launch and the end of the guided setup use the same leap.
-public struct Leap: Sendable {
+public struct Leap: Equatable, Sendable {
     public static let anticipation = Theme.Launch.anticipation
     public static let flight = Theme.Launch.leap
     /// The apex, above the higher of the start and the target.
@@ -396,21 +453,104 @@ public struct Leap: Sendable {
     public let target: LaunchTarget
     /// The crouch before it (from the ground): 0.08 s, longer while a skipped gather finishes.
     public let crouch: Double
-    /// Takeoff to touchdown, and the apex above the higher end: the leap's 0.50 s and 12 pt, or the splash hop's own.
+    /// Takeoff to touchdown: the leap's 0.50 s, or the splash hop's own.
     public let flightTime: Double
-    public let apexHeight: CGFloat
+    /// The flight's shape: its apex above the higher end, its horizontal timing, its stretch.
+    public let route: LeapRoute
+    public var apexHeight: CGFloat { route.apex }
 
     public init(start: Creature.Pose, feet: CGPoint, unit: CGFloat, startVelocityY: CGFloat, target: LaunchTarget,
-                crouch: Double = Leap.anticipation, flight: Double = Leap.flight, apex: CGFloat = Leap.apex) {
+                crouch: Double = Leap.anticipation, flight: Double = Leap.flight, route: LeapRoute = .natural) {
         self.start = start; self.feet = feet; self.unit = unit; self.startVelocityY = startVelocityY; self.target = target
-        self.crouch = max(crouch, Self.anticipation); self.flightTime = flight; self.apexHeight = apex
+        self.crouch = max(crouch, Self.anticipation); self.flightTime = flight; self.route = route
     }
 
     /// Nowhere to go: the splash's own hop where it stands (2.4 cells, 0.30 s in the air), so the same gravity, never a
     /// slow float.
     public static func hopInPlace(from start: Creature.Pose, feet: CGPoint, unit: CGFloat, crouch: Double = Leap.anticipation) -> Leap {
         Leap(start: start, feet: feet, unit: unit, startVelocityY: 0, target: LaunchTarget(feet: feet, unit: unit, asleep: false),
-             crouch: crouch, flight: AssembleScene.hopLand - AssembleScene.hopTakeoff, apex: AssembleScene.hopHeight * unit)
+             crouch: crouch, flight: AssembleScene.hopLand - AssembleScene.hopTakeoff,
+             route: LeapRoute(apex: AssembleScene.hopHeight * unit, travel: Ease.travel, stretch: 1))
+    }
+
+    /// The leap whose flight keeps clear of the words and rows on screen: the first of `LeapRoute.candidates` that
+    /// crosses none of them (the natural arc when it can), or, when every one crosses something, the one that covers the
+    /// least. Same takeoff, same touchdown: only the shape of the flight changes.
+    public static func routed(start: Creature.Pose, feet: CGPoint, unit: CGFloat, startVelocityY: CGFloat, target: LaunchTarget,
+                              crouch: Double = Leap.anticipation, avoiding obstacles: [CGRect]) -> Leap {
+        func leap(_ route: LeapRoute) -> Leap {
+            Leap(start: start, feet: feet, unit: unit, startVelocityY: startVelocityY, target: target, crouch: crouch, route: route)
+        }
+        let natural = leap(.natural)
+        guard !obstacles.isEmpty else { return natural }
+        var best = natural, least = CGFloat.infinity
+        for route in LeapRoute.candidates {
+            let candidate = leap(route)
+            let covered = candidate.cover(obstacles, stopAbove: least)
+            if covered == 0 { return candidate }
+            if covered < least { best = candidate; least = covered }
+        }
+        return best
+    }
+
+    /// How much of `obstacles` the body passes over in flight: the area covered, summed over 120 samples a second. The
+    /// count stops once it passes `stopAbove` (a route already known to cover less).
+    public func cover(_ obstacles: [CGRect], stopAbove limit: CGFloat = .infinity) -> CGFloat {
+        var total: CGFloat = 0
+        var tau = takeoff
+        while tau <= touchdown {
+            let shape = flightShape(at: tau)
+            for part in [shape.body, shape.arms] {
+                let box = part.bounds
+                for o in obstacles where box.intersects(o) && part.overlaps(o) {
+                    let i = o.intersection(box)
+                    total += i.width * i.height
+                }
+            }
+            if total > limit { return total }
+            tau += 1.0 / 120
+        }
+        return total
+    }
+
+    /// A turned rectangle: four corners in order.
+    struct Quad {
+        var a, b, c, d: CGPoint
+        var bounds: CGRect {
+            let x0 = min(a.x, b.x, c.x, d.x), x1 = max(a.x, b.x, c.x, d.x), y0 = min(a.y, b.y, c.y, d.y), y1 = max(a.y, b.y, c.y, d.y)
+            return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+        }
+        /// Whether it overlaps an upright rectangle: yes unless one of the two shapes' edge directions separates them.
+        func overlaps(_ r: CGRect) -> Bool {
+            guard bounds.intersects(r) else { return false }
+            for axis in [CGPoint(x: b.x - a.x, y: b.y - a.y), CGPoint(x: d.x - a.x, y: d.y - a.y)] {
+                func dot(_ p: CGPoint) -> CGFloat { p.x * axis.x + p.y * axis.y }
+                let q0 = min(dot(a), dot(b), dot(c), dot(d)), q1 = max(dot(a), dot(b), dot(c), dot(d))
+                let r0 = min(dot(CGPoint(x: r.minX, y: r.minY)), dot(CGPoint(x: r.maxX, y: r.minY)),
+                             dot(CGPoint(x: r.maxX, y: r.maxY)), dot(CGPoint(x: r.minX, y: r.maxY)))
+                let r1 = max(dot(CGPoint(x: r.minX, y: r.minY)), dot(CGPoint(x: r.maxX, y: r.minY)),
+                             dot(CGPoint(x: r.maxX, y: r.maxY)), dot(CGPoint(x: r.minX, y: r.maxY)))
+                if q1 <= r0 || r1 <= q0 { return false }
+            }
+            return true
+        }
+    }
+
+    /// The body's silhouette in flight, in two boxes of grid cells: the body from head to feet (columns 2 to 14, the
+    /// bottom row gone while the legs are tucked) and the arms' band (three rows: 2 to 4 lifted, 3 to 5 at rest), each
+    /// squashed, stretched and leaning around the feet. The head's corners beside the arms stay free.
+    func flightShape(at tau: Double) -> (body: Quad, arms: Quad) {
+        let f = flight(at: tau)
+        let u = (tau - takeoff) / flightTime
+        let lifted = u < 0.86 && (u > 0.03 || !grounded), tucked = u < 0.94 && (u > 0.03 || !grounded)
+        let turn = CGAffineTransform(translationX: f.feet.x, y: f.feet.y).rotated(by: f.rotation * .pi / 180)
+            .scaledBy(x: f.scaleX, y: f.scaleY)
+        func quad(_ cells: CGRect) -> Quad {
+            let r = CGRect(x: (cells.minX - 8) * f.cell, y: (cells.minY - 11) * f.cell, width: cells.width * f.cell, height: cells.height * f.cell)
+            return Quad(a: CGPoint(x: r.minX, y: r.minY).applying(turn), b: CGPoint(x: r.maxX, y: r.minY).applying(turn),
+                        c: CGPoint(x: r.maxX, y: r.maxY).applying(turn), d: CGPoint(x: r.minX, y: r.maxY).applying(turn))
+        }
+        return (quad(CGRect(x: 2, y: 0, width: 12, height: tucked ? 10 : 11)), quad(CGRect(x: 0, y: lifted ? 2 : 3, width: 16, height: 3)))
     }
 
     /// On the ground: still, legs down. In the air (mid-hop) the crouch is skipped.
@@ -446,6 +586,25 @@ public struct Leap: Sendable {
     /// From the air, the speed it has carries it to the target under a natural gravity (at least half the ground arc's).
     public var keepsItsSpeed: Bool { !grounded && keptArc.g >= groundArc.g / 2 }
 
+    /// The body in flight at `tau`: where its feet are, its cell, its squash and stretch, its lean.
+    func flight(at tau: Double) -> (feet: CGPoint, cell: CGFloat, scaleX: CGFloat, scaleY: CGFloat, rotation: Double) {
+        let u = min(1, max(0, (tau - takeoff) / flightTime)), tf = CGFloat(max(0, tau - takeoff))
+        let (vy, g) = ballistics
+        let at = CGPoint(x: feet.x + (target.feet.x - feet.x) * CGFloat(route.travel(u)), y: feet.y + vy * tf + g * tf * tf / 2)
+        let cell = unit + (target.unit - unit) * CGFloat(Ease.shrink(u))
+        // Stretch along the motion: strong at takeoff (as strong as the push upward), gone at the apex, a little again on
+        // the way down.
+        let stretch = CGFloat(0.14 * route.stretch * max(0, 1 - u / 0.3) + 0.05 * max(0, (u - 0.7) / 0.3))
+        var scaleY = 1 + stretch, scaleX = 1 - 0.6 * stretch
+        if !grounded {
+            // From the air: the body blends from the hop's squash and stretch over 0.12 s, no snap.
+            let q = Ease.progress(tau, from: 0, over: 0.12), p = CGFloat(q * q * (3 - 2 * q))
+            scaleY = start.scaleY + (scaleY - start.scaleY) * p
+            scaleX = start.scaleX + (scaleX - start.scaleX) * p
+        }
+        return (at, cell, scaleX, scaleY, 5 * sin(.pi * u) * Double(direction))
+    }
+
     /// The blink after a landing: half, slit, half, open.
     static func blink(at start: Double) -> [(Double, Double)] {
         [(start, 0.5), (start + 0.04, 0.15), (start + 0.10, 0.5), (start + 0.14, 1)]
@@ -468,28 +627,17 @@ public struct Leap: Sendable {
         pose.liftedLegs = Creature.Pose.rest.liftedLegs
         pose.eyeBottom = Creature.Pose.rest.eyeBottom
         if tau < touchdown {
-            let u = (tau - takeoff) / flightTime, tf = CGFloat(tau - takeoff)
-            let (vy, g) = ballistics
-            let at = CGPoint(x: feet.x + (target.feet.x - feet.x) * CGFloat(Ease.travel(u)), y: feet.y + vy * tf + g * tf * tf / 2)
-            let cell = unit + (target.unit - unit) * CGFloat(Ease.shrink(u))
-            // Stretch along the motion: strong at takeoff, gone at the apex, a little again on the way down.
-            let stretch = CGFloat(0.14 * max(0, 1 - u / 0.3) + 0.05 * max(0, (u - 0.7) / 0.3))
-            var scaleY = 1 + stretch, scaleX = 1 - 0.6 * stretch
-            if !grounded {
-                // From the air: the body blends from the hop's squash and stretch over 0.12 s, no snap.
-                let q = Ease.progress(tau, from: 0, over: 0.12), p = CGFloat(q * q * (3 - 2 * q))
-                scaleY = start.scaleY + (scaleY - start.scaleY) * p
-                scaleX = start.scaleX + (scaleX - start.scaleX) * p
-            }
-            pose.scaleY = scaleY
-            pose.scaleX = scaleX
-            pose.rotation = 5 * sin(.pi * u) * Double(direction)
+            let u = (tau - takeoff) / flightTime
+            let f = flight(at: tau)
+            pose.scaleY = f.scaleY
+            pose.scaleX = f.scaleX
+            pose.rotation = f.rotation
             pose.legsTucked = u < 0.94 && (u > 0.03 || !grounded)
             let arms: ArmPose = u < 0.86 && (u > 0.03 || !grounded) ? .lift1 : .rest
             pose.armLeft = arms; pose.armRight = arms
             pose.eyeHeight = 1
             pose.look = u > 0.08 ? direction : 0
-            return (pose, at, cell)
+            return (pose, f.feet, f.cell)
         }
         // Touchdown: a squash, then a bouncy settle; exactly the rest grid once settled.
         let tl = tau - touchdown
@@ -526,19 +674,38 @@ private extension Creature.Pose {
 public enum GuideExit {
     static let guideFade = 0.2
 
-    public static func frame(at tau: Double, from source: LaunchTarget?, to target: LaunchTarget?, reduceMotion: Bool) -> LaunchFrame {
-        guard let source, !reduceMotion else { return dissolve(at: tau, reduceMotion: reduceMotion) }
-        let leap = leap(from: source, to: target)
+    /// The leap out of the guide, worked out once: its shape, and whether the main window waits for its landing.
+    struct Plan: Equatable {
+        let leap: Leap
+        let held: Bool
+    }
+    static func plan(from source: LaunchTarget?, to target: LaunchTarget?, obstacles: [CGRect], reduceMotion: Bool) -> Plan? {
+        guard let source, !reduceMotion else { return nil }
+        let leap = leap(from: source, to: target, avoiding: obstacles)
+        // No clear way (a crowded window): the main window comes in once the creature has landed, as at launch.
+        return Plan(leap: leap, held: target != nil && !obstacles.isEmpty && leap.cover(obstacles) > 0)
+    }
+
+    public static func frame(at tau: Double, from source: LaunchTarget?, to target: LaunchTarget?, obstacles: [CGRect] = [],
+                             reduceMotion: Bool) -> LaunchFrame {
+        frame(at: tau, from: source, to: target, plan: plan(from: source, to: target, obstacles: obstacles, reduceMotion: reduceMotion),
+              reduceMotion: reduceMotion)
+    }
+
+    static func frame(at tau: Double, from source: LaunchTarget?, to target: LaunchTarget?, plan: Plan?, reduceMotion: Bool) -> LaunchFrame {
+        guard source != nil, let plan, !reduceMotion else { return dissolve(at: tau, reduceMotion: reduceMotion) }
+        let leap = plan.leap, held = plan.held
         let (pose, feet, unit) = leap.frame(at: tau)
         var f = LaunchFrame(feet: feet, unit: unit)
         f.pose = pose
         f.handingOff = true
         f.guideOpacity = 1 - Ease.out(Ease.progress(tau, from: 0, over: guideFade))
-        LaunchDirector.screens(&f, tau: tau)
+        LaunchDirector.screens(&f, tau: held ? tau - leap.touchdown + LaunchDirector.screensDelay : tau)
+        f.screensHeld = held && tau < leap.touchdown
         if target == nil {
             f.pose.opacity = 1 - Ease.out(Ease.progress(tau, from: leap.touchdown, over: LaunchDirector.fadeWithoutTarget))
         }
-        f.finished = tau >= finishTime(from: source, to: target, reduceMotion: false)
+        f.finished = tau >= (target == nil ? leap.touchdown + LaunchDirector.fadeWithoutTarget : leap.end)
         if f.finished { f.screensOpacity = 1; f.screensScale = 1; f.guideOpacity = 0 }
         return f
     }
@@ -568,9 +735,10 @@ public enum GuideExit {
         return target == nil ? leap.touchdown + LaunchDirector.fadeWithoutTarget : leap.end
     }
 
-    /// The All set creature's leap into the sidebar, or, with nowhere to go, the splash's hop where it stands.
-    static func leap(from source: LaunchTarget, to target: LaunchTarget?) -> Leap {
+    /// The All set creature's leap into the sidebar, around the words and rows on screen, or, with nowhere to go, the
+    /// splash's hop where it stands.
+    static func leap(from source: LaunchTarget, to target: LaunchTarget?, avoiding obstacles: [CGRect] = []) -> Leap {
         guard let target else { return Leap.hopInPlace(from: .rest, feet: source.feet, unit: source.unit) }
-        return Leap(start: .rest, feet: source.feet, unit: source.unit, startVelocityY: 0, target: target)
+        return Leap.routed(start: .rest, feet: source.feet, unit: source.unit, startVelocityY: 0, target: target, avoiding: obstacles)
     }
 }

@@ -40,8 +40,8 @@ public struct LaunchView: View {
                 return press.modifiers.contains(.command) ? .ignored : .handled   // menu shortcuts (Quit) still work
             }
             .onAppear { focused = listening }
-            // From the hand-off on, clicks go through to the screens underneath.
-            .allowsHitTesting(listening)
+            // From the hand-off on, clicks go through to the screens underneath, once they show.
+            .allowsHitTesting(listening || frame.screensHeld)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Brainmerge is starting")
             .accessibilityHidden(!listening)
