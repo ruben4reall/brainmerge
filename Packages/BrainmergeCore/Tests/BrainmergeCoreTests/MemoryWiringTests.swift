@@ -204,6 +204,28 @@ import BrainmergeTestSupport
                                                        "memory/atelier/user_role.md", "memory/atelier/decisions/prices.md"])
     }
 
+    /// A note a session writes into the real folder while it is being adopted is moved like the others, never removed
+    /// with the folder; an identical copy already in the memory is dropped, and the folder goes only once it is empty.
+    @Test func aNoteWrittenDuringAdoptionIsMovedNotDeleted() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let fm = FileManager.default
+        let from = home.url.appending(path: "real", directoryHint: .isDirectory)
+        let into = home.url.appending(path: "memory", directoryHint: .isDirectory)
+        try fm.createDirectory(at: from, withIntermediateDirectories: true)
+        try fm.createDirectory(at: into, withIntermediateDirectories: true)
+        try Data("one\n".utf8).write(to: from.appending(path: "one.md"))
+        try Data("same\n".utf8).write(to: from.appending(path: "same.md"))
+        try Data("same\n".utf8).write(to: into.appending(path: "same.md"))
+        var passes = 0
+        let adopted = try MemoryWiring.adoptAll(from: from, into: into, suffix: "perso") {
+            passes += 1
+            if passes == 1 { try? Data("late\n".utf8).write(to: from.appending(path: "late.md")) }
+        }
+        #expect(!fm.fileExists(atPath: from.path))
+        #expect(try String(contentsOf: into.appending(path: "late.md"), encoding: .utf8) == "late\n")
+        #expect(Set(adopted.moved.map(\.lastPathComponent)) == ["one.md", "late.md"])
+    }
+
     /// Every session start asks again: a project already linked into this memory, under whatever name, is left exactly
     /// as it is and nothing is written.
     @Test func wireOneIsIdempotentAndWritesNothingWhenLinked() throws {

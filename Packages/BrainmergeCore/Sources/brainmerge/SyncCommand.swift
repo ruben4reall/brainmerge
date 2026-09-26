@@ -18,7 +18,10 @@ struct Sync: ParsableCommand {
         func failed(_ reason: SaveStatus.Reason) { statuses.write(SaveStatus(date: Date(), outcome: .failed, reason: reason), slug: identity) }
         do {
             let state = try context.store.load()
-            guard let id = state.identity(slug: identity) else { log.write("\(identity): unknown identity"); failed(.unknown); return }
+            guard let id = state.identity(slug: identity) else {
+                // A removed account's session still running: no status, an account added again under the name starts clean.
+                log.write("\(identity): unknown identity"); return
+            }
             guard let folder = state.brain(for: id) else { log.write("\(identity): no memory configured"); failed(.notARepository); return }
             let own = Brain(root: folder.url)
             guard own.isInitialized else { log.write("\(identity): memory missing at \(own.root.path)"); failed(.notARepository); return }

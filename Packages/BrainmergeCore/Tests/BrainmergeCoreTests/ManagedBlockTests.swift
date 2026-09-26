@@ -35,6 +35,21 @@ import BrainmergeTestSupport
         #expect(!ManagedBlock.contains("rien"))
     }
 
+    /// The person deleted the end line: the next upsert appends a whole block, and the one after must replace only
+    /// that block, never the person's lines after the orphan start. Remove leaves them too. A stray end line before
+    /// the block is the person's text as well.
+    @Test func orphanMarkersNeverTakeThePersonsText() {
+        let stale = ManagedBlock.render(identityName: "Old", slug: "old", brainPath: "/old")
+        let broken = "# Mine\n" + ManagedBlock.start + "\nMy rule one.\nMy rule two.\n"
+        let once = ManagedBlock.upsert(in: broken, block: stale)
+        #expect(once == broken + "\n" + stale + "\n")
+        let twice = ManagedBlock.upsert(in: once, block: block)
+        #expect(twice == broken + "\n" + block + "\n")
+        #expect(ManagedBlock.remove(from: twice) == broken)
+        let strayEnd = "# Mine\n" + ManagedBlock.end + "\nMy rule.\n\n" + stale + "\n"
+        #expect(ManagedBlock.upsert(in: strayEnd, block: block) == "# Mine\n" + ManagedBlock.end + "\nMy rule.\n\n" + block + "\n")
+    }
+
     @Test func importLineEscapesSpaces() {
         let b = ManagedBlock.render(identityName: "Perso", slug: "perso", brainPath: "/Users/r/Obsidian Vault")
         #expect(b.contains("@/Users/r/Obsidian\\ Vault/BRAIN.md"))
