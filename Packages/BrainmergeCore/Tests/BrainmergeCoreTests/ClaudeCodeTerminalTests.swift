@@ -12,10 +12,10 @@ import BrainmergeTestSupport
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
     }
 
-    func run(_ e: ManagerEnv, _ arguments: [String], path: String, executable: URL = Products.brainmerge) throws -> ShellResult {
+    func run(_ e: ManagerEnv, _ arguments: [String], path: String, executable: URL = Products.brainmerge, cwd: URL? = nil) throws -> ShellResult {
         // CLAUDE_CONFIG_DIR set in the caller: the primary must unset it, a secondary must replace it.
-        try Shell().run(executable.path, arguments, environment: ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path,
-                                                               "PATH": path, "CLAUDE_CONFIG_DIR": "/elsewhere"])
+        try Shell().run(executable.path, arguments, cwd: cwd, environment: ["BRAINMERGE_HOME": e.home.url.path, "BRAINMERGE_CLAUDE_APP": e.claude.url.path,
+                                                                         "PATH": path, "CLAUDE_CONFIG_DIR": "/elsewhere"])
     }
 
     @Test func codeRunsTheFirstClaudeOnPathWithTheAccountsProfile() throws {
@@ -34,12 +34,25 @@ import BrainmergeTestSupport
         #expect(primary.stdout.contains("dir=unset"))
     }
 
+    /// A relative entry runs whatever `claude` sits in the current folder: with one there and in tools/, nothing runs.
     @Test func noClaudeOnAnAbsolutePathExits127() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
-        let result = try run(e, ["code", "ruben"], path: "tools:.:")
+        try fakeClaude(in: e.home.url.appending(path: "tools"))
+        try fakeClaude(in: e.home.url)
+        let result = try run(e, ["code", "ruben"], path: "tools:.:", cwd: e.home.url)
         #expect(result.status == 127)
+        #expect(!result.stdout.contains("dir="))
         #expect(result.stderr.contains("Claude Code is not installed or not on your PATH."))
+    }
+
+    @Test func resolveSkipsRelativeEntriesAndBrainmergesOwnLinks() {
+        let ours = "/Applications/Brainmerge.app/Contents/MacOS/brainmerge-cli"
+        #expect(ClaudeCodeTerminal.resolve(path: "tools:.::/b", isExecutable: { _ in true }, destination: { _ in nil }) == "/b/claude")
+        // A claude on PATH that is one of Brainmerge's own links would run Brainmerge again, not Claude Code.
+        #expect(ClaudeCodeTerminal.resolve(path: "/a:/b", isExecutable: { _ in true },
+                                           destination: { $0 == "/a/claude" ? ours : nil }) == "/b/claude")
+        #expect(ClaudeCodeTerminal.resolve(path: "/a", isExecutable: { _ in true }, destination: { _ in ours }) == nil)
     }
 
     @Test func envPrintsAQuotedExportOrAnUnset() throws {
@@ -117,6 +130,18 @@ import BrainmergeTestSupport
         let cli = try embeddedCLI(in: home)
         #expect(try !CLIInstaller.linkAccount(paths: home.paths, slug: "work", target: cli, readOnly: { _ in true }))
         #expect(!FileManager.default.fileExists(atPath: CLIInstaller.accountLink(in: home.paths, slug: "work").path))
+    }
+
+    /// Someone else's claude-<slug> that points nowhere is still theirs: left as it is, never replaced.
+    @Test func aBrokenForeignAccountLinkIsLeftAlone() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let fm = FileManager.default
+        try fm.createDirectory(at: home.paths.localBin, withIntermediateDirectories: true)
+        let link = CLIInstaller.accountLink(in: home.paths, slug: "work")
+        try fm.createSymbolicLink(atPath: link.path, withDestinationPath: "/nonexistent/other-tool")
+        let cli = try embeddedCLI(in: home)
+        #expect(try !CLIInstaller.linkAccount(paths: home.paths, slug: "work", target: cli))
+        #expect(try fm.destinationOfSymbolicLink(atPath: link.path) == "/nonexistent/other-tool")
     }
 
     /// Brainmerge moved or trashed: its own link to the old place is pointed at the new one; a working one stays.

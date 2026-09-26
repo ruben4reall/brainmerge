@@ -52,20 +52,60 @@ import BrainmergeTestSupport
         #expect(m.terminalCommand(for: "work") == "brainmerge code work")
     }
 
+    func linked(_ e: ManagerEnv, _ slug: String) -> Bool {
+        (try? FileManager.default.destinationOfSymbolicLink(atPath: CLIInstaller.accountLink(in: e.home.paths, slug: slug).path)) != nil
+    }
+
+    func switchOn(_ e: ManagerEnv) throws {
+        var state = try e.store.load()
+        state.terminalCommands = true
+        try e.store.save(state)
+    }
+
+    /// After a relaunch the switch shows what state.json holds, not its default.
+    @Test func theSwitchShowsOnAfterARelaunch() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        try switchOn(e)
+        let m = model(e, cli: try embeddedCLI(in: e))
+        m.reload()
+        #expect(m.terminalCommands)
+    }
+
+    /// Accounts added from the command line while the app was closed get their command at the next launch.
+    @Test func aLaunchLinksAnAccountThatHasNoLinkYet() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        try switchOn(e)
+        #expect(!linked(e, "work"))
+        let m = model(e, cli: try embeddedCLI(in: e))
+        await m.launch(minimum: .zero)
+        #expect(linked(e, "ruben") && linked(e, "work"))
+    }
+
+    /// Added in the app while the brainmerge link points elsewhere (or is missing): linked to the app's own command line.
+    @Test func addingInTheAppLinksTheNewAccount() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e, cli: try embeddedCLI(in: e))
+        m.reload()
+        await m.setTerminalCommands(true).value
+        var form = AddAccountForm(); form.name = "Work"
+        #expect(await m.add(form, open: false))
+        #expect(linked(e, "work"))
+    }
+
     @Test func theSwitchMakesAndRemovesEachAccountsLink() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Ruben")
         _ = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
         let m = model(e, cli: try embeddedCLI(in: e))
         m.reload()
-        let fm = FileManager.default
-        func linked(_ slug: String) -> Bool {
-            (try? fm.destinationOfSymbolicLink(atPath: CLIInstaller.accountLink(in: e.home.paths, slug: slug).path)) != nil
-        }
         await m.setTerminalCommands(true).value
-        #expect(linked("ruben") && linked("work"))
+        #expect(linked(e, "ruben") && linked(e, "work"))
         #expect(try e.store.load().terminalCommands)
         await m.setTerminalCommands(false).value
-        #expect(!linked("ruben") && !linked("work"))
+        #expect(!linked(e, "ruben") && !linked(e, "work"))
     }
 }

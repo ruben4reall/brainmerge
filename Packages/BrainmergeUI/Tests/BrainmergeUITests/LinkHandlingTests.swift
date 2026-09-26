@@ -37,6 +37,17 @@ import BrainmergeTestSupport
         #expect(m.windowRequests == 1)
     }
 
+    /// The same link can come twice, through the app delegate and the window's onOpenURL: it acts once.
+    @Test func theSameLinkTwiceInARowActsOnce() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        await m.launch(minimum: .zero)
+        m.handle(URL(string: "brainmerge://usage")!)
+        m.handle(URL(string: "brainmerge://usage")!)
+        #expect(m.windowRequests == 1)
+    }
+
     final class Box: @unchecked Sendable { var ps = "" }
 
     /// Work still has to log in while Personal's window is open: the Log in sheet needs the window.
