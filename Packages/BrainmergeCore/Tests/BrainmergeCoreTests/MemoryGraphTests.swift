@@ -83,6 +83,7 @@ import BrainmergeTestSupport
         #expect(Set(first.changed) == Set(first.graph.nodes.filter { $0.file != nil }.map(\.id)))   // notes, and projects with an index
         let second = builder.build()
         #expect(second.readFiles == 0 && second.changed.isEmpty && second.graph == first.graph)
+        #expect(builder.graphsMade == 1, "nothing changed: the graph is not made again")
         // A note is written, another appears: only they are read, only they are reported as changed.
         Thread.sleep(forTimeInterval: 1.1)
         try write(root, "memory/website/feedback tone.md", "Plain words. [[project_launch]]\n")

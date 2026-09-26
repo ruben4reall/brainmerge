@@ -240,6 +240,13 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     private var stamps: [String: Stamp] = [:]
     private struct Stamp: Equatable { let modified: Date; let size: Int }
     private var built = false
+    /// The last graph and the files it was made from: a build where nothing changed returns it as it is.
+    private var lastGraph: MemoryGraph?
+    private var lastShown: [String] = []
+    /// How many graphs were made (tests: a build with nothing new makes none).
+    private(set) var graphsMade = 0
+    /// A walk stops after this many entries: a folder that big is not a memory, and the graph keeps what it saw.
+    static let maxEntries = 400_000
 
     public init(root: URL, style: MemoryGraph.Style = .memory, maxNotes: Int = 2000, maxBytes: Int = 256 * 1024) {
         self.given = root; self.style = style; self.maxNotes = maxNotes; self.maxBytes = maxBytes
@@ -267,9 +274,13 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
         defer { free(start) }
         var roots: [UnsafeMutablePointer<CChar>?] = [start, nil]
         // FTS_PHYSICAL: symlinks are reported as links and never followed.
-        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR, nil) else { return ([], [], false) }
+        // FTS_XDEV: never into another disk mounted inside.
+        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR | FTS_XDEV, nil) else { return ([], [], false) }
         defer { fts_close(fts) }
+        var seen = 0
         while let entry = fts_read(fts) {
+            seen += 1
+            if seen > Self.maxEntries { break }
             let info = Int32(entry.pointee.fts_info)
             // The folder itself refused (EPERM from macOS's privacy guard, EACCES from its permissions): said apart
             // from an empty folder. A locked folder inside is only skipped.
@@ -345,7 +356,18 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
         built = true
         // Reported by bubble: a project's index that changed is its project's bubble that changed.
         let ids = { (paths: [String]) in Array(Set(paths.map(self.nodeID(forFile:)))).sorted() }
-        return Result(graph: makeGraph(), changed: ids(changed), removed: ids(removed), readFiles: read,
+        // Nothing new, nothing gone, the same files shown and known: the graph is the one made last time.
+        let shownPaths = next.keys.sorted()
+        let graph: MemoryGraph
+        if let lastGraph, changed.isEmpty, removed.isEmpty, stamps == before, shownPaths == lastShown {
+            graph = lastGraph
+        } else {
+            graph = makeGraph()
+            graphsMade += 1
+        }
+        lastGraph = graph
+        lastShown = shownPaths
+        return Result(graph: graph, changed: ids(changed), removed: ids(removed), readFiles: read,
                       truncated: notes.count > maxNotes, attachmentsTruncated: attachments.count > maxNotes, refused: refused)
     }
 
