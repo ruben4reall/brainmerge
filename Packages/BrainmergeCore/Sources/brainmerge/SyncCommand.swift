@@ -81,20 +81,3 @@ struct Sync: ParsableCommand {
         }
     }
 }
-
-struct SyncLog {
-    let file: URL
-    init(paths: Paths) { file = paths.logsDir.appending(path: "sync.log") }
-
-    func write(_ line: String) {
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let data = Data("\(ISO8601DateFormatter().string(from: Date())) \(line)\n".utf8)
-        if let handle = try? FileHandle(forWritingTo: file) {
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            try? data.write(to: file)
-        }
-    }
-}
