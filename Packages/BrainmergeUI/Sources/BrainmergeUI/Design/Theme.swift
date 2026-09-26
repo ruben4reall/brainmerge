@@ -5,7 +5,7 @@ import BrainmergeCore
 /// to re-theme the app, changing these values is enough. Guide and palette: docs/brand/DESIGN.md.
 ///
 /// Principles: a dark, neutral background, cream text, a single accent (the creature's purple),
-/// system glass surfaces, soft account colors, and subtle halos and aura.
+/// system glass surfaces, soft account colors, and motion that explains a change instead of decorating it.
 public enum Theme {
     public enum Colors {
         // Background: dark, neutral, a touch of purple at the top left.
@@ -77,21 +77,6 @@ public enum Theme {
         public static let folderEdge = Color.white.opacity(0.14)
     }
 
-    /// Blurred halos behind open accounts: present, never garish.
-    public enum Halo {
-        public static let opacity = 0.0      // no halo: the background stays neutral (0.14 to bring them back)
-        public static let radius: CGFloat = 110
-        public static let size: CGFloat = 520
-    }
-
-    /// The aura that spins during loading (Siri-style), subtle at rest.
-    public enum Aura {
-        public static let softOpacity = 0.10
-        public static let fullOpacity = 0.45
-        public static let lineWidth: CGFloat = 6
-        public static let period: TimeInterval = 7
-    }
-
     /// Motion tokens: two curves, a few durations, three springs. Scenes built from `Ease` (Motion.swift) use the same curves.
     public enum Motion {
         /// Entering, exiting, feedback: cubic-bezier(0.23, 1, 0.32, 1). Site: --ease-out.
@@ -105,6 +90,8 @@ public enum Theme {
         /// Reduce Motion: opacity and color only, in this plain fade.
         public static let reducedDuration = 0.15
         public static let reduced = Animation.linear(duration: reducedDuration)
+        /// The animation, or Reduce Motion's plain fade in its place.
+        public static func unlessReduced(_ animation: Animation, _ reduceMotion: Bool) -> Animation { reduceMotion ? reduced : animation }
         /// README captures: every scene shows its still, nothing plays. `BRAINMERGE_HOME` demos stay animated.
         public static let isCapture = isCapture(environment: ProcessInfo.processInfo.environment)
         static func isCapture(environment: [String: String]) -> Bool { environment["BRAINMERGE_CAPTURE"] != nil }
@@ -169,9 +156,6 @@ public enum Theme {
 
     /// The tints offered in the app: one swatch per color (red, rendered as pink, is not repeated).
     public static let pickableTints: [Tint] = Tint.allCases.filter { hex(for: $0) != hex(for: .pink) || $0 == .pink }
-
-    /// The aura's colors: centered on purple, with a touch of blue, green, and amber.
-    public static let auraColors: [Color] = ["#A06BE0", "#C58FD9", "#7FB5E8", "#8FC7A6", "#E9A45C", "#B487EA"].map { Color(hex: $0) }
 
     /// Layout constants shared by the screens.
     public enum Layout {

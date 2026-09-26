@@ -134,9 +134,20 @@ public final class OnboardingModel {
         return "Step \((shown.firstIndex(of: step) ?? 0) + 1) of \(shown.count)"
     }
 
-    /// "Check again", and every few seconds while the step shows: once the tools are in, the setup moves on.
-    public func checkGit() async {
-        if await app.checkGit(), step == .git { next() }
+    /// What "Check again" found when Apple's tools are still missing: said once, shaken when asked again.
+    private(set) var gitNote = InlineProblem()
+    public static let gitStillMissing = "Not there yet. Apple's installer takes a few minutes, and this step moves on by itself once it is done."
+
+    /// "Check again" (`asked`), and every few seconds while the step shows: once the tools are in, the setup moves on.
+    /// Only a click says that nothing changed; the clock's checks stay quiet.
+    public func checkGit(asked: Bool = false) async {
+        let found = await app.checkGit()
+        if found {
+            gitNote.show(nil)
+            if step == .git { next() }
+        } else if asked {
+            gitNote.show(Self.gitStillMissing)
+        }
     }
 
     /// Apple's installer for the Command Line Tools: its own window, its own download from Apple.

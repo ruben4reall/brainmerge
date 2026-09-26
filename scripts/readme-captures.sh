@@ -16,7 +16,7 @@ BRAINMERGE_ONBOARDING_STEP=5 scripts/capture.sh 02e-all-set --active
 BRAINMERGE_SCREEN=accounts scripts/capture.sh 03-comptes --active
 BRAINMERGE_SCREEN=add scripts/capture.sh 04-ajout --active
 BRAINMERGE_SCREEN=edit scripts/capture.sh 08-edit --active
-BRAINMERGE_SCREEN=memory CAPTURE_DELAY=8 scripts/capture.sh 05-memoire --active
+BRAINMERGE_SCREEN=memory CAPTURE_DELAY=2 scripts/capture.sh 05-memoire --active   # the graph settles out of sight, then shows whole
 BRAINMERGE_SCREEN=settings scripts/capture.sh 06-reglages --active
 BRAINMERGE_SCREEN=usage scripts/capture.sh 21-usage --active
 echo "README captures done"

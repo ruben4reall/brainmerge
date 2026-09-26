@@ -10,7 +10,7 @@ public struct NewMemorySheet: View {
     let attach: Account?
     @State private var name: String
     @State private var folder: URL?
-    @State private var problem: String?
+    @State private var problem = InlineProblem()
 
     public init(model: AppModel, isPresented: Binding<Bool>, attach: Account? = nil) {
         self.model = model; _isPresented = isPresented; self.attach = attach
@@ -51,9 +51,9 @@ public struct NewMemorySheet: View {
                 Text("Created if missing. A folder you already have is used as is: nothing in it is renamed.")
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
             }
-            if let problem { Text(problem).foregroundStyle(Theme.Colors.accentLight).font(Theme.Fonts.secondary) }
+            ProblemLine(problem: problem)
             HStack(spacing: 10) {
-                if let working = model.working { Text(working).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                WorkingLine(text: model.working)
                 Spacer()
                 Button("Cancel") { isPresented = false }.buttonStyle(.glass).keyboardShortcut(.cancelAction)
                 Button("Create") { create() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
@@ -62,18 +62,18 @@ public struct NewMemorySheet: View {
         }
         .padding(22)
         .frame(width: 440)
-        .background(WarmBackground(accents: [.purple]))
+        .background(WarmBackground())
     }
 
     func create() {
         let clean = name.trimmingCharacters(in: .whitespaces)
-        guard !clean.isEmpty else { problem = "Give this memory a name."; return }
+        guard !clean.isEmpty else { problem.show("Give this memory a name."); return }
         // An open account cannot move: say so before creating anything.
-        if let attach, attach.isRunning { problem = "Quit \(attach.identity.name) first, then try again."; return }
+        if let attach, attach.isRunning { problem.show("Quit \(attach.identity.name) first, then try again."); return }
         Task {
-            guard let created = await model.addBrain(name: clean, path: folder) else { problem = model.message?.detail; model.message = nil; return }
+            guard let created = await model.addBrain(name: clean, path: folder) else { problem.show(model.message?.detail); model.message = nil; return }
             if let attach {
-                if let failure = await model.setBrain(of: attach.id, to: created.id) { problem = failure.detail; model.dismiss(failure); return }
+                if let failure = await model.setBrain(of: attach.id, to: created.id) { problem.show(failure.detail); model.dismiss(failure); return }
             }
             isPresented = false
         }

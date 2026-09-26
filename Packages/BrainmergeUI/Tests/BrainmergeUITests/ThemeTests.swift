@@ -8,15 +8,9 @@ import BrainmergeCore
         let expected: [Tint: String] = [.orange: "#D97757", .blue: "#6FA3D8", .green: "#7FA37A", .purple: "#A87BC9",
                                         .pink: "#D97A8E", .red: "#D97A8E", .yellow: "#E0A526", .gray: "#7D8A99"]
         for tint in Tint.allCases { #expect(Theme.hex(for: tint) == expected[tint]) }
-        #expect(Theme.auraColors.count == 6)
     }
     @Test func soberTokens() {
-        // Claude-style visual identity: subtle halos, soft aura, a single accent (the creature's purple).
-        #expect(Theme.Halo.opacity <= 0.2)
-        #expect(Theme.Halo.radius >= 90)
-        #expect(Theme.Aura.softOpacity <= 0.15 && Theme.Aura.fullOpacity <= 0.6)
-        #expect(Theme.Aura.lineWidth <= 10)
-        // The accent is the creature's purple.
+        // A single accent: the creature's purple.
         let (r, g, b) = Theme.Colors.accent.rgb255
         #expect((r, g, b) == (160, 107, 224))
         #expect(Theme.Colors.creature.rgb255 == Theme.Colors.accent.rgb255)
@@ -71,6 +65,22 @@ import BrainmergeCore
         #expect(Theme.Motion.slowFactor(environment: ["BRAINMERGE_SLOW_MOTION": "0.1"], debug: true) == 1)
         #expect(Theme.Motion.isCapture(environment: ["BRAINMERGE_CAPTURE": "1"]))
         #expect(!Theme.Motion.isCapture(environment: ["BRAINMERGE_HOME": "/tmp/demo"]))
+    }
+
+    /// The six-color aura, the background halos and the unused pill button are gone for good: an opening account gets
+    /// a stroke in its own color, the canvas stays quiet. Nothing may bring them back by a token change.
+    @Test func noAuraHaloOrDeadButtonStyleLeft() throws {
+        let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI")
+        let files = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
+        var offenders: [String] = []
+        for case let url as URL in files where url.pathExtension == "swift" {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for word in ["AuraView", "AuraState", "auraColors", "enum Aura", "enum Halo", "Theme.Halo", "AccentPillButtonStyle", "accents:"]
+            where text.contains(word) { offenders.append("\(url.lastPathComponent): \(word)") }
+        }
+        #expect(offenders.isEmpty, "\(offenders)")
+        #expect(!FileManager.default.fileExists(atPath: sources.appending(path: "Design/AuraView.swift").path))
     }
 
     @Test func pickableTintsShowEachColorOnce() {

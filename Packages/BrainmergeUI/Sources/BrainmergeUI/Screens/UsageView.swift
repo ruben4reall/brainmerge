@@ -7,6 +7,7 @@ import BrainmergeCore
 /// Informational: never a switcher, never a comparison between accounts.
 public struct UsageView: View {
     @Bindable var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public init(model: AppModel) { self.model = model }
 
     public var body: some View {
@@ -20,12 +21,20 @@ public struct UsageView: View {
                 sectionLabel("Spent in Claude Code").padding(.top, 8)
                 if model.usage.isEmpty {
                     GlassCard {
-                        Text(model.usageRefreshing ? "Reading the transcripts…" : "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
-                            .foregroundStyle(Theme.Colors.textMuted).padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 8) {
+                            if model.usageRefreshing { ProgressView().controlSize(.small).transition(.opacity) }
+                            Text(model.usageRefreshing ? "Reading the transcripts…" : "Nothing yet. Open an account and work in Claude Code: what it spends shows up here.")
+                                .foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
+                        }
+                        .padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.usageRefreshing)
                     }
                     .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
                 }
-                ForEach(model.usage) { entry in card(entry).frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading) }
+                // The first read comes in card by card, 50 ms apart; a later visit finds them in place.
+                ForEach(Array(model.usage.enumerated()), id: \.element.id) { index, entry in
+                    card(entry, index: index, arrivedAt: model.usageArrivedAt).frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
+                }
                 HStack(spacing: 6) {
                     if let date = model.usageUpdatedAt { Text("Updated \(date.formatted(date: .omitted, time: .shortened)).") }
                     Text("Estimates: output tokens are what Claude wrote, context is what it read (cache included). Brainmerge never switches accounts for you.")
@@ -56,7 +65,8 @@ public struct UsageView: View {
             .accessibilityAddTraits(.isHeader)
     }
 
-    func card(_ entry: AccountUsage) -> some View {
+    /// A card, coming in `index` places after the first when the first read replaced the placeholder at `arrivedAt`.
+    func card(_ entry: AccountUsage, index: Int, arrivedAt: Date?) -> some View {
         GlassCard {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 12) {
@@ -74,11 +84,11 @@ public struct UsageView: View {
                     HStack(alignment: .top, spacing: 28) {
                         figures(entry.summary)
                         Spacer(minLength: 16)
-                        sparkline(entry.summary.byDay).frame(width: 220, height: 44)
+                        sparkline(entry.summary.byDay, card: index, arrivedAt: arrivedAt).frame(width: 220, height: 44)
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .top, spacing: 28) { figures(entry.summary) }
-                        sparkline(entry.summary.byDay).frame(maxWidth: 360).frame(height: 36)
+                        sparkline(entry.summary.byDay, card: index, arrivedAt: arrivedAt).frame(maxWidth: 360).frame(height: 36)
                     }
                 }
                 HStack(alignment: .top, spacing: 24) {
@@ -96,9 +106,11 @@ public struct UsageView: View {
             }
             .padding(16)
         }
+        .arrives(Arrival.data.delayed(UsageMotion.cardDelay(index)), from: arrivedAt)
     }
 
-    /// "Check limits" and what it found: nothing before the first click, then Claude Code's lines or one sentence.
+    /// "Check limits" and what it found: nothing before the first click, then Claude Code's lines or one sentence. While
+    /// it asks, a small spinner says so; the lines then come in one after the other, each bar growing to its share.
     func limits(_ slug: String, name: String, tint: Color, shared: Bool) -> some View {
         let state = model.limits[slug]
         return VStack(alignment: .leading, spacing: 12) {
@@ -107,9 +119,13 @@ public struct UsageView: View {
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 12)
                 if state == .checking {
-                    Text(LimitsText.checking).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(LimitsText.checking).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted)
+                    }
+                    .transition(.opacity)
                 } else if case .checked(_, let at) = state {
-                    Text(LimitsText.checkedAt(at)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint)
+                    Text(LimitsText.checkedAt(at)).font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint).transition(.opacity)
                 }
                 Button("Check limits") { Task { await model.checkLimits(slug) } }
                     .buttonStyle(.glass).controlSize(.small)
@@ -118,21 +134,27 @@ public struct UsageView: View {
                     .help(LimitsText.buttonHelp)
             }
             switch state {
-            case .checked(let lines, _):
+            case .checked(let lines, let at):
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 28, alignment: .top)], alignment: .leading, spacing: 14) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in limitRow(line, tint: tint) }
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                        limitRow(line, tint: tint, index: index, arrived: at)
+                            .arrives(Arrival.data.delayed(UsageMotion.cardDelay(index)), from: at)
+                    }
                 }
             case .refused(let sentence):
                 Text(sentence).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
+                    .transition(.line(reduceMotion))
             case .checking, nil:
                 EmptyView()
             }
         }
+        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: state)
     }
 
     /// One limit: Claude Code's label, the percent used, a thin bar in the account's color, and the reset time as written.
-    func limitRow(_ line: LimitLine, tint: Color) -> some View {
+    /// The bar grows from nothing to its share as the answer comes in, like the chart's bars.
+    func limitRow(_ line: LimitLine, tint: Color, index: Int, arrived: Date) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(line.label).font(Theme.Fonts.secondary).lineLimit(1)
@@ -140,10 +162,14 @@ public struct UsageView: View {
                 Text(LimitsText.percent(line)).font(Theme.Fonts.secondary).monospacedDigit()
             }
             GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: Theme.Layout.meterRadius, style: .continuous).fill(Theme.Colors.field)
-                    RoundedRectangle(cornerRadius: Theme.Layout.meterRadius, style: .continuous).fill(tint)
-                        .frame(width: line.fraction > 0 ? max(2, geometry.size.width * line.fraction) : 0)
+                let delay = UsageMotion.cardDelay(index)
+                BeatView(start: arrived, duration: delay + UsageMotion.barGrowth) { elapsed in
+                    let grown = reduceMotion ? 1 : elapsed.map { Ease.out(Ease.progress($0, from: delay, over: UsageMotion.barGrowth)) } ?? 1
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: Theme.Layout.meterRadius, style: .continuous).fill(Theme.Colors.field)
+                        RoundedRectangle(cornerRadius: Theme.Layout.meterRadius, style: .continuous).fill(tint)
+                            .frame(width: line.fraction > 0 ? max(2, geometry.size.width * line.fraction) * CGFloat(grown) : 0)
+                    }
                 }
             }
             .frame(height: 6)
@@ -161,11 +187,16 @@ public struct UsageView: View {
         figure("30 days", summary.monthOutput, summary.month)
     }
 
+    /// A figure rolls to its new value when a later read changes it (at most once a minute); never on arrival.
     func figure(_ label: String, _ output: Int, _ total: Int) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label.uppercased()).font(Theme.Fonts.sectionLabel).foregroundStyle(Theme.Colors.textFaint)
             Text(TokenFormat.short(output)).font(Theme.Fonts.figure)
+                .contentTransition(reduceMotion ? .opacity : .numericText(value: Double(output)))
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(UsageMotion.update), reduceMotion), value: output)
             Text("written · \(TokenFormat.short(total)) context").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                .contentTransition(.opacity)
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(UsageMotion.update), reduceMotion), value: total)
         }
         .fixedSize()
     }
@@ -181,18 +212,29 @@ public struct UsageView: View {
         .frame(maxWidth: 300, alignment: .leading)
     }
 
-    /// Fourteen bars, one per day, the most recent on the right.
-    func sparkline(_ days: [UsageSummary.Bucket]) -> some View {
-        Canvas { context, size in
-            let maxValue = max(1, days.map(\.output).max() ?? 1)
-            let slot = size.width / CGFloat(max(1, days.count))
-            for (index, day) in days.enumerated() {
-                let height = max(2, size.height * CGFloat(day.output) / CGFloat(maxValue))
-                let rect = CGRect(x: CGFloat(index) * slot + 2, y: size.height - height, width: slot - 4, height: height)
-                let isToday = index == days.count - 1
-                context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(isToday ? Theme.Colors.accent : Theme.Colors.accentSoft))
+    /// Fourteen bars, one per day, the most recent on the right. With the first read they grow from a 2 point baseline,
+    /// left to right, today's last; a later read moves them to their new height in 0.3 s.
+    func sparkline(_ days: [UsageSummary.Bucket], card: Int, arrivedAt: Date?) -> some View {
+        let maxValue = max(1, days.map(\.output).max() ?? 1)
+        let delay = UsageMotion.cardDelay(card)
+        return GeometryReader { geometry in
+            let slot = geometry.size.width / CGFloat(max(1, days.count))
+            BeatView(start: arrivedAt, duration: delay + UsageMotion.barsDuration) { elapsed in
+                ZStack(alignment: .bottomLeading) {
+                    ForEach(Array(days.enumerated()), id: \.offset) { index, day in
+                        let height = UsageMotion.barHeight(fraction: Double(day.output) / Double(maxValue), height: geometry.size.height,
+                                                           index: index, elapsed: elapsed.map { $0 - delay }, reduceMotion: reduceMotion)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(index == days.count - 1 ? Theme.Colors.accent : Theme.Colors.accentSoft)
+                            .frame(width: max(0, slot - 4), height: height)
+                            .offset(x: CGFloat(index) * slot + 2)
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .bottomLeading)
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(UsageMotion.update), reduceMotion), value: days.map(\.output))
             }
         }
+        .accessibilityElement()
         .accessibilityLabel("Output tokens per day, last 14 days")
     }
 }

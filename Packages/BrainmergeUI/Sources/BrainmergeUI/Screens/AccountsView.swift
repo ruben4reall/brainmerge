@@ -15,6 +15,7 @@ public struct AccountsView: View {
     /// The apps the person made that open the account being edited, found before its sheet opens.
     @State private var editingApps: [ExistingApp] = []
     @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Two to four cards per row that always fill the width (300 to 400 wide).
     let columns = [GridItem(.adaptive(minimum: 300, maximum: 400), spacing: 12)]
 
@@ -26,27 +27,39 @@ public struct AccountsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Every word, orb and button here is an obstacle the launch's leap flies around; the cards' empty edges are
-                // not, so the leap can rise from the splash just under them.
-                if let warning = model.memoryWarning { memoryBanner(warning).launchObstacle("accounts.memoryBanner") }
-                if let banner = model.updateBanner { updateBanner(banner).launchObstacle("accounts.updateBanner") }
-                ScreenHeader("Accounts", subtitle: subtitle) {
+                // not, so the leap can rise from the splash just under them. A banner drops in and the grid slides down.
+                if let warning = model.memoryWarning {
+                    memoryBanner(warning).launchObstacle("accounts.memoryBanner").modifier(ReducedFadeIn()).transition(.banner(reduceMotion))
+                }
+                if let banner = model.updateBanner {
+                    updateBanner(banner).launchObstacle("accounts.updateBanner").modifier(ReducedFadeIn()).transition(.banner(reduceMotion))
+                }
+                ScreenHeader("Accounts", subtitle: subtitle, busy: model.working != nil, changeKey: subtitleWords) {
                     HStack(spacing: 10) {
                         searchField
                         Button("Add account") { showAdd = true }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
                     }
                 }
                 .launchObstacle("accounts.header")
+                // A card added or removed scales a touch and fades while the others make room; a search filters at once
+                // (only the accounts themselves animate the grid, never the query).
                 GlassEffectContainer(spacing: 12) {
                     LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(shown) { account in card(account) }
+                        ForEach(shown) { account in
+                            card(account).transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
+                        }
                     }
                 }
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.settle, reduceMotion), value: model.accounts.map(\.id))
                 if shown.isEmpty, !query.isEmpty {
                     Text("No account matches “\(query)”.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
             }
             .padding(Theme.Layout.padding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // With Reduce Motion the grid moves at once and the banner only fades (ReducedFadeIn).
+            .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.memoryWarning)
+            .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.updateBanner)
         }
         .sheet(isPresented: $showAdd) { AddAccountSheet(model: model, isPresented: $showAdd) }
         .sheet(isPresented: $showNewMemory) { NewMemorySheet(model: model, isPresented: $showNewMemory, attach: newMemoryFor) }
@@ -84,6 +97,11 @@ public struct AccountsView: View {
         return open.count == 1 ? "1 account open\(memory)" : "\(open.count) accounts open\(memory)"
     }
 
+    /// The subtitle without its RAM figure: the figure moves every few seconds and never animates (a new state crossfades).
+    var subtitleWords: String {
+        model.working ?? model.accounts.first(where: { model.opening.contains($0.id) }).map { "opening \($0.id)" } ?? "\(model.openAccounts.count) open"
+    }
+
     var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Colors.textFaint)
@@ -95,6 +113,7 @@ public struct AccountsView: View {
     }
 
     /// A compact card: swatch, name, note, status; the primary action and the "more" menu on the right.
+    /// While its account opens, a stroke in its own color turns around it; once open, its dot pops sage and rings once.
     func card(_ account: Account) -> some View {
         let opening = model.opening.contains(account.id)
         let memory = model.ramBytes(of: account.id)
@@ -102,10 +121,13 @@ public struct AccountsView: View {
         let othersOpen = model.openAccounts.contains { $0.id != account.id }
         let action = SidebarAccountAction.of(account: account, opening: model.opening, busy: model.accountsBusy,
                                              othersOpen: othersOpen, appExists: model.appURL(of: account.id) != nil)
+        let tint = Theme.color(for: account.identity.tint)
+        let status = Self.status(of: account, memory: memory)
         return ZStack {
-            AuraView(state: opening ? .full : .off, cornerRadius: Theme.Layout.cardRadius).padding(-3)
             HStack(spacing: 12) {
                 OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 40)
+                    // A card added while the app runs: one ring in its color around the orb.
+                    .overlay { RingPulseView(ring: .added, start: model.addedAt[account.id], color: tint) }
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
                         Text(account.identity.name).font(Theme.Fonts.cardName).lineLimit(1)
@@ -127,18 +149,31 @@ public struct AccountsView: View {
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                     .help(Self.subtitleHelp(of: account) ?? "")
                     HStack(spacing: 5) {
-                        Circle().fill(account.isRunning ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 6, height: 6)
-                        Text(Self.status(of: account, memory: memory))
+                        statusDot(account, updating: action == .updating, opened: model.openedAt[account.id])
+                        Text(status)
                             .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                            .contentTransition(.opacity)
+                            // Open, closed, opening: a crossfade; the RAM figure that follows moves at once, never rolls.
+                            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion),
+                                       value: Self.status(of: account, memory: 0))
                     }
                 }
                 Spacer(minLength: 8)
-                if let button = Self.cardButton(for: account, action: action) { cardButton(button, for: account, action: action) }
+                let button = Self.cardButton(for: account, action: action)
+                Group {
+                    if let button { cardButton(button, for: account, action: action).transition(.opacity) }
+                }
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: button)
                 moreMenu(account)
             }
             .launchObstacle("accounts.card.\(account.id)")
             .padding(14)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
+            .overlay {
+                ZStack { if opening { OpeningStrokeView(tint: tint).transition(.opacity) } }
+                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(opening ? OpeningStroke.fadeIn : OpeningStroke.fadeOut), reduceMotion),
+                               value: opening)
+            }
         }
         .contextMenu { actions(account) }
     }
@@ -251,6 +286,27 @@ public struct AccountsView: View {
         let run: Run
         let isEnabled: Bool
         let isProminent: Bool
+    }
+
+    /// Open or closed: sage or faint, 0.2 s either way. The moment its account opens from here, the dot pops from 0.4 of its
+    /// size and one sage ring spreads from it; while its app is being updated, a small spinner takes its place.
+    func statusDot(_ account: Account, updating: Bool, opened: Date?) -> some View {
+        ZStack {
+            if updating {
+                ProgressView().controlSize(.mini).transition(.opacity)
+            } else {
+                BeatView(start: opened, duration: PopIn.duration) { elapsed in
+                    Circle().fill(account.isRunning ? Theme.Colors.sage : Theme.Colors.textFaint)
+                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: account.isRunning)
+                        .scaleEffect(PopIn.scale(elapsed: elapsed, reduceMotion: reduceMotion))
+                        .opacity(PopIn.opacity(elapsed: elapsed, reduceMotion: reduceMotion))
+                }
+                .overlay { RingPulseView(ring: .opened, start: opened, color: Theme.Colors.sage) }
+                .transition(.opacity)
+            }
+        }
+        .frame(width: 6, height: 6)
+        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: updating)
     }
 
     /// The sidebar's word for the account (see SidebarAccountAction), with its disabled states: the card never offers a

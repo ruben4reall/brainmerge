@@ -6,6 +6,7 @@ import SwiftUI
 public struct NotesAppPicker: View {
     @Binding var selection: String?
     let installed: [NotesApp]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public init(selection: Binding<String?>, installed: [NotesApp] = NotesApps.installed()) {
         _selection = selection; self.installed = installed
     }
@@ -58,6 +59,6 @@ public struct NotesAppPicker: View {
         .padding(.horizontal, 6)
         .frame(width: 88, height: 88)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(selected ? Theme.Colors.accent : Theme.Colors.surfaceLine, lineWidth: selected ? 2 : 1))
+        .choiceStroke(selected: selected, reduceMotion: reduceMotion)
     }
 }

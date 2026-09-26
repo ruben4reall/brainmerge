@@ -6,7 +6,7 @@ import BrainmergeCore
 public struct UninstallSheet: View {
     @Bindable var model: AppModel
     @Binding var isPresented: Bool
-    @State private var problem: String?
+    @State private var problem = InlineProblem()
 
     public init(model: AppModel, isPresented: Binding<Bool>) { self.model = model; _isPresented = isPresented }
 
@@ -23,9 +23,9 @@ public struct UninstallSheet: View {
             }
             Text("Every account's Claude keeps working as before Brainmerge: each project gets a copy of its notes next to its sessions.")
                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
-            if let problem { Text(problem).foregroundStyle(Theme.Colors.accentLight).font(Theme.Fonts.secondary) }
+            ProblemLine(problem: problem)
             HStack(spacing: 10) {
-                if let working = model.working { Text(working).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                WorkingLine(text: model.working)
                 Spacer()
                 Button("Cancel") { isPresented = false }.buttonStyle(.glass).keyboardShortcut(.cancelAction)
                 Button("Remove Brainmerge", role: .destructive) { remove() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
@@ -34,7 +34,7 @@ public struct UninstallSheet: View {
         }
         .padding(22)
         .frame(width: 520)
-        .background(WarmBackground(accents: [.gray]))
+        .background(WarmBackground())
     }
 
     func list(_ title: String, _ lines: [String], symbol: String, tint: Color) -> some View {
@@ -54,7 +54,7 @@ public struct UninstallSheet: View {
             if await model.uninstall() != nil {
                 Installer.trashSelfAndQuit()
             } else {
-                problem = model.message?.detail; model.message = nil
+                problem.show(model.message?.detail); model.message = nil
             }
         }
     }

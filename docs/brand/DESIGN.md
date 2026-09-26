@@ -9,7 +9,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 3. **One accent.** The purple of the creature, and only it, for actions: switches, segmented controls, the selected item in the sidebar, progress dots. A sidebar row under the pointer gets a neutral cream fill, fainter than the selection, so the purple keeps meaning "selected". Primary buttons are filled with its deep shade (`Colors.button`), so their white label reads at 4.7:1. Secondary actions are glass buttons.
 4. **Glass surfaces, native controls.** Cards, sidebar and chips use the system glass (`glassEffect`) with a thin rim; primary actions are the system's prominent glass button tinted with the accent, secondary actions plain glass. Corner radius 12 for cards, 14 for the sidebar, 10 for its rows, capsules for chips. A sidebar row is clickable across its whole width.
 5. **Flat account colors.** Each account has a muted tint (or a photo) on a flat circle with its initial. No gloss, no glow.
-6. **Motion with a purpose.** The creature is a pixel sprite and moves like one: at rest it is exactly its grid, and its eyes, arms, legs and breath change in whole cells or whole pixels. In the sidebar it only blinks and glances, walks while an account opens, waves when it is open, hops with a few sparkles when the memory saves a note, and startles at an error; these reactions play even while the window is in the background, where its idle holds still. At launch its pixels gather into one, then it leaps into the sidebar while the window appears, along a path that never crosses words or rows: when the rows reach low it rises straight up before it swings home, and caught in the middle of its hop with no clear way from the air it lands first. The splash never keeps a ready app waiting past 0.48 s, and the screens come in under the leap; only a window too full for any clear path keeps them back until the creature is home. On a first run it lands on the welcome creature and the words come in after it. At the end of the setup it waits beside Open Brainmerge and leaps home from there. How it works shows three account windows and one folder on this Mac: a note saved by one reaches the others. An opening account gets a stroke in its own color. Keyboard paths and the sidebar's hover and press stay instant or take 0.12 s. With Reduce Motion nothing moves: colors and opacity change in 0.15 s, and every scene shows its still. Captures show the same stills. The menu bar icon never moves.
+6. **Motion with a purpose.** The creature is a pixel sprite and moves like one: at rest it is exactly its grid, and its eyes, arms, legs and breath change in whole cells or whole pixels. In the sidebar it only blinks and glances, walks while an account opens, waves when it is open, hops with a few sparkles when the memory saves a note, and startles at an error; these reactions play even while the window is in the background, where its idle holds still. At launch its pixels gather into one, then it leaps into the sidebar while the window appears, along a path that never crosses words or rows: when the rows reach low it rises straight up before it swings home, and caught in the middle of its hop with no clear way from the air it lands first. The splash never keeps a ready app waiting past 0.48 s, and the screens come in under the leap; only a window too full for any clear path keeps them back until the creature is home. On a first run it lands on the welcome creature and the words come in after it. At the end of the setup it waits beside Open Brainmerge and leaps home from there. How it works shows three account windows and one folder on this Mac: a note saved by one reaches the others. An opening account gets a stroke in its own color, and its dot pops sage with one ring once it is open. What changes on its own never pops: data and results rise into place, a new row drops in and keeps the selection color for a moment, a problem said twice shakes, work that runs shows a small spinner, and the memory graph blooms from its projects on its first read, fades what a hover leaves out and glides when zoomed. Keyboard paths and the sidebar's hover and press stay instant or take 0.12 s. With Reduce Motion nothing moves: colors and opacity change in 0.15 s, and every scene shows its still. Captures show the same stills. The menu bar icon never moves.
 
 ## Tokens
 
@@ -26,7 +26,7 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.accent` | `#A06BE0` | the one accent |
 | `Colors.accentLight` / `accentDeep` | `#B487EA` / `#8657C9` | inline notices (and the "Only here" mark of an account's MCP servers) / the fill of prominent buttons |
 | `Colors.button` | `accentDeep` | prominent buttons (4.7:1 with `onAccent`) |
-| `Colors.selection` | accent at 18% | the selected sidebar row, the flat shadow under the creature (launch, How it works) |
+| `Colors.selection` | accent at 18% | the selected sidebar row, the flat shadow under the creature (launch, How it works), a new timeline row for 1.6 s |
 | `Colors.rowHover` | text at 6% | a sidebar row under the pointer (neutral, fainter than `selection`) |
 | `Colors.rowPressed` | text at 10% | a sidebar row while it is pressed |
 | `Colors.accentSoft` | accent at 35% | the older bars of the usage chart |
@@ -41,12 +41,10 @@ Everything visible in Brainmerge derives from one file, `Packages/BrainmergeUI/S
 | `Colors.creature` / `creatureEye` | `#A06BE0` / `#1E1430` | the creature |
 | `Diagram.windowGlass` / `windowLight` | white at 5.5% / 16% | How it works: an account window's pane over the canvas, its three title-bar lights |
 | `Diagram.pageFold` / `pageLine` / `noteLine` / `folderEdge` | black at 25% / white at 75% / black at 18% / white at 14% | How it works: a note page's folded corner and written lines, the lines on the notes in the folder, the light along the folder's front |
-| `Halo.opacity` / `radius` / `size` | 0 / 110 / 520 | background halos (off; set 0.14 to bring them back) |
-| `Aura.softOpacity` / `fullOpacity` / `lineWidth` / `period` | 0.10 / 0.45 / 6 / 7 s | the spinning aura |
 | `Motion.out(d)` / `inOut(d)` | `cubic-bezier(0.23, 1, 0.32, 1)` / `cubic-bezier(0.77, 0, 0.175, 1)` | entering, exiting and feedback / moving on screen (the site's `--ease-out` and `--ease-move`) |
 | `Motion.hover` / `quick` / `base` / `page` / `ring` | 0.12 / 0.15 / 0.22 / 0.32 / 1.2 s | hover and press / small changes / most changes / a page / a ring |
 | `Motion.pop` / `settle` / `hop` | springs 0.35, 0.6 / 0.4, 0.88 / 0.28, 0.55 | a dot or swatch that pops / layout that settles / a hop |
-| `Motion.reduced` | 0.15 s linear | every change with Reduce Motion: opacity and color only |
+| `Motion.reduced` / `unlessReduced(_:_:)` | 0.15 s linear | every change with Reduce Motion: opacity and color only (`unlessReduced` picks it in place of an animation) |
 | `Motion.isCapture` / `slow` | `BRAINMERGE_CAPTURE` / `BRAINMERGE_SLOW_MOTION` (debug builds) | captures show each scene's still / every token and scene slowed down to feel-check it |
 | `Launch.unit` / `lift` | 7 / 20 | one pixel of the creature on the launch splash, in points / how far its body's middle sits above the window's middle |
 | `Launch.frameDuration` | 0.12 s | one frame of the four-frame walk while a slow launch loads |
@@ -64,7 +62,16 @@ The menu bar icon (`Design/MenuBarIcon.swift`) is the creature drawn from the sa
 
 Account tints (`Theme.hex(for:)`): orange `#D97757`, blue `#6FA3D8`, green `#7FA37A`, purple `#A87BC9`, pink `#D97A8E`, yellow `#E0A526`, gray `#7D8A99`. Red maps to pink and is not offered in pickers.
 
-Aura colors, in order: `#A06BE0`, `#C58FD9`, `#7FB5E8`, `#8FC7A6`, `#E9A45C`, `#B487EA`.
+State changes (`Design/StateMotion.swift`, each a pure function of the time since it happened, so a screen opened later draws its end and a capture its still):
+
+| Change | Values |
+| --- | --- |
+| An account opening (`OpeningStroke`) | a 1.5 pt arc in its tint around the card, one turn per 1.6 s, with the same stroke blurred 6 pt at 35%; in 0.18 s, out 0.25 s. Captures and Reduce Motion: still at 35 degrees, 60% with Reduce Motion |
+| Opened (`PopIn`, `RingPulse.opened`) | the dot from 0.4 of its size on `Motion.pop`, one sage ring 6 to 18 pt in 0.5 s; a card added rings its orb (40 to 52 pt) in its tint |
+| Arriving (`Arrival`) | data and results rise 8 pt in 0.24 s (Usage cards 50 ms apart, chart bars from a 2 pt baseline, 15 ms apart); lines and problems drop 4 pt in 0.18 s; timeline rows drop 6 pt in 0.24 s |
+| A problem said again (`Shake`) | x 0, -4, 4, -3, 0 over 0.3 s; with Reduce Motion an opacity blink 1, 0.4, 1 |
+| Busy (`WorkingLine`) | a small spinner before the sentence, in and out in 0.15 s, never inside a disabled button |
+| The memory graph (`GraphBloom`, `CameraTween`, `GraphPulse`) | first read: notes out of their hub in 0.65 s, 30 ms per link away (240 ms at most); hover: a quarter of the way per frame, to 28%; zoom 0.2 s, Fit 0.35 s; a pulse rings r+3 to r+20 in 1.2 s (twice and a pop when an account saved it), its halo 2.6 s |
 
 ## Type
 

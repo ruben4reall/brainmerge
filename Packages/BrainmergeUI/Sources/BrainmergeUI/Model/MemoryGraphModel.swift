@@ -75,9 +75,15 @@ public final class MemoryGraphModel {
         /// The account that saved the note, nil while it is being written and not saved yet.
         public let slug: String?
     }
-    public static let pulseDuration: TimeInterval = 2.6
+    /// A pulse lasts as long as its halo (see GraphPulse).
+    public static let pulseDuration: TimeInterval = GraphPulse.halo
     /// How far Obsidian fades what is unrelated to the hovered note.
     public static let fadedAlpha = 0.2
+    /// How far a memory fades what is unrelated, and its threads.
+    public static let memoryDimmed = 0.28
+    public static let memoryThreadsDimmed = 0.5
+    /// Moving from one bubble to the next crosses empty space: the focus holds this long, so the graph never relights.
+    public static let hoverGrace = 0.08
     /// Saves read from the history to tell who saved each note last.
     nonisolated static let historyDepth = 5000
 
@@ -116,6 +122,20 @@ public final class MemoryGraphModel {
     public var fitted = false
     /// With Reduce Motion on, the layout settles out of sight and appears in place, and pulses do not ripple.
     public var reduceMotion = false { didSet { if reduceMotion { settleQuietly() } else { animate() } } }
+    /// The first read of a memory blooms from its hubs once its layout has settled out of sight (see GraphBloom); nothing
+    /// is drawn until then. With Reduce Motion, and in captures, it appears in place once settled instead.
+    private(set) var bloom: GraphBloom?
+    public private(set) var awaitingFirstLayout = false
+    /// When the first layout appeared in place (Reduce Motion): the graph fades in over 0.15 s from here.
+    public private(set) var revealedAt: Date?
+    /// The settling before the bloom, off the main thread.
+    @ObservationIgnored public private(set) var bloomTask: Task<Void, Never>?
+    /// The zoom buttons and Fit glide (see CameraTween); the camera it last set, to see a gesture move it meanwhile.
+    @ObservationIgnored private var cameraTween: CameraTween?
+    @ObservationIgnored private var tweenCamera: GraphCamera?
+    @ObservationIgnored private var hoverGraceTask: Task<Void, Never>?
+    /// The time of every frame, injectable in tests.
+    @ObservationIgnored public var clock: @Sendable () -> Date = { Date() }
 
     /// Where the pointer is over the graph, and the graph's size on screen (read by the scroll-wheel handler).
     @ObservationIgnored public var pointer: CGPoint?
@@ -135,16 +155,21 @@ public final class MemoryGraphModel {
     @ObservationIgnored private var layoutGeneration = 0
     @ObservationIgnored private var timer: Timer?
     private let animates: Bool
+    private let blooms: Bool
     private let maxNotes: Int
     @ObservationIgnored private var dragged: String?
     /// In a vault, how visible each node is (eased toward 1, or a fifth when unrelated to the hovered one), and the lines.
     @ObservationIgnored private var fades: [String: Double] = [:]
     @ObservationIgnored public private(set) var lineFade = 1.0
+    /// The last notes in focus: their threads stay lit while they fade back after the focus goes.
+    @ObservationIgnored public private(set) var lastFocus: Set<String>?
     @ObservationIgnored private var fading = false
     /// The settings files as last read, to read them again only when they change.
     @ObservationIgnored private var settingsStamp: String?
 
-    public init(animates: Bool = true, maxNotes: Int = 2000) { self.animates = animates; self.maxNotes = maxNotes }
+    public init(animates: Bool = true, maxNotes: Int = 2000, blooms: Bool? = nil) {
+        self.animates = animates; self.maxNotes = maxNotes; self.blooms = blooms ?? animates
+    }
 
     /// Reads the folder again. The first read of a folder sets the scene without pulses; the next ones pulse what changed.
     /// Switching to another memory never waits for a read of the previous one: that read is discarded when it ends.
@@ -190,7 +215,7 @@ public final class MemoryGraphModel {
         lastRefreshDuration = Date().timeIntervalSince(started)
         head = newHead
         if readHistory { historyReads += 1 }
-        let now = Date()
+        let now = clock()
         let shown = vault?.shown.graph ?? result.graph
         if let vault {
             settingsStamp = vault.stamp
@@ -236,14 +261,68 @@ public final class MemoryGraphModel {
             weights = style == .vault ? graph.weights() : [:]
             if !fades.isEmpty { let ids = Set(graph.nodes.map(\.id)); fades = fades.filter { ids.contains($0.key) } }
             layoutGeneration += 1
+            // Its indices are the layout's: a graph that changed while it plays shows at once.
+            bloom = nil
             if let selected, graph.node(selected) == nil { self.selected = nil }
             if let hovered, graph.node(hovered) == nil { self.hovered = nil }
         }
         if let slug = highlightedAccount, !authors.contains(where: { $0.value.slug == slug && graph.node($0.key) != nil }) {
             highlightedAccount = nil
         }
+        if first, style == .memory, !graph.nodes.isEmpty {
+            if quiet { awaitingFirstLayout = true; settleQuietly() } else if blooms { prepareBloom() }
+        }
         if reduceMotion { settleQuietly() }
         animate()
+    }
+
+    /// Nothing moves on screen: Reduce Motion, or a capture, which shows each scene's end.
+    private var quiet: Bool { reduceMotion || Theme.Motion.isCapture }
+
+    /// The first read of a memory: its layout settles out of sight until nearly still, the camera frames it once, then the
+    /// notes bloom out of their hubs while the rest settles live (about a second).
+    private func prepareBloom() {
+        guard bloomTask == nil, layout.count > 0 else { return }
+        awaitingFirstLayout = true
+        let start = layout, mine = layoutGeneration
+        bloomTask = Task { [weak self] in
+            let settled = await Task.detached(priority: .userInitiated) { () -> GraphLayout in
+                var layout = start
+                var steps = 0
+                while layout.alpha >= MemoryGraphModel.bloomAlpha, steps < 1000 { layout.step(); steps += 1 }
+                return layout
+            }.value
+            guard let self else { return }
+            self.bloomTask = nil
+            self.awaitingFirstLayout = false
+            // The graph changed meanwhile: it shows live instead.
+            guard mine == self.layoutGeneration else { self.animate(); return }
+            self.layout = settled
+            if self.viewSize != .zero { self.camera.fit(settled.bounds, in: self.viewSize) }
+            self.fitted = true
+            self.bloom = GraphBloom(ids: settled.ids, links: settled.linkIndices, positions: (0..<settled.count).map(settled.position(at:)),
+                                    start: self.clock())
+            self.frame &+= 1
+            self.animate()
+        }
+    }
+    /// How still the layout is when the bloom starts: what remains settles live.
+    nonisolated static let bloomAlpha = 0.05
+
+    /// Where a note is drawn now: on its way out of its hub while the bloom plays, else where the layout has it.
+    public func drawnPosition(at i: Int, now: Date) -> CGPoint {
+        let target = layout.position(at: i)
+        guard let bloom, i < bloom.origins.count else { return target }
+        return bloom.position(i, target: target, elapsed: Beat.elapsed(since: bloom.start, at: now) ?? 0)
+    }
+    /// How visible a note and a thread are while the bloom plays (1 otherwise).
+    public func bloomOpacity(at i: Int, now: Date) -> Double {
+        guard let bloom, i < bloom.origins.count else { return 1 }
+        return bloom.opacity(i, elapsed: Beat.elapsed(since: bloom.start, at: now) ?? 0)
+    }
+    public func threadOpacity(_ a: Int, _ b: Int, now: Date) -> Double {
+        guard let bloom, a < bloom.origins.count, b < bloom.origins.count else { return 1 }
+        return bloom.edgeOpacity(a, b, elapsed: Beat.elapsed(since: bloom.start, at: now) ?? 0)
     }
 
     private func reset(_ newRoot: URL?, style newStyle: MemoryGraph.Style) {
@@ -254,6 +333,8 @@ public final class MemoryGraphModel {
         graph = MemoryGraph(); authors = [:]; pulses = [:]; layout = GraphLayout(); adjacency = [:]; head = nil
         settings = ObsidianGraphSettings(); settingsStamp = nil; groupColors = [:]; weights = [:]; lineIndices = []; arrowIndices = []
         fades = [:]; lineFade = 1; fading = false
+        bloomTask?.cancel(); bloomTask = nil; bloom = nil; awaitingFirstLayout = false; revealedAt = nil
+        cameraTween = nil; tweenCamera = nil; hoverGraceTask?.cancel(); hoverGraceTask = nil
         var camera = GraphCamera()
         if newStyle == .vault { camera.unit = 1 / max(backingScale, 1); camera.zoomRange = GraphCamera.obsidianZoom }
         self.camera = camera
@@ -264,7 +345,23 @@ public final class MemoryGraphModel {
     public func clearPulses() { pulses = [:] }
 
     /// The pointer left the graph, or the graph left the screen.
-    public func pointerLeft() { pointer = nil; hovered = nil }
+    public func pointerLeft() { hoverGraceTask?.cancel(); hoverGraceTask = nil; pointer = nil; hovered = nil }
+
+    /// The bubble under the pointer as it moves. Leaving a bubble of a memory keeps its focus for `hoverGrace`: moving on
+    /// to the next one never relights the graph in between. A vault follows Obsidian: at once.
+    public func hover(_ id: String?) {
+        hoverGraceTask?.cancel(); hoverGraceTask = nil
+        guard id == nil, hovered != nil, style == .memory, !reduceMotion else {
+            if hovered != id { hovered = id }
+            return
+        }
+        hoverGraceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.hoverGrace * Theme.Motion.slow))
+            guard !Task.isCancelled, let self else { return }
+            self.hoverGraceTask = nil
+            self.hovered = nil
+        }
+    }
 
     public func neighbors(of id: String) -> Set<String> { adjacency[id] ?? [] }
 
@@ -292,33 +389,38 @@ public final class MemoryGraphModel {
     /// The note the focus is on: in a vault, the lines that touch it light up.
     public var focusCenter: String? { hovered ?? (highlightedAccount == nil ? selected : nil) }
 
-    /// How visible a node of a vault is now, from 0.2 to 1.
+    /// How visible a node is now: from 0.2 to 1 in a vault, from 0.28 to 1 in a memory.
     public func fade(_ id: String) -> Double { fades[id] ?? 1 }
 
+    /// A memory fades a quarter of the way each frame (about 180 ms to 95%); a vault keeps Obsidian's tenth.
+    private var fadeRate: Double { style == .vault ? 0.1 : 0.25 }
+    private var dimmedAlpha: Double { style == .vault ? Self.fadedAlpha : Self.memoryDimmed }
+    private var threadsDimmed: Double { style == .vault ? Self.fadedAlpha : Self.memoryThreadsDimmed }
+
     private func focusChanged() {
-        guard style == .vault else { return }
+        if let focus { lastFocus = focus }
         fading = true
         if reduceMotion { stepFades() }
         animate()
     }
 
-    /// Obsidian's soft fade: every frame each node moves a tenth of the way toward its target. At once with Reduce Motion.
+    /// Obsidian's soft fade: every frame each node moves part of the way toward its target. At once with Reduce Motion.
     private func stepFades() {
         guard fading else { return }
-        let focus = self.focus
+        let focus = self.focus, rate = fadeRate, dimmed = dimmedAlpha
         func toward(_ value: Double, _ target: Double) -> Double {
             if reduceMotion { return target }
-            let next = value * 0.9 + target * 0.1
+            let next = value * (1 - rate) + target * rate
             return abs(next - target) < 0.005 ? target : next
         }
         var moving = false
         for node in graph.nodes {
-            let target = focus.map { $0.contains(node.id) ? 1 : Self.fadedAlpha } ?? 1
+            let target = focus.map { $0.contains(node.id) ? 1 : dimmed } ?? 1
             let value = toward(fades[node.id] ?? 1, target)
             fades[node.id] = value == 1 ? nil : value
             if value != target { moving = true }
         }
-        let lineTarget = focus == nil ? 1 : Self.fadedAlpha
+        let lineTarget = focus == nil ? 1 : threadsDimmed
         lineFade = toward(lineFade, lineTarget)
         fading = moving || lineFade != lineTarget
     }
@@ -384,11 +486,13 @@ public final class MemoryGraphModel {
 
     // MARK: Motion
 
-    public var isMoving: Bool { (!layout.isSettled && !reduceMotion) || !pulses.isEmpty || dragged != nil || fading }
+    public var isMoving: Bool {
+        (!layout.isSettled && !quiet && !awaitingFirstLayout) || !pulses.isEmpty || dragged != nil || fading || bloom != nil || cameraTween != nil
+    }
 
     public func position(of id: String) -> CGPoint? { layout.position(of: id) }
 
-    public func drag(_ id: String, to point: CGPoint) { dragged = id; layout.drag(id, to: point); layoutGeneration += 1; animate() }
+    public func drag(_ id: String, to point: CGPoint) { dragged = id; bloom = nil; layout.drag(id, to: point); layoutGeneration += 1; animate() }
     public func endDrag() {
         if let dragged { layout.release(dragged) }
         dragged = nil; layoutGeneration += 1
@@ -409,7 +513,7 @@ public final class MemoryGraphModel {
     /// Under Reduce Motion: runs the simulation to rest off the main thread, then shows the result in one go.
     /// A change made meanwhile (a new note, a drag) starts it again from the new state.
     func settleQuietly() {
-        guard reduceMotion, settleTask == nil, dragged == nil, layout.count > 0, !layout.isSettled else { return }
+        guard quiet, settleTask == nil, dragged == nil, layout.count > 0, !layout.isSettled else { return }
         let start = layout, mine = layoutGeneration
         settleTask = Task { [weak self] in
             let settled = await Task.detached(priority: .userInitiated) { () -> GraphLayout in
@@ -423,25 +527,54 @@ public final class MemoryGraphModel {
             guard mine == self.layoutGeneration else { self.settleQuietly(); return }
             self.layout = settled
             if !self.fitted, self.viewSize != .zero { self.camera.fit(settled.bounds, in: self.viewSize); self.fitted = true }
+            if self.awaitingFirstLayout { self.awaitingFirstLayout = false; self.revealedAt = self.clock() }
             self.frame &+= 1
         }
     }
 
-    /// Frames the whole graph now.
+    /// Frames the whole graph, gliding there.
     public func fitNow() {
         guard layout.count > 0, viewSize != .zero else { return }
-        camera.fit(layout.bounds, in: viewSize)
+        var target = camera
+        target.fit(layout.bounds, in: viewSize)
+        glide(to: target, kind: .fit)
+    }
+
+    /// The zoom buttons: about the view's center, gliding; a second click goes on from where the first one was going.
+    public func zoom(by factor: CGFloat) {
+        fitted = true
+        var target = cameraTween?.to ?? camera
+        target.zoom(by: factor, around: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2), in: viewSize)
+        glide(to: target, kind: .zoom)
+    }
+
+    private func glide(to target: GraphCamera, kind: CameraTween.Kind) {
+        guard !reduceMotion else { camera = target; cameraTween = nil; tweenCamera = nil; return }
+        cameraTween = CameraTween(from: camera, to: target, kind: kind, start: clock())
+        tweenCamera = camera
+        animate()
     }
 
     func tick() {
-        if dragged != nil || (!reduceMotion && !layout.isSettled) { layout.step() }
-        // Until the person moves around, the camera follows the graph as it unfolds.
-        if !fitted, !reduceMotion, layout.count > 0, viewSize != .zero {
+        let now = clock()
+        if let bloom, (Beat.elapsed(since: bloom.start, at: now) ?? 0) >= bloom.duration { self.bloom = nil }
+        // While the first layout settles out of sight, or blooms, the layout holds still.
+        if dragged != nil || (!quiet && !awaitingFirstLayout && bloom == nil && !layout.isSettled) { layout.step() }
+        // A graph that was empty at first unfolds live: until the person moves around, the camera follows it.
+        if !fitted, !quiet, !awaitingFirstLayout, layout.count > 0, viewSize != .zero {
             camera.fit(layout.bounds, in: viewSize)
             if layout.isSettled { fitted = true }
         }
-        let now = Date()
-        if !pulses.isEmpty { pulses = pulses.filter { now.timeIntervalSince($0.value.start) < Self.pulseDuration } }
+        // A glide goes on only while nothing else moved the camera.
+        if let tween = cameraTween {
+            if camera != tweenCamera {
+                cameraTween = nil; tweenCamera = nil
+            } else {
+                camera = tween.camera(at: now); tweenCamera = camera
+                if tween.isOver(at: now) { cameraTween = nil; tweenCamera = nil }
+            }
+        }
+        if !pulses.isEmpty { pulses = pulses.filter { now.timeIntervalSince($0.value.start) < Self.pulseDuration * Theme.Motion.slow } }
         stepFades()
         frame &+= 1
         if !isMoving { timer?.invalidate(); timer = nil }

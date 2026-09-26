@@ -9,7 +9,10 @@ public struct SettingsView: View {
 
     @State private var showNewMemory = false
     @State private var showUninstall = false
-    @State private var claudeNote: String?
+    /// What the last "Choose…" found: it drops in under the path, and the same refusal again shakes it.
+    @State private var claudeNote = InlineProblem()
+    @State private var repairingHooks = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func label(_ path: String) -> String {
         let home = model.paths.home.path
@@ -56,12 +59,12 @@ public struct SettingsView: View {
                             if let claude = model.claude {
                                 Text("\(claude.url.path) · version \(claude.version)").foregroundStyle(Theme.Colors.textMuted)
                                 Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
-                                if let claudeNote { Text(claudeNote).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                                ProblemLine(problem: claudeNote, color: Theme.Colors.textMuted)
                             } else {
                                 Text("Not found. Brainmerge needs the Claude app to open accounts.").foregroundStyle(Theme.Colors.textMuted)
                                 Button("Get Claude") { if let url = URL(string: "https://claude.ai/download") { NSWorkspace.shared.open(url) } }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
                                 Button("Choose…") { chooseClaude() }.buttonStyle(.glass)
-                                if let claudeNote { Text(claudeNote).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                                ProblemLine(problem: claudeNote, color: Theme.Colors.textMuted)
                             }
                         }
                         section("Menu bar") {
@@ -99,20 +102,36 @@ public struct SettingsView: View {
                         }
                         section("Command line") {
                             HStack(spacing: 10) {
-                                Circle().fill(model.commandLineInstalled ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 8, height: 8)
+                                statusDot(model.commandLineInstalled)
                                 Text(model.commandLineInstalled ? "Installed at ~/.local/bin/brainmerge" : "Not installed").foregroundStyle(Theme.Colors.textMuted)
+                                    .contentTransition(.opacity)
                                 Button("Install command line") { model.installCommandLine() }.buttonStyle(.glass)
                             }
+                            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.commandLineInstalled)
+                            // Read when Settings opens: the line drops in once known. While "Repair hooks" works, a small
+                            // spinner takes the dot's place; the new sentence then crossfades over the old one.
                             if let hooks = model.hooks, let sentence = hooks.sentence {
                                 HStack(spacing: 10) {
-                                    Circle().fill(hooks.allCurrent ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 8, height: 8)
-                                    Text(sentence).foregroundStyle(Theme.Colors.textMuted)
-                                    Button("Repair hooks") { Task { await model.repairHooks() } }.buttonStyle(.glass)
+                                    ZStack {
+                                        if repairingHooks { ProgressView().controlSize(.mini).transition(.opacity) }
+                                        else { statusDot(hooks.allCurrent).transition(.opacity) }
+                                    }
+                                    .frame(width: 8, height: 8)
+                                    Text(sentence).foregroundStyle(Theme.Colors.textMuted).contentTransition(.opacity)
+                                    Button("Repair hooks") {
+                                        repairingHooks = true
+                                        Task { await model.repairHooks(); repairingHooks = false }
+                                    }
+                                    .buttonStyle(.glass).disabled(repairingHooks)
                                 }
+                                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: repairingHooks)
+                                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: sentence)
+                                .transition(.line(reduceMotion))
                             }
                             Text("Optional. Everything here can be done from a terminal with the brainmerge command.")
                                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                         }
+                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: model.hooks?.sentence)
                         section("About", last: true) {
                             Text("Brainmerge \(BrainmergeUIInfo.version) · Works with Claude. Not made by Anthropic.").foregroundStyle(Theme.Colors.textMuted)
                             HStack(spacing: 14) {
@@ -151,12 +170,18 @@ public struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
             if let refusal = await model.chooseClaude(url) {
-                claudeNote = refusal.detail
+                claudeNote.show(refusal.detail)
             } else {
                 // An account's app keeps the path of the Claude it was built with: only a rebuild moves it.
-                claudeNote = "Brainmerge uses this Claude from its next launch. Apps already made for your accounts keep the Claude they were built with until you rebuild them."
+                claudeNote.show("Brainmerge uses this Claude from its next launch. Apps already made for your accounts keep the Claude they were built with until you rebuild them.")
             }
         }
+    }
+
+    /// Sage when in place, faint when not: the color changes in 0.2 s.
+    func statusDot(_ on: Bool) -> some View {
+        Circle().fill(on ? Theme.Colors.sage : Theme.Colors.textFaint).frame(width: 8, height: 8)
+            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: on)
     }
 
     func section<Content: View>(_ title: String, last: Bool = false, @ViewBuilder content: () -> Content) -> some View {

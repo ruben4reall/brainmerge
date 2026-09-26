@@ -10,25 +10,33 @@ struct ConnectionsSection: View {
     @Binding var choice: BrowserChoice?
     /// Long lists of servers stay folded until asked for.
     @State private var showsServers = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Past this many servers the list folds.
     nonisolated static func folds(serverCount: Int) -> Bool { serverCount > 6 }
 
+    /// What is read after the sheet opens (the browsers, the servers) drops in as it comes, and picking a profile opens
+    /// its line: the sheet eases to each new height instead of jumping.
     var body: some View {
+        let options = model.browserOptions(keeping: choice)
+        let serversRead = model.mcpServers(account.id) != nil
         VStack(alignment: .leading, spacing: 8) {
-            let options = model.browserOptions(keeping: choice)
             if !options.isEmpty {
                 Picker("Browser", selection: $choice) {
                     ForEach(options, id: \.self) { option in Text(option.label).tag(option.choice) }
                 }
                 .pickerStyle(.menu).fixedSize()
+                .transition(.opacity)
             }
             if let label = model.openBrowserLabel(choice), let choice {
-                HStack(spacing: 10) {
-                    Button(label) { model.openBrowser(choice) }.buttonStyle(.glass).controlSize(.small)
-                    Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 10) {
+                        Button(label) { model.openBrowser(choice) }.buttonStyle(.glass).controlSize(.small)
+                        Spacer(minLength: 0)
+                    }
+                    faint(AppModel.browserGuide(account: account.identity.name))
                 }
-                faint(AppModel.browserGuide(account: account.identity.name))
+                .transition(.line(reduceMotion))
             }
             HStack(spacing: 10) {
                 Button("Manage connectors") { model.manageConnectors(choice) }.buttonStyle(.glass).controlSize(.small)
@@ -39,6 +47,9 @@ struct ConnectionsSection: View {
             faint(AppModel.connectorsGuide)
             servers
         }
+        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: options.isEmpty)
+        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: choice)
+        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Arrival.line.duration), reduceMotion), value: serversRead)
         .task { await model.loadConnections() }
     }
 
@@ -62,13 +73,17 @@ struct ConnectionsSection: View {
                     }
                 }
             }
-            if Self.folds(serverCount: count) {
-                DisclosureGroup(isExpanded: $showsServers) { list.padding(.top, 4) } label: { title }
-            } else {
-                title
-                list
+            VStack(alignment: .leading, spacing: 8) {
+                if Self.folds(serverCount: count) {
+                    DisclosureGroup(isExpanded: $showsServers) { list.padding(.top, 4) } label: { title }
+                        .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: showsServers)
+                } else {
+                    title
+                    list
+                }
+                faint("Names only. Brainmerge does not copy servers between accounts.")
             }
-            faint("Names only. Brainmerge does not copy servers between accounts.")
+            .transition(.line(reduceMotion))
         }
     }
 

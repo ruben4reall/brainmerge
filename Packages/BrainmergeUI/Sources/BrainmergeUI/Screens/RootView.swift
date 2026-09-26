@@ -30,7 +30,7 @@ public struct RootView: View {
         // The splash is an overlay while the first load runs; once ready, the screens are built underneath and fade in on
         // the splash's own clock while its creature leaps into the sidebar (LaunchScene.swift). Reduce Motion: a dissolve.
         ZStack {
-            if launch.showsBackdrop { WarmBackground(accents: []) }
+            if launch.showsBackdrop { WarmBackground() }
             if model.launchPhase == .ready { screens }
             if !launch.finished { LaunchView(clock: launch) }
         }
@@ -101,11 +101,11 @@ public struct RootView: View {
     var screens: some View {
         ZStack {
             if let problem = model.stateProblem {
-                StateProblemView(model: model, problem: problem).launchReveal(launch, role: .main)
+                StateProblemView(model: model, problem: problem).launchReveal(launch, role: .main).transition(.opacity)
             } else {
                 if !showsGuide {
                     ZStack {
-                        WarmBackground(accents: model.openAccounts.map(\.identity.tint))
+                        WarmBackground()
                         HStack(spacing: 0) {
                             sidebar.padding(12)
                             detail
@@ -118,6 +118,10 @@ public struct RootView: View {
                 }
             }
         }
+        // A list of accounts put back (or read again) replaces its screen with a crossfade, never a cut. The launch's own
+        // reveal handles the first appearance.
+        .animation(launch.finished ? Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Launch.fade), reduceMotion) : nil,
+                   value: model.stateProblem == nil)
     }
 
     @ViewBuilder var detail: some View {
@@ -172,10 +176,17 @@ public struct RootView: View {
                 OrbView(name: account.identity.name, tint: account.identity.tint, logo: model.logo(for: account.identity), size: 22)
                 Text(account.identity.name).font(.system(size: 13)).lineLimit(1)
                 Spacer(minLength: 4)
+                // The running dot pops in as the account opens and fades as it quits.
                 HStack(spacing: 6) {
                     if let label = action.label { SidebarRowHint(text: label) }
-                    if account.isRunning { Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4) }
+                    if account.isRunning {
+                        Circle().fill(Theme.Colors.sage).frame(width: 6, height: 6).shadow(color: Theme.Colors.sage, radius: 4)
+                            .transition(reduceMotion ? .opacity : .asymmetric(
+                                insertion: .scale(scale: 0.4).combined(with: .opacity).animation(Theme.Motion.pop),
+                                removal: .opacity.animation(Theme.Motion.out(Theme.Motion.quick))))
+                    }
                 }
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.pop, reduceMotion), value: account.isRunning)
             }
             .launchObstacle("sidebar.row.\(account.id)")
             .padding(.horizontal, 10).padding(.vertical, 5)

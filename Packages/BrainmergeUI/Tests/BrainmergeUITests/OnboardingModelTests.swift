@@ -53,6 +53,25 @@ import BrainmergeTestSupport
         #expect(onboarding.step == .howItWorks)
     }
 
+    /// "Check again" that finds nothing says so, and shakes that line when asked again; the 5 s checks never say a word.
+    @Test func checkAgainThatFindsNothingSaysSo() async throws {
+        let (e, app, onboarding) = try setup(); defer { e.home.remove() }
+        let tools = Tools(false)
+        app.git = tools.availability
+        await onboarding.detect()
+        onboarding.step = .howItWorks
+        onboarding.next()
+        await onboarding.checkGit()
+        #expect(onboarding.gitNote.text == nil)
+        await onboarding.checkGit(asked: true)
+        #expect(onboarding.gitNote.text == OnboardingModel.gitStillMissing && onboarding.gitNote.repeats == 0)
+        await onboarding.checkGit(asked: true)
+        #expect(onboarding.gitNote.repeats == 1)
+        tools.present = true
+        await onboarding.checkGit(asked: true)
+        #expect(onboarding.step == .brainLocation && onboarding.gitNote.text == nil)
+    }
+
     @Test func withGitTheStepIsSkipped() async throws {
         let (e, app, onboarding) = try setup(); defer { e.home.remove() }
         app.git = Tools(true).availability

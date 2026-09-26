@@ -4,6 +4,7 @@ import BrainmergeCore
 
 public struct MemoryView: View {
     @Bindable var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public init(model: AppModel) { self.model = model }
 
     public enum Mode: String, CaseIterable, Identifiable { case graph = "Graph", timeline = "Timeline"; public var id: String { rawValue } }
@@ -52,12 +53,15 @@ public struct MemoryView: View {
                 // The graph carries its own legend and can show an Obsidian vault; the timeline keeps the counts of saves.
                 if mode == .graph { sourceMenu } else { chips }
             }
-            // Without Apple's tools there is no history to show, and nothing starts git to find out.
+            // Without Apple's tools there is no history to show, and nothing starts git to find out. Once they are in, the
+            // line goes and the history slides up in its place.
             if !model.gitAvailable {
                 HStack(spacing: 10) {
                     Text(AppModel.historyNeedsGit).font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted)
                     Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glass)
                 }
+                .modifier(ReducedFadeIn())
+                .transition(.banner(reduceMotion))
                 // Checks again every 5 seconds while it shows: once Apple's installer is done, the history comes back.
                 .task {
                     while !Task.isCancelled {
@@ -77,6 +81,7 @@ public struct MemoryView: View {
         }
         .padding(Theme.Layout.padding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .animation(reduceMotion ? nil : Theme.Motion.out(0.22), value: model.gitAvailable)
         // Obsidian's list is only read while the graph shows, where its menu is.
         .onAppear { model.refreshMemory(); if mode == .graph { Task { await model.refreshVaults() } } }
         .onChange(of: mode) { _, mode in if mode == .graph { Task { await model.refreshVaults() } } }
@@ -128,11 +133,14 @@ public struct MemoryView: View {
                         Text("Nothing remembered yet. Open an account and work on a project: what it learns shows up here.")
                             .foregroundStyle(Theme.Colors.textMuted).padding(22)
                     }
+                    // A new save drops in at the top and wears the selection color for a moment; the rows under it slide
+                    // down. With Reduce Motion, only the color.
                     ForEach(Array(model.memoryEvents.enumerated()), id: \.element.id) { index, event in
-                        row(event)
+                        row(event, arrived: model.memoryArrivals[event.id])
                         if index < model.memoryEvents.count - 1 { Divider().overlay(Theme.Colors.surfaceLine).padding(.leading, Self.rowInset) }
                     }
                 }
+                .animation(reduceMotion ? nil : Theme.Motion.settle, value: model.memoryEvents.first?.id)
             }
             .frame(maxWidth: Theme.Layout.readingWidth, alignment: .leading)
             if installedApps.isEmpty, target == .folder {
@@ -187,7 +195,8 @@ public struct MemoryView: View {
         .glassEffect(.regular, in: Capsule())
     }
 
-    func row(_ event: MemoryEvent) -> some View {
+    /// A save; a new one (seen `arrived`) drops in and fades from the selection color.
+    func row(_ event: MemoryEvent, arrived: Date?) -> some View {
         HStack(alignment: .center, spacing: 14) {
             OrbView(name: event.name, tint: event.tint, size: 30)
             VStack(alignment: .leading, spacing: 3) {
@@ -199,6 +208,15 @@ public struct MemoryView: View {
             Text(Self.relative(event.date)).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+        // Inset like the sidebar's selection, so the first row's color stays inside the card's rounded corners.
+        .background {
+            BeatView(start: arrived, duration: Highlight.duration) { elapsed in
+                RoundedRectangle(cornerRadius: Theme.Layout.rowRadius, style: .continuous)
+                    .fill(Theme.Colors.selection.opacity(Highlight.opacity(elapsed: elapsed)))
+                    .padding(.horizontal, 4).padding(.vertical, 2)
+            }
+        }
+        .arrives(.row, from: reduceMotion ? nil : arrived)
     }
 
     static func relative(_ date: Date) -> String {

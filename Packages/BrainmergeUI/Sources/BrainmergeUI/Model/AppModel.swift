@@ -54,7 +54,7 @@ public struct UserMessage: Identifiable, Equatable, Sendable {
 
 @MainActor @Observable
 public final class AppModel {
-    public private(set) var accounts: [Account] = [] { didSet { refreshSetupState(); followCreature() } }
+    public private(set) var accounts: [Account] = [] { didSet { refreshSetupState(); followCreature(); noticeAdded() } }
     /// The default memory (the first of the list), initialized.
     public private(set) var brain: Brain? { didSet { refreshSetupState() } }
     /// Every memory the app knows, the default one first.
@@ -107,11 +107,21 @@ public final class AppModel {
     public private(set) var opening: Set<String> = [] {
         didSet {
             // An account that leaves `opening` running has opened: the creature waves (one wave, however many opened).
-            if oldValue.subtracting(opening).contains(where: { slug in accounts.first { $0.id == slug }?.isRunning == true }) { stamp(.accountOpened) }
+            let opened = oldValue.subtracting(opening).filter { slug in accounts.first { $0.id == slug }?.isRunning == true }
+            if !opened.isEmpty {
+                stamp(.accountOpened)
+                let date = now()
+                for slug in opened { openedAt[slug] = date }
+            }
             followCreature()
         }
     }
     private var openingMarks: [String: Int] = [:]
+    /// When each account finished opening from here (it left `opening` running), and when each account was added while
+    /// the app ran (never those of the first load): the Accounts screen plays one beat from each, a sage ring on the
+    /// card's dot and a ring around the new card's orb. A screen opened later finds them over.
+    public private(set) var openedAt: [String: Date] = [:]
+    public private(set) var addedAt: [String: Date] = [:]
     /// Accounts whose app bundle is being rebuilt, updated or removed right now: opening one would open a half-built app.
     /// Kept apart from `rebuilding`, whose marker must outlive the nested rebuild of an update.
     public private(set) var busy: Set<String> = []
@@ -139,12 +149,19 @@ public final class AppModel {
     /// Whether an account is open or opening, as of the last change: the creature wakes and dozes when it turns.
     @ObservationIgnored private var creatureWasAwake = false
     public private(set) var memoryEvents: [MemoryEvent] = []
+    /// The timeline's new rows, by event: when a save of the memory shown was first seen (never on the first read, nor
+    /// for another memory's rows). Each row drops in and wears the selection color for a moment from that date.
+    public private(set) var memoryArrivals: [String: Date] = [:]
+    /// The memory the timeline's rows belong to.
+    @ObservationIgnored private var eventsRoot: URL?
     public private(set) var memoryCounts: [String: Int] = [:]
     public private(set) var projectCount = 0
     /// Usage per account (or per group of accounts with shared history), read from the local transcripts.
     public private(set) var usage: [AccountUsage] = []
     public private(set) var usageUpdatedAt: Date?
     public private(set) var usageRefreshing = false
+    /// When the first read replaced the Usage screen's placeholder: its cards come in once from here (see UsageMotion).
+    public private(set) var usageArrivedAt: Date?
     /// What each account's last "Check limits" found, by slug. Asked only on a click (see `checkLimits`).
     public private(set) var limits: [String: LimitsState] = [:]
     /// Finds the Claude Code to run and checks Anthropic's signature on it; a fake in tests.
@@ -664,9 +681,15 @@ public final class AppModel {
 
     /// The selected memory's latest commits as sentences, the count per identity, the number of linked projects.
     public func refreshMemory() {
-        guard let brain = selectedBrain, let folder = selectedFolder else { memoryEvents = []; memoryCounts = [:]; projectCount = 0; return }
+        guard let brain = selectedBrain, let folder = selectedFolder else {
+            memoryEvents = []; memoryCounts = [:]; projectCount = 0; eventsRoot = nil
+            if !memoryArrivals.isEmpty { memoryArrivals = [:] }
+            return
+        }
         let entries = prefetchedLog.flatMap { $0.root == brain.root ? $0.entries : nil } ?? (try? BrainGit(brain: brain).log(limit: 200)) ?? []
-        memoryEvents = MemoryFeed.events(from: Array(entries.prefix(50)), identities: accounts.map(\.identity))
+        let events = MemoryFeed.events(from: Array(entries.prefix(50)), identities: accounts.map(\.identity))
+        noticeArrivals(events, in: brain.root)
+        memoryEvents = events
         memoryCounts = MemoryFeed.counts(entries)
         lastMemorySave = entries.first?.date
         noticeSave(head: entries.first, in: brain.root)
@@ -680,6 +703,40 @@ public final class AppModel {
             }
             projectCount = projects.count
         }
+    }
+
+    // MARK: Beats of the screens
+
+    /// Accounts that appear next to accounts already there are dated (never the first load, nor a list read again after
+    /// it could not be); those that go take their dates with them.
+    private func noticeAdded() {
+        let ids = Set(accounts.map(\.id))
+        var added = addedAt.filter { ids.contains($0.key) }
+        if !knownAccounts.isEmpty {
+            let date = now()
+            for id in ids.subtracting(knownAccounts) { added[id] = date }
+        }
+        knownAccounts = ids
+        if added != addedAt { addedAt = added }
+        let opened = openedAt.filter { ids.contains($0.key) }
+        if opened != openedAt { openedAt = opened }
+    }
+    @ObservationIgnored private var knownAccounts: Set<String> = []
+
+    /// The Usage cards come in when the first read replaces the placeholder; a later read updates them in place.
+    nonisolated static func usageArrives(from old: [AccountUsage], to new: [AccountUsage]) -> Bool { old.isEmpty && !new.isEmpty }
+
+    /// New saves of the memory shown are dated; the dates of older ones go once their highlight is over.
+    private func noticeArrivals(_ events: [MemoryEvent], in root: URL) {
+        let date = now()
+        var kept = memoryArrivals.filter { date.timeIntervalSince($0.value) < (Highlight.duration + 0.5) * Theme.Motion.slow }
+        if eventsRoot == root {
+            for id in MemoryFeed.arrivals(from: memoryEvents.map(\.id), to: events.map(\.id)) { kept[id] = date }
+        } else {
+            kept = [:]
+        }
+        eventsRoot = root
+        if kept != memoryArrivals { memoryArrivals = kept }
     }
 
     // MARK: The creature
@@ -797,7 +854,10 @@ public final class AppModel {
                                     summary: UsageSummary.make(samples, now: now))
             }
         }.value
-        if usage != computed { usage = computed }
+        if usage != computed {
+            if Self.usageArrives(from: usage, to: computed) { usageArrivedAt = self.now() }
+            usage = computed
+        }
         usageUpdatedAt = now
     }
 

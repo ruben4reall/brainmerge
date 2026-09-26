@@ -44,7 +44,7 @@ struct MemoryGraphView: View {
                         case .active(let point):
                             graph.pointer = point
                             // A capture: the pointer may rest over the window by chance, and a screenshot shows the graph unlit.
-                            if !Theme.Motion.isCapture { graph.hovered = note(at: point, size: geo.size) }
+                            if !Theme.Motion.isCapture { graph.hover(note(at: point, size: geo.size)) }
                         case .ended: graph.pointerLeft()
                         }
                     }
@@ -53,13 +53,13 @@ struct MemoryGraphView: View {
                     .accessibilityLabel("Memory graph")
                     .accessibilityValue(summary)
                     .accessibilityChildren { accessibleNotes }
-                if noteCount == 0 { emptyState }
+                if noteCount == 0, !graph.awaitingFirstLayout { emptyState }
                 VStack {
                     HStack(alignment: .top) {
                         // A vault has no accounts: Obsidian's graph has no legend either.
                         if !isVault { legend }
                         Spacer()
-                        if let id = graph.selected { inspector(id).transition(.opacity) }
+                        if let id = graph.selected { inspector(id).transition(inspectorTransition) }
                     }
                     Spacer()
                     HStack(alignment: .bottom) { status; Spacer(); controls(size: geo.size) }
@@ -102,12 +102,22 @@ struct MemoryGraphView: View {
                 await graph.refresh(root: target.root, style: target.style)
             }
         }
-        // The inspector's text, read off the main thread, and read again when the note changes while it is open.
+        // The inspector's text, read off the main thread, and read again when the note changes while it is open: the panel
+        // eases to its new height and the text fades in, rather than the panel jumping by a dozen lines.
         .task(id: previewKey) {
             var text = ""
             if let id = graph.selected { text = await graph.loadPreview(id) }
-            if !Task.isCancelled { preview = text }
+            if !Task.isCancelled { withAnimation(reduceMotion ? nil : Theme.Motion.out(0.18)) { preview = text } }
         }
+    }
+
+    /// The inspector comes in from its corner, 8 points and a touch small, in 0.2 s, and goes by a fade in 0.12 s. Arrow
+    /// keys that move the selection keep it in place: only its coming and going moves.
+    var inspectorTransition: AnyTransition {
+        if reduceMotion { return AnyTransition.opacity.animation(Theme.Motion.reduced) }
+        return .asymmetric(insertion: AnyTransition.opacity.combined(with: .offset(x: 8)).combined(with: .scale(scale: 0.98, anchor: .topTrailing))
+                                .animation(Theme.Motion.out(0.2)),
+                           removal: AnyTransition.opacity.animation(Theme.Motion.out(0.12)))
     }
 
     var previewKey: String {
@@ -115,11 +125,17 @@ struct MemoryGraphView: View {
         return "\(id)|\(graph.graph.node(id)?.modified?.timeIntervalSinceReferenceDate ?? 0)"
     }
 
+    /// Nothing is drawn while the first layout settles out of sight; with Reduce Motion it then fades in over 0.15 s.
     @ViewBuilder var canvas: some View {
         if isVault {
             VaultCanvas(graph: graph)
+        } else if !graph.awaitingFirstLayout {
+            BeatView(start: graph.revealedAt, duration: Theme.Motion.reducedDuration) { elapsed in
+                GraphCanvas(graph: graph, tints: tints, focus: graph.focus, reduceMotion: reduceMotion)
+                    .opacity(elapsed.map { Ease.progress($0, from: 0, over: Theme.Motion.reducedDuration) } ?? 1)
+            }
         } else {
-            GraphCanvas(graph: graph, tints: tints, focus: graph.focus, reduceMotion: reduceMotion)
+            Color.clear
         }
     }
 
@@ -146,7 +162,7 @@ struct MemoryGraphView: View {
     }
 
     func select(_ id: String?) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { graph.selected = id }
+        withAnimation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion)) { graph.selected = id }
     }
 
     /// Every bubble in a stable order for the keyboard and VoiceOver: projects first, then notes, by name.
@@ -357,7 +373,9 @@ struct MemoryGraphView: View {
         }
     }
 
-    /// "Live", or "Changed just now" for four seconds after a change: redrawn once more when those seconds are over.
+    /// "Live", or "Changed just now" for four seconds after a change: redrawn once more when those seconds are over. The
+    /// dot turns accentLight and rings once; the words crossfade and the capsule eases to its new width; four seconds
+    /// later the dot goes back to sage over 0.3 s.
     var status: some View {
         TimelineView(.explicit(graph.lastChange.map { [$0.addingTimeInterval(4.05)] } ?? [])) { context in
             let recent = graph.lastChange.map { context.date.timeIntervalSince($0) < 4 } ?? false
@@ -366,18 +384,23 @@ struct MemoryGraphView: View {
             let counts = "\(noteCount) note\(noteCount == 1 ? "" : "s")\(projectCount) · \(links) link\(links == 1 ? "" : "s")\(graph.truncated ? " · the most recent 2,000" : "")"
             HStack(spacing: 6) {
                 Circle().fill(recent ? Theme.Colors.accentLight : Theme.Colors.sage).frame(width: 6, height: 6)
+                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(recent ? Theme.Motion.quick : 0.3), reduceMotion), value: recent)
+                    .overlay { RingPulseView(ring: .changed, start: graph.lastChange, color: Theme.Colors.accentLight) }
                 Text("\(Text(recent ? "Changed just now" : "Live").foregroundStyle(Theme.Colors.textMuted)) · \(counts)")
                     .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint)
+                    .contentTransition(.opacity)
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
             .glassEffect(.regular, in: Capsule())
+            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(0.2), reduceMotion), value: recent)
         }
     }
 
     func controls(size: CGSize) -> some View {
         HStack(spacing: 6) {
-            control("minus", "Zoom out") { graph.fitted = true; graph.camera.zoom(by: 0.8, around: CGPoint(x: size.width / 2, y: size.height / 2), in: size) }
-            control("plus", "Zoom in") { graph.fitted = true; graph.camera.zoom(by: 1.25, around: CGPoint(x: size.width / 2, y: size.height / 2), in: size) }
+            // They glide (0.2 s, 0.35 s for Fit); a drag, a pinch or the wheel meanwhile takes over at once.
+            control("minus", "Zoom out") { graph.zoom(by: 0.8) }
+            control("plus", "Zoom in") { graph.zoom(by: 1.25) }
             control("arrow.up.left.and.arrow.down.right", "Fit the whole graph") { graph.fitNow() }
         }
     }
@@ -435,6 +458,7 @@ struct MemoryGraphView: View {
                 Text(preview).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10).background(Theme.Colors.field, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .transition(.opacity)
             }
             if graph.fileURL(id) != nil {
                 HStack(spacing: 8) {
@@ -451,7 +475,7 @@ struct MemoryGraphView: View {
 }
 
 /// The drawing itself: the only part of the screen that redraws on every animation frame.
-private struct GraphCanvas: View {
+struct GraphCanvas: View {
     let graph: MemoryGraphModel
     let tints: [String: Color]
     let focus: Set<String>?
@@ -469,54 +493,81 @@ private struct GraphCanvas: View {
         let camera = graph.camera, layout = graph.layout, nodes = graph.graph.nodes, lines = graph.lineIndices
         let pulses = graph.pulses, authors = graph.authors, selected = graph.selected, hovered = graph.hovered
         let tints = self.tints, focus = self.focus, reduceMotion = self.reduceMotion
-        let now = Date()
+        let now = graph.clock()
         let showAllLabels = camera.scale >= 1.25 || nodes.count <= 40
+        // Where each note is drawn (on its way out of its hub while the first read blooms) and how visible it is: the
+        // hover's fade, eased a quarter of the way per frame, times the bloom's.
+        let count = layout.count == nodes.count ? nodes.count : 0
+        let world = (0..<count).map { graph.drawnPosition(at: $0, now: now) }
+        let blooming = graph.bloom != nil
+        let shown = (0..<count).map { graph.fade(nodes[$0].id) * graph.bloomOpacity(at: $0, now: now) }
+        let threads = blooming ? lines.map { graph.threadOpacity($0.0, $0.1, now: now) } : []
+        // Threads: faint ones dim with the hover; lit ones fade in over them, and fade back out with the last focus.
+        let lineFade = graph.lineFade, dimmedThreads = MemoryGraphModel.memoryThreadsDimmed
+        let lit = focus ?? (lineFade < 1 ? graph.lastFocus : nil)
+        let litAlpha = Ease.clamp01((1 - lineFade) / (1 - dimmedThreads))
         Canvas { context, size in
-            guard layout.count == nodes.count, !nodes.isEmpty else { return }
+            guard count > 0 else { return }
             let degree = layout.degree
-            func screen(_ i: Int) -> CGPoint { camera.toScreen(layout.position(at: i), in: size) }
+            func screen(_ i: Int) -> CGPoint { camera.toScreen(world[i], in: size) }
             // Threads first, under the bubbles.
-            var faint = Path(), lit = Path()
-            for (a, b) in lines {
-                let isLit = focus.map { $0.contains(nodes[a].id) && $0.contains(nodes[b].id) } ?? false
-                if isLit { lit.move(to: screen(a)); lit.addLine(to: screen(b)) } else { faint.move(to: screen(a)); faint.addLine(to: screen(b)) }
+            var faint = Path(), bright = Path()
+            for (k, (a, b)) in lines.enumerated() {
+                let isLit = lit.map { $0.contains(nodes[a].id) && $0.contains(nodes[b].id) } ?? false
+                if blooming {
+                    // While the first read blooms, each thread draws once both its ends are most of their way out.
+                    guard threads[k] > 0 else { continue }
+                    var one = Path(); one.move(to: screen(a)); one.addLine(to: screen(b))
+                    context.stroke(one, with: .color(Theme.Colors.graphLink.opacity(threads[k])), lineWidth: 1)
+                    continue
+                }
+                if isLit { bright.move(to: screen(a)); bright.addLine(to: screen(b)) } else { faint.move(to: screen(a)); faint.addLine(to: screen(b)) }
             }
-            context.stroke(faint, with: .color(Theme.Colors.graphLink.opacity(focus == nil ? 1 : 0.5)), lineWidth: 1)
-            context.stroke(lit, with: .color(Theme.Colors.graphLinkLit), lineWidth: 1.3)
+            context.stroke(faint, with: .color(Theme.Colors.graphLink.opacity(lineFade)), lineWidth: 1)
+            context.stroke(bright, with: .color(Theme.Colors.graphLink.opacity(1 - litAlpha)), lineWidth: 1)
+            context.stroke(bright, with: .color(Theme.Colors.graphLinkLit.opacity(litAlpha)), lineWidth: 1.3)
             // Bubbles and pulses; labels are gathered and placed afterwards, above every bubble.
             var labels: [Label] = []
             var bubbles = RectIndex()
             for (i, node) in nodes.enumerated() {
                 let p = screen(i)
-                let r = max(Self.radius(node, degree: degree[i]) * min(max(camera.scale, 0.6), 1.6), 2)
+                var r = max(Self.radius(node, degree: degree[i]) * min(max(camera.scale, 0.6), 1.6), 2)
                 if p.x < -40 || p.y < -40 || p.x > size.width + 40 || p.y > size.height + 40 { continue }
-                let dimmed = focus.map { !$0.contains(node.id) } ?? false
                 let fill: Color = node.kind == .project ? Theme.Colors.text
                     : authors[node.id]?.slug.flatMap { tints[$0] } ?? Theme.color(for: .gray)
                 if let pulse = pulses[node.id] {
-                    let t = min(max(now.timeIntervalSince(pulse.start) / MemoryGraphModel.pulseDuration, 0), 1)
+                    let elapsed = Beat.elapsed(since: pulse.start, at: now) ?? 0
+                    let saved = pulse.slug != nil
                     let tint = pulse.slug.flatMap { tints[$0] } ?? Theme.Colors.accentLight
                     if !reduceMotion {
-                        let ring = r + 4 + CGFloat(t) * 22
-                        context.stroke(Path(ellipseIn: CGRect(x: p.x - ring, y: p.y - ring, width: ring * 2, height: ring * 2)),
-                                       with: .color(tint.opacity(0.9 * (1 - t))), lineWidth: 2)
+                        for ring in GraphPulse.rings(elapsed: elapsed, saved: saved) {
+                            let radius = r + ring.offset
+                            context.stroke(Path(ellipseIn: CGRect(x: p.x - radius, y: p.y - radius, width: radius * 2, height: radius * 2)),
+                                           with: .color(tint.opacity(ring.opacity)), lineWidth: GraphPulse.lineWidth)
+                        }
+                        // A save by an account: the bubble pops and settles like a hop.
+                        if saved { r *= 1 + CGFloat(GraphPulse.pop * GraphPulse.bump(elapsed: elapsed)) }
                     }
-                    context.fill(Path(ellipseIn: CGRect(x: p.x - r - 3, y: p.y - r - 3, width: (r + 3) * 2, height: (r + 3) * 2)),
-                                 with: .color(tint.opacity(0.35 * (1 - t))))
+                    let halo = r + 3
+                    context.fill(Path(ellipseIn: CGRect(x: p.x - halo, y: p.y - halo, width: halo * 2, height: halo * 2)),
+                                 with: .color(tint.opacity(GraphPulse.haloOpacity(elapsed: elapsed))))
                 }
                 let bubble = CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
-                context.fill(Path(ellipseIn: bubble), with: .color(fill.opacity(dimmed ? 0.28 : (node.kind == .project ? 0.92 : 1))))
+                context.fill(Path(ellipseIn: bubble), with: .color(fill.opacity(shown[i] * (node.kind == .project ? 0.92 : 1))))
                 if selected == node.id {
                     context.stroke(Path(ellipseIn: bubble.insetBy(dx: -3.5, dy: -3.5)), with: .color(Theme.Colors.accentLight), lineWidth: 2)
                 }
                 bubbles.insert(bubble, owner: i)
+                // A note's label fades with its bubble; a hub's stays, since it names the project.
                 let labelled = node.kind == .project || showAllLabels || (focus?.contains(node.id) ?? false)
-                if labelled, !dimmed || node.kind == .project {
+                let alpha = node.kind == .project ? graph.bloomOpacity(at: i, now: now)
+                    : Ease.clamp01((shown[i] - MemoryGraphModel.memoryDimmed) / (1 - MemoryGraphModel.memoryDimmed))
+                if labelled, alpha > 0.02 {
                     let pointed = hovered == node.id || selected == node.id
                     let emphasis = pointed || node.kind == .project
                     let text = Text(node.title)
                         .font(.system(size: node.kind == .project ? 12 : 11, weight: emphasis ? .semibold : .regular))
-                        .foregroundStyle(emphasis ? Theme.Colors.text : Theme.Colors.textMuted)
+                        .foregroundStyle((emphasis ? Theme.Colors.text : Theme.Colors.textMuted).opacity(alpha))
                     // The pointed note first, then hubs, then the most linked notes.
                     let priority = pointed ? Int.max : (node.kind == .project ? 1_000_000 : 0) + degree[i]
                     labels.append(Label(priority: priority, text: text, at: CGPoint(x: p.x, y: p.y + r + 9), owner: i, forced: emphasis))

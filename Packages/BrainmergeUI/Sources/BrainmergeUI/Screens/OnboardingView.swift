@@ -12,7 +12,7 @@ public struct OnboardingView: View {
 
     public var body: some View {
         ZStack {
-            WarmBackground(accents: [.orange, .blue])
+            WarmBackground()
             // Centered when the step is short, scrollable when it is taller than the window (the last step at 640 points).
             // Each page fills the height on its own, so the page leaving and the page arriving overlap without moving the
             // other: the new one slides 24 points in from the side the guide moves to while the old one leaves the other way.
@@ -106,9 +106,11 @@ public struct OnboardingView: View {
                 .font(Theme.Fonts.body).foregroundStyle(Theme.Colors.textMuted).multilineTextAlignment(.center)
             navigation {
                 Button("Back") { model.back() }.buttonStyle(.glass)
-                Button("Check again") { Task { await model.checkGit() } }.buttonStyle(.glass)
+                Button("Check again") { Task { await model.checkGit(asked: true) } }.buttonStyle(.glass)
                 Button("Install Apple's tools") { model.installAppleTools() }.buttonStyle(.glassProminent).tint(Theme.Colors.button)
             }
+            // A "Check again" that finds nothing says so, and shakes the line when asked again.
+            ProblemLine(problem: model.gitNote, color: Theme.Colors.textMuted).multilineTextAlignment(.center)
             Text("Opens Apple's installer. The download comes from Apple, not from Brainmerge.")
                 .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint).multilineTextAlignment(.center)
         }
@@ -221,10 +223,7 @@ public struct OnboardingView: View {
                         }
                         HStack(spacing: 8) {
                             ForEach(Theme.pickableTints, id: \.self) { t in
-                                Button { model.secondAccount.tint = t } label: {
-                                    Circle().fill(Theme.color(for: t)).frame(width: 22, height: 22)
-                                        .overlay(Circle().strokeBorder(Theme.Colors.text, lineWidth: model.secondAccount.tint == t ? 2 : 0))
-                                }.buttonStyle(.plain)
+                                TintSwatch(tint: t, selected: model.secondAccount.tint == t, size: 22, ring: 2) { model.secondAccount.tint = t }
                             }
                         }
                         HStack(spacing: 12) {
@@ -234,7 +233,7 @@ public struct OnboardingView: View {
                     }
                     .padding(16)
                 }
-                if let working = model.app.working { Text(working).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted) }
+                WorkingLine(text: model.app.working)
                 navigation {
                     Button("Back") { model.back() }.buttonStyle(.glass)
                     Button("Skip for now") { model.next() }.buttonStyle(.glass)
@@ -367,7 +366,7 @@ public struct OnboardingView: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(selected ? Theme.Colors.accent : Theme.Colors.surfaceLine, lineWidth: selected ? 2 : 1))
+        .choiceStroke(selected: selected, reduceMotion: reduceMotion)
     }
 
     func errorBanner(_ m: UserMessage) -> some View {

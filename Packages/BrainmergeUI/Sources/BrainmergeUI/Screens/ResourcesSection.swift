@@ -106,8 +106,11 @@ struct ResourcesSection: View {
             .frame(width: Self.ramColumn, alignment: .trailing)
             .help(row.ramHelp ?? "")
             if bars { bar(row.fraction, color: color, height: 6).frame(width: Self.barColumn) }
+            // "Measuring…" gives way to the size in a crossfade. The RAM figures, redrawn every few seconds, never animate.
             Text(row.disk ?? "").font(Theme.Fonts.body).monospacedDigit().lineLimit(1)
                 .foregroundStyle(row.diskIsFigure ? Theme.Colors.text : Theme.Colors.textFaint)
+                .contentTransition(.opacity)
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: row.disk)
                 .frame(width: Self.diskColumn, alignment: .trailing)
                 .help(row.diskHelp ?? "")
         }
@@ -119,8 +122,14 @@ struct ResourcesSection: View {
         let when = model.diskMeasuring ? " Measuring the disk…"
             : model.diskMeasuredAt.map { " Disk measured at \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
         return HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(text + when).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
+            // While the disk is walked, a small spinner before the sentence.
+            HStack(alignment: .center, spacing: 6) {
+                if model.diskMeasuring { ProgressView().controlSize(.mini).transition(.opacity) }
+                Text(text + when).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+            }
+            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: model.diskMeasuring)
             Spacer(minLength: 12)
             Button("Measure again") {
                 forcedWalk?.cancel()
@@ -141,7 +150,7 @@ struct ResourcesSection: View {
             }
         }
         .frame(height: height)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: fraction)
+        .animation(reduceMotion ? nil : Theme.Motion.out(0.25), value: fraction)
         .accessibilityHidden(true)
     }
 }

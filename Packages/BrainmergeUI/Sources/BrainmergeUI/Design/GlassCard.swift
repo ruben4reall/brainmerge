@@ -14,19 +14,3 @@ public struct GlassCard<Content: View>: View {
             )
     }
 }
-
-/// The primary action button: flat, the accent color, nothing else.
-public struct AccentPillButtonStyle: ButtonStyle {
-    public init() {}
-    public func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Theme.Colors.onAccent)
-            .padding(.horizontal, 14).padding(.vertical, 7)
-            .background(Theme.Colors.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .opacity(configuration.isPressed ? 0.8 : 1)
-    }
-}
-public extension ButtonStyle where Self == AccentPillButtonStyle {
-    static var accentPill: AccentPillButtonStyle { AccentPillButtonStyle() }
-}

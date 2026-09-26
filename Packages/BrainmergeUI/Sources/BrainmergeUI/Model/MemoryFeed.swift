@@ -43,6 +43,13 @@ public enum MemoryFeed {
         return "updated \(memoryFiles.count) notes across \(projects.count) projects"
     }
 
+    /// The rows above the previous top row: new saves, newest first. None on a first read, nor when the two lists share
+    /// no row (another memory, a history written again).
+    public static func arrivals(from old: [String], to new: [String]) -> [String] {
+        guard let top = old.first, let index = new.firstIndex(of: top) else { return [] }
+        return Array(new[..<index])
+    }
+
     public static func counts(_ entries: [BrainGit.Entry]) -> [String: Int] {
         var counts: [String: Int] = [:]
         for e in entries where e.authorEmail.hasSuffix(authorSuffix) {
