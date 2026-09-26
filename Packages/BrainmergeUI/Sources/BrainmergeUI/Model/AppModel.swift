@@ -2014,7 +2014,7 @@ public final class AppModel {
             return UserMessage(title: "Choose another folder", detail: e.description)
         case .nameInvalid:
             return UserMessage(title: "Give it a name", detail: "One line, up to \(NameRules.maxLength) characters.")
-        case .noteBeingWritten, .noteNotSaved, .noteExists:
+        case .noteBeingWritten, .noteNotSaved, .noteExists, .indexIsALink:
             // The Tidy tab's buttons: the sentence says why, and that nothing moved.
             return UserMessage(title: "Nothing was moved", detail: e.description)
         case .claudeAppTampered:
