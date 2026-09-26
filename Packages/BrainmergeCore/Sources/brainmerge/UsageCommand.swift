@@ -20,8 +20,12 @@ struct UsageCommand: ParsableCommand {
             targets.append(("profile", CLIProfile(directory: dir), cache.map { URL(fileURLWithPath: $0) } ?? context.paths.appSupport.appending(path: "usage/profile-\(ProjectSlug.slug(forPath: dir.path)).json")))
         } else {
             let state = try context.store.load()
-            for id in state.identities where identity == nil || id.slug == identity {
-                targets.append((id.name, CLIProfile(directory: id.cliProfile(in: context.paths)), cache.map { URL(fileURLWithPath: $0) } ?? context.paths.appSupport.appending(path: "usage/\(id.slug).json")))
+            // Accounts with a shared history read the same transcripts: one line for them together, as on the Usage
+            // screen, and the same cache file.
+            for group in UsageGrouping.groups(of: state.identities, paths: context.paths) where identity == nil || group.contains(where: { $0.slug == identity }) {
+                let key = group.map(\.slug).joined(separator: "+")
+                targets.append((group.map(\.name).joined(separator: " + "), CLIProfile(directory: group[0].cliProfile(in: context.paths)),
+                                cache.map { URL(fileURLWithPath: $0) } ?? context.paths.appSupport.appending(path: "usage/\(key).json")))
             }
             if let identity, targets.isEmpty { throw BrainmergeError.identityNotFound(identity) }
         }
