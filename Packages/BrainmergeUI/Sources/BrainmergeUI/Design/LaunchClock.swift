@@ -287,10 +287,12 @@ public final class LaunchClock {
 /// The main window is never faded itself: a group opacity over its glass re-renders every backdrop on every frame of the
 /// leap. A cover of the window's own background fades off it instead, which looks the same (the window is opaque over
 /// that background) and leaves the screens untouched: only the cover is drawn again. While the screens are held back,
-/// the cover takes the clicks. The guide, over the main window, fades itself.
+/// the cover takes the clicks. The guide, over the main window, fades itself. `held`: the main window built under All
+/// set, not revealed yet (see `HeldUnderGuide`), which VoiceOver never reaches either.
 struct LaunchReveal: ViewModifier {
     let clock: LaunchClock
     let role: LaunchClock.Role
+    var held = false
 
     func body(content: Content) -> some View {
         switch role {
@@ -299,7 +301,9 @@ struct LaunchReveal: ViewModifier {
             content
                 .coordinateSpace(.named(LaunchClock.space))
                 .overlay { WarmBackground().opacity(1 - look.opacity).allowsHitTesting(!look.hittable) }
-                .accessibilityHidden(!clock.finished && clock.mode == .launch && clock.readyAt == nil)
+                // One say for VoiceOver on this window, never two that could undo each other.
+                .accessibilityHidden(!HeldUnderGuide.Look(held: held).accessible
+                                     || (!clock.finished && clock.mode == .launch && clock.readyAt == nil))
         case .guide:
             let look = clock.look(.guide)
             content
@@ -308,6 +312,29 @@ struct LaunchReveal: ViewModifier {
                 .allowsHitTesting(look.hittable)
                 .accessibilityHidden(look.opacity == 0)
         }
+    }
+}
+
+/// The main window built under All set before "Open Brainmerge": laid out already, so nothing is laid out for the first
+/// time while the creature is in the air, and out of reach until then: unseen, no clicks, its controls off (no Return,
+/// Space, Tab or shortcut reaches them), and nothing for VoiceOver (`LaunchReveal` says it, with `held`).
+struct HeldUnderGuide: ViewModifier {
+    let held: Bool
+
+    struct Look: Equatable {
+        var opacity: Double
+        var hittable: Bool
+        var enabled: Bool
+        var accessible: Bool
+        init(opacity: Double, hittable: Bool, enabled: Bool, accessible: Bool) {
+            self.opacity = opacity; self.hittable = hittable; self.enabled = enabled; self.accessible = accessible
+        }
+        init(held: Bool) { self.init(opacity: held ? 0 : 1, hittable: !held, enabled: !held, accessible: !held) }
+    }
+
+    func body(content: Content) -> some View {
+        let look = Look(held: held)
+        content.opacity(look.opacity).allowsHitTesting(look.hittable).disabled(!look.enabled)
     }
 }
 
@@ -363,8 +390,11 @@ extension View {
     func launchObstacle(_ id: String) -> some View { modifier(LaunchObstacleMark(id: id)) }
     /// One of the welcome's words, which come in once the launch's creature has landed above them.
     func launchWords(_ index: Int) -> some View { modifier(LaunchWords(index: index)) }
-    /// Screens that fade in under the launch's leap (or the guide that fades out under the last one).
-    func launchReveal(_ clock: LaunchClock, role: LaunchClock.Role) -> some View { modifier(LaunchReveal(clock: clock, role: role)) }
+    /// Screens that fade in under the launch's leap (or the guide that fades out under the last one). `held`: the main
+    /// window built under All set, not revealed yet.
+    func launchReveal(_ clock: LaunchClock, role: LaunchClock.Role, held: Bool = false) -> some View {
+        modifier(LaunchReveal(clock: clock, role: role, held: held))
+    }
     /// A creature the launch can land on.
     func launchTarget(_ clock: LaunchClock?, asleep: Bool) -> some View { modifier(LaunchTargetMark(clock: clock, asleep: asleep)) }
 }

@@ -121,10 +121,8 @@ public struct RootView: View {
                             detail
                         }
                     }
-                    .opacity(preparing ? 0 : 1)
-                    .allowsHitTesting(!preparing)
-                    .accessibilityHidden(preparing)
-                    .launchReveal(launch, role: .main)
+                    .modifier(HeldUnderGuide(held: preparing))
+                    .launchReveal(launch, role: .main, held: preparing)
                     // A window opened with no splash (a demo, one reopened later): its content comes in over 0.18 s, never
                     // a cut from nothing. A cover of the window's own background fades off it.
                     .overlay {

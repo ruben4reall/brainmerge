@@ -94,6 +94,14 @@ import Testing
         #expect([ready, opening, open, connected].map(\.phase) == [.ready, .opening, .open, .connected])
     }
 
+    /// All set builds the main window under the guide. Until "Open Brainmerge" reveals it, it is out of sight and out of
+    /// reach: no click, nothing from the keyboard (its controls are off: no Return, Space, Tab or shortcut reaches them)
+    /// and nothing for VoiceOver.
+    @Test func theMainWindowUnderAllSetIsOutOfReachUntilRevealed() {
+        #expect(HeldUnderGuide.Look(held: true) == .init(opacity: 0, hittable: false, enabled: false, accessible: false))
+        #expect(HeldUnderGuide.Look(held: false) == .init(opacity: 1, hittable: true, enabled: true, accessible: true))
+    }
+
     /// How it works is drawn 1:1 inside the step's column: never scaled nor clipped, so its 3 point cells stay whole.
     /// The page, laid out as the guide lays it out (560 points wide), holds the scene drawn alone, pixel for pixel.
     @Test func howItWorksFitsTheColumnAtItsOwnSize() throws {
