@@ -68,6 +68,25 @@ import BrainmergeTestSupport
         #expect(try FileManager.default.contentsOfDirectory(atPath: home.paths.launchersDir.path) == ["Client (Claude).app"])
     }
 
+    /// Claude's whole bundle (close to a gigabyte) is verified once per version, not once per account: rebuilding every
+    /// tinted copy after an update checks it once. Changed files are checked again.
+    @Test func claudeIsVerifiedOncePerVersion() throws {
+        let home = try TempHome(); defer { home.remove() }
+        let claude = try FakeClaudeApp.make(in: home.url)
+        try Shell().check("/usr/bin/codesign", ["--force", "--sign", "-", claude.url.path])
+        let calls = ShellCalls()
+        let shell = Shell { executable, arguments, cwd, environment in
+            calls.record([executable] + arguments)
+            return try Shell().run(executable, arguments, cwd: cwd, environment: environment)
+        }
+        let builder = TintedCloneBuilder(paths: home.paths, launcherBinary: Products.launcher, shell: shell)
+        let icon = try FakeIcon.orangePNG(in: home.url)
+        for name in ["Client", "Work"] {
+            _ = try builder.build(for: Identity(slug: name.lowercased(), name: name, iconMode: .tintedClone), claude: claude, icon: icon, register: false)
+        }
+        #expect(calls.all.filter { $0.contains("--verify") }.count == 1)
+    }
+
     @Test func aClaudeWithABrokenSignatureIsNeverCopied() throws {
         let home = try TempHome(); defer { home.remove() }
         let claude = try FakeClaudeApp.make(in: home.url)

@@ -119,6 +119,9 @@ extension AppModel {
         }
         if statuses != saveStatuses { saveStatuses = statuses }
         if saves != lastSaves { lastSaves = saves }
+        var own: [String: SaveStatus] = [:]
+        for folder in brains { own[folder.id] = store.readOwnEdits(memoryID: folder.id) }
+        if own != ownEditsStatuses { ownEditsStatuses = own }
     }
 
     /// The account's latest save failed, and it has not saved in its memory since: that status, else nil.
@@ -136,9 +139,14 @@ extension AppModel {
     /// The Memory screen's lines: each account of the selected memory whose last save failed, by name.
     public var memorySaveFailures: [String] {
         guard let folder = selectedFolder else { return [] }
-        return accounts(using: folder.id).compactMap { account in
+        var lines = accounts(using: folder.id).compactMap { account in
             saveFailure(of: account.id).map { HealthText.failure($0, now: now(), account: account.identity.name) }
         }
+        // Your own edits, saved by the app's minute pass: its latest try in this memory.
+        if let own = ownEditsStatuses[folder.id], own.outcome == .failed {
+            lines.append(HealthText.failure(own, now: now(), account: "your own edits"))
+        }
+        return lines
     }
 }
 

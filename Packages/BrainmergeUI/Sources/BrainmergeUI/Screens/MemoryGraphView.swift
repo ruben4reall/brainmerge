@@ -278,7 +278,7 @@ struct MemoryGraphView: View {
 
     // MARK: Opening
 
-    var target: NotesTarget { NotesApps.target(for: app.notesApp, installed: NotesApps.installed()) }
+    var target: NotesTarget { NotesApps.target(for: app.notesApp, installed: NotesApps.recent()) }
 
     func open(_ id: String) {
         guard let url = graph.fileURL(id) else { return }

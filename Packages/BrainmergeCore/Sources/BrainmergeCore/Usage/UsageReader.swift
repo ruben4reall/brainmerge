@@ -113,8 +113,14 @@ public struct UsageReader: Sendable {
                     var open = state.open
                     var projectName = state.projectName
                     var seen = state.seen ?? []
+                    // A sub-agent's transcript (`<session>/subagents/*.jsonl`) can replay its session's messages: the
+                    // session's own, read first (its name sorts before its folder's), are not counted again.
+                    let parts = relative.split(separator: "/").map(String.init)
+                    let parentKey = parts.count >= 4 && parts[2] == "subagents"
+                        ? root.appending(path: "\(parts[0])/\(parts[1]).jsonl").path : nil
+                    let known = parentKey.flatMap { kept[$0]?.seen ?? cache.files[$0]?.seen } ?? []
                     let parsed = Self.parse(file: file, from: state.offset, chunkSize: chunkSize, project: project, open: &open, projectName: &projectName,
-                                            seen: &seen, calendar: calendar)
+                                            seen: &seen, known: known, calendar: calendar)
                     state.seen = seen
                     state.buckets = Self.merge(state.buckets, parsed.buckets)
                     state.open = open
@@ -179,7 +185,7 @@ public struct UsageReader: Sendable {
     /// its following lines (maximum of each counter) and joins the day's aggregate when another message begins.
     /// The first `cwd` seen names the project; lines without usage are then not decoded at all.
     static func parse(file: URL, from offset: Int64, chunkSize: Int, project: String, open: inout OpenMessage?, projectName: inout String?,
-                      seen: inout Set<UInt64>, calendar: Calendar) -> (buckets: [DayBucket], consumed: Int64, lines: Int) {
+                      seen: inout Set<UInt64>, known: Set<UInt64> = [], calendar: Calendar) -> (buckets: [DayBucket], consumed: Int64, lines: Int) {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return ([], 0, 0) }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: UInt64(max(0, offset)))) != nil else { return ([], 0, 0) }
@@ -206,7 +212,8 @@ public struct UsageReader: Sendable {
                     open = current
                 } else {
                     // A message counted earlier in this file, replayed away from its lines: not counted again.
-                    guard seen.insert(digest(id)).inserted else { return }
+                    let key = digest(id)
+                    guard !known.contains(key), seen.insert(key).inserted else { return }
                     if let previous = open { flush(previous.sample) }
                     open = OpenMessage(id: id, sample: sample)
                 }

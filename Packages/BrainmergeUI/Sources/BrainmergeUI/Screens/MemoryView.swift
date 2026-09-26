@@ -19,7 +19,8 @@ public struct MemoryView: View {
         mode == .tidy && tidyCount > 0 ? "\(mode.rawValue) (\(tidyCount))" : mode.rawValue
     }
 
-    var installedApps: [NotesApp] { NotesApps.installed() }
+    /// Asked of Launch Services at most once a minute, not at every drawing (see NotesApps.recent).
+    var installedApps: [NotesApp] { NotesApps.recent() }
     var target: NotesTarget { NotesApps.target(for: model.notesApp, installed: installedApps) }
     var brainLabel: String {
         guard let root = model.selectedBrain?.root.path else { return "~/Brain" }
@@ -295,6 +296,8 @@ public struct MemoryView: View {
         if Date().timeIntervalSince(date) < 60 { return "just now" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
+        // In the app's language, English, whatever the Mac's: never "il y a 10 min" next to English words.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }

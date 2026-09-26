@@ -127,7 +127,7 @@ public struct EditAccountSheet: View {
             } else {
                 labeled("In the Dock") {
                     Toggle("Own icon in the Dock", isOn: $edit.distinctIcon).toggleStyle(.switch).tint(Theme.Colors.accent)
-                    Text("Recommended when several accounts stay open: the Dock shows this account's icon and name while it runs. It is a local copy of Claude, rebuilt after each Claude update.")
+                    Text("Recommended when several accounts stay open: the Dock shows this account's icon and name while it runs. It is a local copy of Claude, about 400 MB on disk, rebuilt after each Claude update.")
                         .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textFaint)
                     appLocation
                     if appLabel != nil {
@@ -234,7 +234,7 @@ public struct EditAccountSheet: View {
     /// saving never touches it (its memory waits for Claude to quit, which the memory picker says while it runs).
     nonisolated static func header(for account: Account) -> String {
         guard account.isRunning else { return "Changes apply when you save." }
-        return account.identity.isPrimary ? "Changes apply when you save. Claude stays open." : "A new note applies at once. For a new name, color or icon, quit this account first: its app is rebuilt."
+        return account.identity.isPrimary ? "Changes apply when you save. Claude stays open." : "Quit this account first to change its name, color or icon."
     }
 
     /// Moving the memory links needs the account closed: the primary may stay open for everything else, so while it runs

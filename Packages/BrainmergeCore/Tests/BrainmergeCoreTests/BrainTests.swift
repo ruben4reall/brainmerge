@@ -65,6 +65,18 @@ import BrainmergeTestSupport
     /// A folder inside another repository would get a second repository of its own, and the outer one's backups would stop
     /// covering its notes: refused before anything is created, with the exact sentence. The repository's own top folder,
     /// or a memory that already has its history, is fine.
+    /// A home folder kept under git (dotfiles) never blocks a memory in it: that repository was not backing up ~/Brain.
+    /// A repository further down still does.
+    @Test func aHomeUnderGitIsNotAnotherRepository() throws {
+        let home = try TempHome(); defer { home.remove() }
+        try FileManager.default.createDirectory(at: home.url.appending(path: ".git"), withIntermediateDirectories: true)
+        #expect(Brain.enclosingRepository(of: home.url.appending(path: "Brain"), home: home.url) == nil)
+        #expect(Brain.enclosingRepository(of: home.url.appending(path: "Brain"))?.path == home.url.resolvingSymlinksInPath().path)
+        let project = home.url.appending(path: "code", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: project.appending(path: ".git"), withIntermediateDirectories: true)
+        #expect(Brain.enclosingRepository(of: project.appending(path: "notes"), home: home.url)?.path == project.resolvingSymlinksInPath().path)
+    }
+
     @Test func aFolderInsideAnotherRepositoryIsRefused() throws {
         let home = try TempHome(); defer { home.remove() }
         let top = home.url.appending(path: "Projects", directoryHint: .isDirectory)

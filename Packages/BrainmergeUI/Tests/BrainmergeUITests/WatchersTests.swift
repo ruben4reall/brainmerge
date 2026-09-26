@@ -13,6 +13,11 @@ import BrainmergeTestSupport
         #expect(!UpdatePolicy.shouldRebuild(identity: clone, installedVersion: "2.8000.0", running: true, autoRebuild: true))
         #expect(!UpdatePolicy.shouldRebuild(identity: clone, installedVersion: "2.8000.0", running: false, autoRebuild: false))
         #expect(!UpdatePolicy.shouldRebuild(identity: launcher, installedVersion: "2.8000.0", running: false, autoRebuild: true))
+        // A launcher follows Claude when it moved (whatever the setting), never while its account is open.
+        let old = "/Applications/Claude.app/Contents/MacOS/Claude", moved = "/Users/me/Applications/Claude.app/Contents/MacOS/Claude"
+        #expect(UpdatePolicy.shouldRebuild(identity: launcher, installedVersion: "2.8000.0", running: false, autoRebuild: false, pinned: old, installed: moved))
+        #expect(!UpdatePolicy.shouldRebuild(identity: launcher, installedVersion: "2.8000.0", running: true, autoRebuild: true, pinned: old, installed: moved))
+        #expect(!UpdatePolicy.shouldRebuild(identity: launcher, installedVersion: "2.8000.0", running: false, autoRebuild: true, pinned: moved, installed: moved))
         // The primary's own app opens Claude itself: nothing to follow after a Claude update, whatever the state says.
         let primary = Identity(slug: "ruben", name: "Ruben", isPrimary: true, iconMode: .tintedClone, builtForClaudeVersion: "2.7032.0", ownApp: true)
         #expect(!UpdatePolicy.shouldRebuild(identity: primary, installedVersion: "2.8000.0", running: false, autoRebuild: true))

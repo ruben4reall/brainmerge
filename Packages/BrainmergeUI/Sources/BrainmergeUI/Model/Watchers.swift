@@ -3,8 +3,17 @@ import BrainmergeCore
 
 public enum UpdatePolicy {
     /// A tinted copy rebuilds itself after a Claude update, if the person opted in and the instance is stopped.
-    public static func shouldRebuild(identity: Identity, installedVersion: String, running: Bool, autoRebuild: Bool) -> Bool {
-        guard autoRebuild, !running, identity.iconMode == .tintedClone, !identity.isPrimary else { return false }
+    /// A launcher (the default Dock app) starts the Claude it was built for: when Claude moved (another copy chosen in
+    /// Settings, or Claude installed elsewhere), it is rebuilt for the one in use, whatever the setting, as it is only a
+    /// few kilobytes and would otherwise not open. `pinned`: the program the launcher starts; `installed`: Claude's.
+    public static func shouldRebuild(identity: Identity, installedVersion: String, running: Bool, autoRebuild: Bool,
+                                     pinned: String? = nil, installed: String? = nil) -> Bool {
+        guard !running, !identity.isPrimary else { return false }
+        if identity.iconMode == .launcher {
+            guard identity.surfaces.desktop, let pinned, let installed else { return false }
+            return pinned != installed
+        }
+        guard autoRebuild, identity.iconMode == .tintedClone else { return false }
         return identity.builtForClaudeVersion != installedVersion
     }
 }

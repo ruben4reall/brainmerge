@@ -73,11 +73,14 @@ public struct Brain: Equatable, Sendable {
     /// The top folder of the git repository `folder` would sit inside, if any: a memory made there would be a second
     /// repository inside it, whose notes the outer one's backups stop covering. Looked for from the folder's parent up, where
     /// the folder really is (links resolved), without starting git. The folder's own `.git` is not another repository.
-    public static func enclosingRepository(of folder: URL) -> URL? {
+    /// The home folder itself under git (a dotfiles repository) does not count: such a repository never meant to back up
+    /// what lives in the home folder, and ~/Brain is where a memory goes by default.
+    public static func enclosingRepository(of folder: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
         let fm = FileManager.default
+        let homePath = resolved(home).standardizedFileURL.path
         var current = resolved(folder).deletingLastPathComponent()
         while true {
-            if fm.fileExists(atPath: current.appending(path: ".git").path) { return current }
+            if fm.fileExists(atPath: current.appending(path: ".git").path), current.standardizedFileURL.path != homePath { return current }
             let parent = current.deletingLastPathComponent()
             if parent.path == current.path || current.path == "/" { return nil }
             current = parent

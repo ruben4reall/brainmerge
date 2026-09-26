@@ -212,6 +212,26 @@ import BrainmergeTestSupport
         }
     }
 
+    /// Your own edits are saved by the app's minute pass, not by a hook: when that save fails, the Memory screen says so
+    /// like an account's, until it saves again.
+    @Test func aFailedSaveOfYourOwnEditsShows() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Perso")
+        let m = model(e)
+        m.reload()
+        let now = Date()
+        m.now = { now }
+        let statuses = SaveStatusStore(paths: e.home.paths)
+        statuses.writeOwnEdits(SaveStatus(date: now.addingTimeInterval(-3600), outcome: .failed, reason: .diskFull), memoryID: "shared")
+        m.refreshMemory()
+        #expect(m.memorySaveFailures == ["Last save of your own edits failed 1 hour ago: the disk is full."])
+        statuses.writeOwnEdits(SaveStatus(date: now, outcome: .committed), memoryID: "shared")
+        m.refreshMemory()
+        #expect(m.memorySaveFailures.isEmpty)
+        // An account named like the file never reads it: the name is not a slug.
+        #expect(statuses.read(slug: "_you.shared") == nil)
+    }
+
     /// When the save failed and why, in words from a closed list: never git's own words, never a path.
     @Test func failureSentencesSayWhenAndWhy() {
         let now = Date(timeIntervalSince1970: 1_790_000_000)

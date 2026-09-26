@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.2 (2026-09-27)
+
+Brainmerge 0.6.2 finishes the review's leftovers: truer usage, account apps that follow Claude when it moves, and saves of your own edits that say when they fail.
+
+### Fixed
+
+- **Usage counts a sub-agent's replayed messages once.** A sub-agent's transcript can repeat messages of its session; they were counted twice.
+- **An account's app follows Claude when it moves.** When you choose another Claude in Settings, or Claude is installed elsewhere, each account's launcher is rebuilt for it (never while the account is open) instead of pointing to the old place.
+- **The own icon option says what it takes.** A tinted copy of Claude takes about 400 MB of disk; the option, the README and the site now say so. Claude is also verified once per version instead of once per account when the copies are rebuilt.
+- **The Memory screen is lighter.** It asks macOS for your notes apps at most once a minute instead of at every drawing, and the timeline's dates are in English like the rest of the app, whatever your Mac's language.
+- **A dotfiles repository in your home folder no longer blocks ~/Brain.** Brainmerge refused a memory inside another git repository, the home folder included; a home folder kept under git does not count any more.
+- **A failed save of your own edits shows.** The Memory screen now says when the minute pass could not save your own edits, as it does for an account, until it saves again.
+- **Nothing started by Brainmerge outlives its time.** A program that ignores the stop signal ("Check limits" asks Claude Code) is now killed after a short grace.
+
 ## 0.6.1 (2026-09-27)
 
 Brainmerge 0.6.1 fixes what a review of the whole core found: nothing it does can lose a note or your own text anymore, saves say why they fail and never stall, and the heavy reads are light again.

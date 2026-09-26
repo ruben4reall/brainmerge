@@ -112,7 +112,7 @@ struct MemoryTidyView: View {
         guard let root = model.selectedBrain?.root, let project = item.project else { return }
         let folder = root.appending(path: "memory/\(project)", directoryHint: .isDirectory)
         let url = item.kind == .noIndex ? folder : folder.appending(path: MemoryIndex.fileName)
-        NotesApps.open(url, with: NotesApps.target(for: model.notesApp, installed: NotesApps.installed()))
+        NotesApps.open(url, with: NotesApps.target(for: model.notesApp, installed: NotesApps.recent()))
     }
 }
 
