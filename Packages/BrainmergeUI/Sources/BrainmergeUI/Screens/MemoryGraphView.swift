@@ -392,27 +392,13 @@ struct MemoryGraphView: View {
     }
 
     /// "Live", or "Changed just now" for four seconds after a change: redrawn once more when those seconds are over. The
-    /// dot turns accentLight and rings once; the words crossfade and the capsule eases to its new width; four seconds
-    /// later the dot goes back to sage over 0.3 s.
+    /// dot turns accentLight and rings once; the words swap where they are and the capsule eases to its new width, the
+    /// counts with its edge (GraphStatusLine); four seconds later the dot goes back to sage over 0.3 s.
     var status: some View {
         ChangedRecently(since: graph.lastChange) { recent in
-            let counts = Self.statusCounts(hasRead: graph.hasRead, notes: noteCount, projects: graph.graph.nodes.count - noteCount,
-                                           links: graph.graph.edges.count, vault: isVault, truncated: graph.truncated)
-            let dot = recent ? Theme.Colors.accentLight : Theme.Colors.sage
-            HStack(spacing: 6) {
-                Circle().fill(dot).frame(width: 6, height: 6)
-                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(recent ? Theme.Motion.quick : 0.3), reduceMotion), value: dot)
-                    .overlay { RingPulseView(ring: .changed, start: graph.lastChange, color: Theme.Colors.accentLight) }
-                // The counts roll to their new figures and the capsule eases to its new width; with Reduce Motion they change
-                // at once and only the dot's color fades.
-                Text("\(Text(recent ? "Changed just now" : "Live").foregroundStyle(Theme.Colors.textMuted))\(counts.map { " · \($0)" } ?? "")")
-                    .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textFaint)
-                    .contentTransition(reduceMotion ? .opacity : .numericText())
-            }
-            .padding(.horizontal, 10).padding(.vertical, 5)
-            .glassEffect(.regular, in: Capsule())
-            .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: recent)
-            .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: counts)
+            GraphStatusLine(recent: recent, change: graph.lastChange,
+                            counts: Self.statusCounts(hasRead: graph.hasRead, notes: noteCount, projects: graph.graph.nodes.count - noteCount,
+                                                      links: graph.graph.edges.count, vault: isVault, truncated: graph.truncated))
         }
     }
 
@@ -721,6 +707,51 @@ private struct VaultCanvas: View {
         case .note, .project: return Theme.Colors.vaultNode
         }
     }
+}
+
+/// The graph's status capsule at one moment: its dot, "Live" or "Changed just now", and the counts once the folder was read.
+struct GraphStatusLine: View {
+    let recent: Bool
+    /// The last change: the dot rings once from it.
+    let change: Date?
+    let counts: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let dot = recent ? Theme.Colors.accentLight : Theme.Colors.sage
+        let word = recent ? "Changed just now" : "Live"
+        HStack(spacing: 6) {
+            Circle().fill(dot).frame(width: 6, height: 6)
+                .animation(Theme.Motion.unlessReduced(Theme.Motion.out(recent ? Theme.Motion.quick : 0.3), reduceMotion), value: dot)
+                .overlay { RingPulseView(ring: .changed, start: change, color: Theme.Colors.accentLight) }
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                // The words swap where they are (SwapText) inside a slot that eases to the new words' width and clips them:
+                // the counts ride its edge, so they never pass over a word, the old one going or the new one coming. As one
+                // text rolling as numbers, the counts slid across "Changed just now" while it still faded.
+                ZStack(alignment: .leading) {
+                    Text(word).foregroundStyle(Theme.Colors.textMuted).fixedSize()
+                        .id(word).transition(SwapText.transition(reduceMotion))
+                }
+                .clipShape(SideClip())
+                // The counts roll to their new figures; with Reduce Motion they change in place, and the layout at once.
+                if let counts {
+                    Text(" · \(counts)").foregroundStyle(Theme.Colors.textFaint)
+                        .contentTransition(reduceMotion ? .opacity : .numericText())
+                }
+            }
+            .font(Theme.Fonts.caption)
+            .accessibilityElement(children: .combine)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 5)
+        .glassEffect(.regular, in: Capsule())
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: recent)
+        .animation(Theme.Motion.layout(Theme.Motion.out(0.2), reduceMotion), value: counts)
+    }
+}
+
+/// A clip on the sides only: a word lifting away as it swaps keeps its top.
+private struct SideClip: Shape {
+    func path(in rect: CGRect) -> Path { Path(rect.insetBy(dx: 0, dy: -2 * SwapText.lift)) }
 }
 
 /// The graph's status over time: `recent` for the four seconds after a change, drawn once more when they are over.
