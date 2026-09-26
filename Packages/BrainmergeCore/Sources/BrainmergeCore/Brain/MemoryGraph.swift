@@ -168,6 +168,24 @@ public struct MemoryGraph: Equatable, Sendable {
     }
 }
 
+/// What one walk of a memory finds: its Markdown notes with their date and size, and the project folders under `memory/`,
+/// the empty ones included (they are link targets). The graph and the Tidy tab (MemoryHealth) share this walk.
+public struct MemoryScan: Equatable, Sendable {
+    public struct Note: Equatable, Sendable {
+        /// Relative to the memory folder: `memory/acme/deploy.md`.
+        public let path: String
+        public let modified: Date
+        public let size: Int
+        public init(path: String, modified: Date, size: Int) { self.path = path; self.modified = modified; self.size = size }
+    }
+    public var notes: [Note]
+    /// The names of the folders directly under `memory/`, sorted.
+    public var folders: [String]
+    /// The folder itself could not be opened (see MemoryGraphBuilder.Result.refused).
+    public var refused: Bool
+    public init(notes: [Note] = [], folders: [String] = [], refused: Bool = false) { self.notes = notes; self.folders = folders; self.refused = refused }
+}
+
 /// Builds the graph of a memory folder and keeps what it read, so later builds only read the notes that changed.
 /// Not thread-safe: use one builder from one place (the app drives it from a single background task).
 public final class MemoryGraphBuilder: @unchecked Sendable {
@@ -227,15 +245,17 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     /// a vault its canvases, bases and attachments. Hidden folders are skipped, and so are symlinks: a note always is a
     /// file of this folder, never something a link points to elsewhere.
     /// One `fts` walk that gets each file's date and size with its name: fifty thousand files take a fraction of a second.
-    func scan() -> (files: [(path: String, modified: Date, size: Int, kind: FileKind)], refused: Bool) {
+    /// The folders directly under `memory/` come with it, empty or not.
+    func scan() -> (files: [(path: String, modified: Date, size: Int, kind: FileKind)], folders: [String], refused: Bool) {
         var files: [(String, Date, Int, FileKind)] = []
+        var folders: [String] = []
         var refused = false
         let base = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard let start = strdup(root.path) else { return ([], false) }
+        guard let start = strdup(root.path) else { return ([], [], false) }
         defer { free(start) }
         var roots: [UnsafeMutablePointer<CChar>?] = [start, nil]
         // FTS_PHYSICAL: symlinks are reported as links and never followed.
-        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR, nil) else { return ([], false) }
+        guard let fts = fts_open(&roots, FTS_PHYSICAL | FTS_NOCHDIR, nil) else { return ([], [], false) }
         defer { fts_close(fts) }
         while let entry = fts_read(fts) {
             let info = Int32(entry.pointee.fts_info)
@@ -249,7 +269,8 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
             let path = String(cString: cPath)
             let name = (path as NSString).lastPathComponent
             if info == FTS_D {
-                if entry.pointee.fts_level > 0, Self.skippedFolders.contains(name) || name.hasPrefix(".") { fts_set(fts, entry, FTS_SKIP) }
+                if entry.pointee.fts_level > 0, Self.skippedFolders.contains(name) || name.hasPrefix(".") { fts_set(fts, entry, FTS_SKIP); continue }
+                if entry.pointee.fts_level == 2, path.hasPrefix(base + "memory/") { folders.append(name) }
                 continue
             }
             guard info == FTS_F, !name.hasPrefix("."), path.hasPrefix(base), let kind = kind(of: name),
@@ -257,7 +278,14 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
             let modified = Date(timeIntervalSince1970: TimeInterval(stat.st_mtimespec.tv_sec) + TimeInterval(stat.st_mtimespec.tv_nsec) / 1e9)
             files.append((String(path.dropFirst(base.count)), modified, Int(stat.st_size), kind))
         }
-        return (files, refused)
+        return (files, folders, refused)
+    }
+
+    /// The notes and project folders of a memory, from the same walk as the graph, read now (see MemoryHealth).
+    public func memoryScan() -> MemoryScan {
+        let (files, folders, refused) = scan()
+        let notes = files.filter { $0.kind == .markdown }.map { MemoryScan.Note(path: $0.path, modified: $0.modified, size: $0.size) }
+        return MemoryScan(notes: notes.sorted { $0.path < $1.path }, folders: folders.sorted(), refused: refused)
     }
 
     func kind(of name: String) -> FileKind? {
@@ -274,7 +302,7 @@ public final class MemoryGraphBuilder: @unchecked Sendable {
     /// `showing`: whether the vault shows a file, by its path (see ObsidianGraphFilter.showsFile). The files it hides
     /// are neither read nor counted against the cap; a memory shows every note.
     public func build(showing shows: (_ path: String, _ attachment: Bool) -> Bool = { _, _ in true }) -> Result {
-        let (files, refused) = scan()
+        let (files, _, refused) = scan()
         known = Dictionary(files.map { ($0.path, $0.kind) }, uniquingKeysWith: { first, _ in first })
         let before = stamps
         stamps = Dictionary(files.map { ($0.path, Stamp(modified: $0.modified, size: $0.size)) }, uniquingKeysWith: { first, _ in first })

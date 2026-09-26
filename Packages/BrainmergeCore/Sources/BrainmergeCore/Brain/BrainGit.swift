@@ -42,13 +42,24 @@ public struct BrainGit: Sendable {
     }
 
     /// The changed paths, relative to the memory, under `scope`: modified, added, deleted, and every file of a new folder.
-    /// What .gitignore leaves out never shows. Names are taken literally, never as patterns.
-    public func status(scope: [String]) throws -> [String] {
+    /// What .gitignore leaves out never shows. Names are taken literally, never as patterns. `optionalLocks: false` for a
+    /// look that must change nothing (the Tidy tab): git then never refreshes its index, which a save may be taking.
+    public func status(scope: [String], optionalLocks: Bool = true) throws -> [String] {
         try requireGit()
         guard !scope.isEmpty else { return [] }
-        let out = try shell.check("/usr/bin/git", ["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--"] + scope,
+        let lead = optionalLocks ? [] : ["--no-optional-locks"]
+        let out = try shell.check("/usr/bin/git", lead + ["--literal-pathspecs", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--"] + scope,
                                   cwd: brain.root)
         return Self.statusPaths(out)
+    }
+
+    /// Moves a saved note inside the memory the way git sees it (`git mv`), making the folders it goes into first. Only the
+    /// files and git's index change: the commit is the caller's.
+    public func move(_ from: String, to destination: String) throws {
+        try requireGit()
+        try FileManager.default.createDirectory(at: brain.root.appending(path: destination).deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try shell.check("/usr/bin/git", ["--literal-pathspecs", "mv", "--", from, destination], cwd: brain.root)
     }
 
     /// `XY path`, NUL separated; a rename or a copy is followed by its old path, which changed too.

@@ -26,6 +26,22 @@ import BrainmergeCore
         #expect(MemoryFeed.counts([entry(OwnEdits.author.email, ["a"]), entry("client@brainmerge.local", ["b"])]) == ["client": 1])
     }
 
+    /// A click in the Tidy tab says what it did, which its files alone could not: its own words are kept, for yours only.
+    @Test func tidysCommitsKeepTheirWords() {
+        func mine(_ message: String, _ files: [String], email: String = OwnEdits.author.email) -> BrainGit.Entry {
+            BrainGit.Entry(hash: UUID().uuidString, date: Date(), authorName: "You", authorEmail: email, message: message, files: files)
+        }
+        let events = MemoryFeed.events(from: [
+            mine("You filed 2 notes under brainmerge", ["memory/scratch-a/a.md", "memory/brainmerge/a.md", "memory/scratch-a/b.md", "memory/brainmerge/b.md"]),
+            mine("You kept one copy of deploy.md", ["memory/acme/deploy.md", "memory/acme/_archive/deploy.md"]),
+            mine("You hid 3 empty folders from Tidy", [".brainmerge/hidden.json"]),
+            mine("You deleted everything", ["memory/acme/a.md"]),
+            mine("You filed 2 notes under brainmerge", ["memory/acme/a.md"], email: "client@brainmerge.local"),
+        ], identities: [client])
+        #expect(events.map(\.sentence) == ["filed 2 notes under brainmerge", "kept one copy of deploy.md", "hid 3 empty folders from Tidy",
+                                           "edited a note about acme", "remembered something about acme"])
+    }
+
     @Test func eventsCarryTheIdentity() {
         let events = MemoryFeed.events(from: [entry("client@brainmerge.local", ["memory/atelier/decision_prix.md"]), entry("nobody@example.com", ["x.md"])],
                                        identities: [client, ruben])

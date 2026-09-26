@@ -12,7 +12,8 @@ public struct MemoryEvent: Identifiable, Equatable, Sendable {
 }
 
 /// Turns the brain's commits into everyday sentences, the command line's own words (MemorySentence). The person's own
-/// edits, saved by the app (OwnEdits), read "You", in gray, and are no account's saves.
+/// edits, saved by the app (OwnEdits), read "You", in gray, and are no account's saves. A click in the Tidy tab keeps its
+/// own words ("You filed 2 notes under brainmerge"), which its files alone could not say.
 public enum MemoryFeed {
     static let authorSuffix = "@brainmerge.local"
 
@@ -27,7 +28,8 @@ public enum MemoryFeed {
             let external = e.authorName.trimmingCharacters(in: .whitespaces)
             let name = byYou ? OwnEdits.author.name : identity?.name ?? (external.isEmpty ? "Someone" : external)
             return MemoryEvent(id: e.hash, date: e.date, slug: slug, name: name, tint: identity?.tint ?? .gray,
-                               sentence: MemorySentence.sentence(files: e.files, project: project, byYou: byYou), detail: detail)
+                               sentence: (byYou ? MemorySentence.tidy(message: e.message) : nil)
+                                   ?? MemorySentence.sentence(files: e.files, project: project, byYou: byYou), detail: detail)
         }
     }
 

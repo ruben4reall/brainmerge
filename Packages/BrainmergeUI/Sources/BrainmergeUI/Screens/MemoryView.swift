@@ -6,9 +6,17 @@ public struct MemoryView: View {
     @Bindable var model: AppModel
     public init(model: AppModel) { self.model = model }
 
-    public enum Mode: String, CaseIterable, Identifiable { case graph = "Graph", timeline = "Timeline"; public var id: String { rawValue } }
-    /// BRAINMERGE_MEMORY=timeline opens on the timeline (screenshots); the graph otherwise.
-    @State private var mode: Mode = ProcessInfo.processInfo.environment["BRAINMERGE_MEMORY"] == "timeline" ? .timeline : .graph
+    public enum Mode: String, CaseIterable, Identifiable {
+        case graph = "Graph", timeline = "Timeline", tidy = "Tidy"
+        public var id: String { rawValue }
+    }
+    /// BRAINMERGE_MEMORY=timeline or tidy opens on that tab (screenshots); the graph otherwise.
+    @State private var mode: Mode = Mode(rawValue: (ProcessInfo.processInfo.environment["BRAINMERGE_MEMORY"] ?? "").capitalized) ?? .graph
+
+    /// A tab's name; Tidy carries how many rows it has, "Tidy (4)", and no number when there is nothing to tidy.
+    static func title(of mode: Mode, tidyCount: Int) -> String {
+        mode == .tidy && tidyCount > 0 ? "\(mode.rawValue) (\(tidyCount))" : mode.rawValue
+    }
 
     var installedApps: [NotesApp] { NotesApps.installed() }
     var target: NotesTarget { NotesApps.target(for: model.notesApp, installed: installedApps) }
@@ -47,10 +55,16 @@ public struct MemoryView: View {
                 }
             }
             HStack(spacing: 12) {
-                Picker("View", selection: $mode) { ForEach(Mode.allCases) { Text($0.rawValue).tag($0) } }
-                    .pickerStyle(.segmented).labelsHidden().fixedSize().tint(Theme.Colors.accent)
+                Picker("View", selection: $mode) {
+                    ForEach(Mode.allCases) { Text(Self.title(of: $0, tidyCount: model.memoryTidy.count)).tag($0) }
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize().tint(Theme.Colors.accent)
                 // The graph carries its own legend and can show an Obsidian vault; the timeline keeps the counts of saves.
-                if mode == .graph { sourceMenu } else { chips }
+                switch mode {
+                case .graph: sourceMenu
+                case .timeline: chips
+                case .tidy: EmptyView()
+                }
             }
             // Without Apple's tools there is no history to show, and nothing starts git to find out.
             if !model.gitAvailable {
@@ -81,6 +95,8 @@ public struct MemoryView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .timeline:
                 ScrollView { timeline.padding(.bottom, 8) }
+            case .tidy:
+                MemoryTidyView(model: model)
             }
         }
         .padding(Theme.Layout.padding)
@@ -88,6 +104,13 @@ public struct MemoryView: View {
         // Obsidian's list is only read while the graph shows, where its menu is.
         .onAppear { model.refreshMemory(); if mode == .graph { Task { await model.refreshVaults() } } }
         .onChange(of: mode) { _, mode in if mode == .graph { Task { await model.refreshVaults() } } }
+        // The tab's count stays current on every tab while the screen shows, for the memory shown; reading only.
+        .task(id: model.selectedBrain?.root) {
+            while !Task.isCancelled {
+                await model.refreshTidy()
+                try? await Task.sleep(for: .seconds(10))
+            }
+        }
     }
 
     /// Notes a save held back because they look like they hold a key: where and what they look like, never the value, and

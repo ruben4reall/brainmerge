@@ -111,7 +111,10 @@ public struct OwnEdits: Sendable {
 
     /// When the latest of these changes happened: a file's modification date, or for a file that is gone, that of the
     /// nearest folder still there (removing a file changes its folder).
-    public func newestChange(of paths: [String]) -> Date? {
+    public func newestChange(of paths: [String]) -> Date? { Self.newestChange(of: paths, in: brain) }
+
+    /// The same, for any memory (the Tidy tab asks it of each change not saved).
+    public static func newestChange(of paths: [String], in brain: Brain) -> Date? {
         let fm = FileManager.default
         let root = brain.root.standardizedFileURL.path
         return paths.compactMap { path -> Date? in

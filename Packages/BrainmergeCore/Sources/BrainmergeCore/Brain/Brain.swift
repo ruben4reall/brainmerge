@@ -13,6 +13,8 @@ public struct Brain: Equatable, Sendable {
     public var lockFile: URL { metaDir.appending(path: "lock") }
     /// The digests of lines you said are not secrets (see NotSecrets): saved in the memory like your own edits.
     public var notSecretsFile: URL { metaDir.appending(path: "not-secrets.json") }
+    /// The empty folders you hid from the Tidy tab, by name (see MemoryTidy): saved in the memory like your own edits.
+    public var hiddenFile: URL { metaDir.appending(path: "hidden.json") }
     /// Where each account lists what it wrote until its next save (see TouchedLedger). Never committed.
     public var touchedDir: URL { metaDir.appending(path: "touched", directoryHint: .isDirectory) }
     public var gitignore: URL { root.appending(path: ".gitignore") }
@@ -31,7 +33,7 @@ public struct Brain: Equatable, Sendable {
     /// The memory's own files: the only ones the person's edits are ever committed from (see OwnEdits). An Obsidian vault's
     /// settings, daily notes or anything else in the folder are never added.
     public static let ownEditsScope = ["memory", "BRAIN.md", ".brainmerge/projects.json", ".brainmerge/identities.json",
-                                       ".brainmerge/not-secrets.json", ".gitignore"]
+                                       ".brainmerge/not-secrets.json", ".brainmerge/hidden.json", ".gitignore"]
 
     /// What a memory's .gitignore must hold: Finder's files, the lock, and the accounts' lists of what they wrote.
     static let ignoredLines = [".DS_Store", ".brainmerge/lock", ".brainmerge/touched/"]

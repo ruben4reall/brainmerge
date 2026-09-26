@@ -4,7 +4,8 @@ import BrainmergeCore
 
 struct BrainCommand: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "brain", abstract: "The memories: one shared by default, more if some accounts get their own.",
-                                                    subcommands: [Init.self, List.self, Add.self, Forget.self, Rename.self, Status.self, Wire.self, Timeline.self])
+                                                    subcommands: [Init.self, List.self, Add.self, Forget.self, Rename.self, Status.self, Wire.self, Timeline.self,
+                                                                  Health.self])
 
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Every memory, the default one first, with the accounts attached to it.")
@@ -130,6 +131,51 @@ struct BrainCommand: ParsableCommand {
             if entries.isEmpty { print("No commits yet.") }
             for e in entries {
                 print("\(e.date.formatted(date: .abbreviated, time: .shortened))  \(e.authorName)  \(e.message)  (\(e.files.count) files)")
+            }
+        }
+    }
+}
+
+extension BrainCommand {
+    /// The Memory screen's Tidy tab, in the terminal: which notes Claude will not load, and what else wants a look. Only
+    /// reads; the tab's buttons are the way to change anything.
+    struct Health: ParsableCommand {
+        static let configuration = CommandConfiguration(abstract: "Notes Claude will not load, and what to tidy (the default memory unless --brain names another).")
+        @Flag var json = false
+        @Option(help: "The memory to read (its id, see brain list).") var brain: String?
+
+        static let tidy = "Nothing to tidy. Every note is where the next session will find it."
+
+        func run() throws {
+            let context = Context()
+            let state = try context.store.load()
+            let folder: MemoryFolder
+            if let brain {
+                guard let named = state.brain(id: brain) else { throw BrainmergeError.brainUnknown(brain) }
+                folder = named
+            } else {
+                guard let first = state.brains.first else { throw BrainmergeError.brainNotConfigured }
+                folder = first
+            }
+            let memory = Brain(root: folder.url)
+            guard memory.isInitialized else { throw BrainmergeError.brainNotFound(memory.root.path) }
+            let held = Set(HeldStore(paths: context.paths, memoryID: folder.id).load().held.map(\.path))
+            let report = MemoryHealth.analyze(MemoryHealth.read(brain: memory, git: BrainGit(brain: memory),
+                                                                accountSlugs: Set(state.identities.map(\.slug)), held: held))
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+                print(String(decoding: try encoder.encode(report), as: UTF8.self))
+                return
+            }
+            if report.groups.isEmpty { print(Self.tidy) }
+            for (index, group) in report.groups.enumerated() {
+                if index > 0 { print("") }
+                print(group.title)
+                for item in group.items {
+                    print("  \(item.sentence)")
+                    if let detail = item.detail { print("    \(detail)") }
+                }
             }
         }
     }

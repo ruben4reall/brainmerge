@@ -42,5 +42,22 @@ public enum MemorySentence {
         return projects.count == 1 ? projects.first : nil
     }
 
+    /// Tidy's commits, all yours: "filed 2 notes under brainmerge", "kept one copy of deploy.md", "hid 3 empty folders from Tidy".
+    public static func filed(_ notes: Int, under project: String) -> String {
+        "filed \(notes == 1 ? "a note" : "\(notes) notes") under \(project)"
+    }
+    public static func kept(_ name: String) -> String { "kept one copy of \(name)" }
+    public static func hid(_ folders: Int) -> String { "hid \(folders == 1 ? "an empty folder" : "\(folders) empty folders") from Tidy" }
+
+    /// A Tidy commit's own words, found back in a message of yours ("You filed 2 notes under brainmerge" gives "filed 2 notes
+    /// under brainmerge"): they say what the click did, which its files alone cannot. Nil for any other message.
+    public static func tidy(message: String) -> String? {
+        let you = "You "
+        guard message.hasPrefix(you) else { return nil }
+        let words = String(message.dropFirst(you.count))
+        let isTidy = words.hasPrefix("filed ") || words.hasPrefix("kept one copy of ") || (words.hasPrefix("hid ") && words.hasSuffix(" from Tidy"))
+        return isTidy ? words : nil
+    }
+
     static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
 }

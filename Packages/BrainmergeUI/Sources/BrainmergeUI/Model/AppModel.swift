@@ -226,6 +226,8 @@ public final class AppModel {
 
     /// The live graph of the memory shown on the Memory screen; kept here so its layout survives switching screens.
     public let memoryGraph = MemoryGraphModel()
+    /// What the Memory screen's Tidy tab found in the memory shown (see MemoryTidyModel).
+    public let memoryTidy = MemoryTidyModel()
 
     public let paths: Paths
     public let store: StateStore
@@ -1657,6 +1659,9 @@ public final class AppModel {
             return UserMessage(title: "Choose another folder", detail: e.description)
         case .nameInvalid:
             return UserMessage(title: "Give it a name", detail: "One line, up to \(NameRules.maxLength) characters.")
+        case .noteBeingWritten, .noteNotSaved, .noteExists:
+            // The Tidy tab's buttons: the sentence says why, and that nothing moved.
+            return UserMessage(title: "Nothing was moved", detail: e.description)
         case .claudeAppTampered:
             return UserMessage(title: "Claude's signature is broken", detail: "The Claude app on this Mac does not match its own signature, so Brainmerge will not copy it. Reinstall Claude from claude.ai/download, then try again.", action: .getClaude, actionLabel: "Get Claude")
         default:

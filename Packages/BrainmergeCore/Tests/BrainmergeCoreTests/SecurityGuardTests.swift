@@ -361,6 +361,20 @@ import Testing
         #expect(!list.contains("JSONSerialization") && !list.contains("[String: Any]"), "obsidian.json is decoded for paths only")
     }
 
+    /// The Tidy tab's analysis only looks (SECURITY.md): it never writes, moves or commits, and its git status never
+    /// refreshes git's index, which a save may be holding. Its buttons live in MemoryTidy.swift, one click each.
+    @Test func memoryHealthOnlyReads() throws {
+        let text = try #require(try Self.sources().first { $0.0.lastPathComponent == "MemoryHealth.swift" }).1
+        let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        for forbidden in ["write(", "createFile", "createDirectory", "removeItem", "moveItem", "copyItem", "replaceItem", "trashItem",
+                          "setAttributes", "createSymbolicLink", "unlink", "rename(", "O_WRONLY", "O_RDWR", "O_CREAT", "commit(",
+                          "withLock", "catchUpIndex", "unstage(", "Shell(", ".check(", ".run(", "MemoryTidy(", "TouchedLedger("] {
+            #expect(!code.contains(forbidden), "MemoryHealth.swift must only read: \(forbidden)")
+        }
+        #expect(code.contains("optionalLocks: false"), "its git status leaves git's index alone")
+    }
+
     /// "Check limits" reads the text Claude Code prints and nothing else (SECURITY.md): the files that find Claude Code and
     /// ask it open no file, decode no JSON, look at no login or keychain, take nothing from Brainmerge's own environment,
     /// start nothing but through Shell, and ask exactly `--version` and `-p "/usage"`.

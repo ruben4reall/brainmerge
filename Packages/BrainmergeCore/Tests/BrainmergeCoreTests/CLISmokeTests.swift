@@ -424,6 +424,52 @@ import BrainmergeTestSupport
         #expect(try e.store.load().identity(slug: "client")?.ownApp == nil)
     }
 
+    /// `brain health` mirrors the Memory screen's Tidy tab: the same groups and sentences, and a JSON shape that stays put,
+    /// with paths inside the memory only.
+    @Test func brainHealthMirrorsTheTidyTab() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        #expect(try run(e, ["adopt-primary", "--name", "Perso"]).status == 0)
+        let calm = try run(e, ["brain", "health"])
+        #expect(calm.status == 0 && calm.stdout == "Nothing to tidy. Every note is where the next session will find it.\n")
+
+        for (path, text) in [("memory/lumalab/look.md", "# look\n"), ("memory/lumalab/palette.md", "# palette\n"),
+                             ("memory/scratch-2026-09-23-5050ce/lumalab-colors.md", "# colors\n")] {
+            let url = e.brain.root.appending(path: path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(text.utf8).write(to: url)
+        }
+        let text = try run(e, ["brain", "health"])
+        #expect(text.status == 0)
+        #expect(text.stdout == """
+        Notes Claude will not load
+          lumalab has 2 notes and no index, so no session loads them.
+            look.md, palette.md
+
+        Notes in one-off folders
+          1 note sits in a quick session's folder that no later session reads.
+            scratch-2026-09-23-5050ce
+
+        """)
+
+        let json = try run(e, ["brain", "health", "--json"])
+        #expect(json.status == 0)
+        #expect(!json.stdout.contains(e.home.url.path))
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(json.stdout.utf8)) as? [String: Any])
+        #expect(Set(object.keys) == ["count", "groups", "projects"])
+        #expect(object["count"] as? Int == 2)
+        #expect((object["projects"] as? [String])?.contains("lumalab") == true)
+        let groups = try #require(object["groups"] as? [[String: Any]])
+        #expect(groups.map { $0["id"] as? String } == ["notLoaded", "oneOff"])
+        for group in groups { #expect(Set(group.keys) == ["id", "title", "items"]) }
+        let items = groups.flatMap { $0["items"] as? [[String: Any]] ?? [] }
+        for item in items { #expect(Set(item.keys) == ["kind", "project", "sentence", "detail", "files", "lines", "suggested"]) }
+        #expect(items.map { $0["kind"] as? String } == ["noIndex", "oneOffNotes"])
+        #expect(items[0]["project"] as? String == "lumalab" && items[0]["lines"] is NSNull)
+        #expect(items[0]["files"] as? [String] == ["memory/lumalab/look.md", "memory/lumalab/palette.md"])
+        #expect(items[1]["suggested"] as? [String] == ["lumalab"])
+        #expect(try run(e, ["brain", "health", "--brain", "nope"]).status != 0)
+    }
+
     @Test func versionMatchesTheApp() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         #expect(try run(e, ["--version"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines) == BrainmergeInfo.version)
