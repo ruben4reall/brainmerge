@@ -276,6 +276,8 @@ public final class AppModel {
     public internal(set) var staleAccounts: Set<String> = []
     /// Accounts waiting for their Claude Code sessions to end before they restart.
     public internal(set) var restartingWhenIdle: Set<String> = []
+    /// The wait each of them runs: a wait that was cancelled stops at its next look.
+    @ObservationIgnored var idleWaits: [String: UUID] = [:]
     /// Accounts being restarted now: a second click waits for the first instead of opening the window twice.
     public internal(set) var restarting: Set<String> = []
     /// How often Restart When Idle looks at the window's Claude Code sessions.

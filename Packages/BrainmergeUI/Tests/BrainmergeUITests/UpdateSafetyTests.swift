@@ -221,6 +221,36 @@ import BrainmergeTestSupport
         for _ in 0..<250 where !m.restartingWhenIdle.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
     }
 
+    /// "Cancel Restart When Idle" lets go of the window: once its sessions end, nothing is quit or opened. Asked again
+    /// afterwards, it waits again, and a cancelled wait never ends the new one.
+    @Test func restartWhenIdleCanBeCancelled() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        let work = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let box = Box(), did = Did()
+        let window = farWorkLine(e, work)
+        let session = window + "\n4000003 4000002 1000 \(work.desktopData(in: e.home.paths).path)/claude-code/2.1.280/claude"
+        box.ps = session
+        let m = restartable(e, box, did)
+        m.idlePoll = .milliseconds(20)
+        m.reload()
+        m.restartWhenIdle(work.slug)
+        try await Task.sleep(for: .milliseconds(100))
+        m.cancelRestartWhenIdle(work.slug)
+        #expect(m.restartingWhenIdle.isEmpty)
+        m.restartWhenIdle(work.slug)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(m.restartingWhenIdle == [work.slug], "the first wait's end must not end the second")
+        m.cancelRestartWhenIdle(work.slug)
+        box.ps = window
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(did.steps.isEmpty)
+        #expect(m.restartingWhenIdle.isEmpty)
+        let menu = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "Sources/BrainmergeUI/Screens/AccountsView.swift"), encoding: .utf8)
+        #expect(menu.contains(#"Button("Cancel Restart When Idle") { model.cancelRestartWhenIdle(account.id) }"#))
+    }
+
     @Test func restartWhenIdleLeavesAWindowReopenedByHand() async throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Personal")

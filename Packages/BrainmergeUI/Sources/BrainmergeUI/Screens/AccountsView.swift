@@ -234,7 +234,9 @@ public struct AccountsView: View {
         if account.isOutdated { Button("Update for Claude") { Task { await model.updateAccount(account.id) } } }
         if !account.identity.isPrimary { Button(account.identity.iconMode == .tintedClone ? "Rebuild icon" : "Rebuild launcher") { Task { await model.rebuild(account.id) } } }
         else if account.identity.appURL(in: model.paths) != nil { Button("Rebuild app") { Task { await model.rebuild(account.id) } } }
-        if model.staleVersion(of: account.id) != nil, !model.restartingWhenIdle.contains(account.id), !model.restarting.contains(account.id) {
+        if model.restartingWhenIdle.contains(account.id) {
+            Button("Cancel Restart When Idle") { model.cancelRestartWhenIdle(account.id) }
+        } else if model.staleVersion(of: account.id) != nil, !model.restarting.contains(account.id) {
             Button("Restart When Idle") { model.restartWhenIdle(account.id) }
         }
         if account.isRunning { Button("Quit") { model.quit(account.id) } }

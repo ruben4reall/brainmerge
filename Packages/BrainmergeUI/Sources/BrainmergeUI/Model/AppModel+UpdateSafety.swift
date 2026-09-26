@@ -83,16 +83,20 @@ extension AppModel {
         reload()
     }
 
-    /// Restarts once no Claude Code session runs under the account's window. Stops waiting if the window closes, or
-    /// if another window took its place (quit and reopened by hand: that one already runs the Claude installed now).
+    /// Restarts once no Claude Code session runs under the account's window. Stops waiting if the window closes, if
+    /// another window took its place (quit and reopened by hand: that one already runs the Claude installed now), or on
+    /// "Cancel Restart When Idle".
     public func restartWhenIdle(_ slug: String) {
         guard !restartingWhenIdle.contains(slug) else { return }
+        let wait = UUID()
+        idleWaits[slug] = wait
         restartingWhenIdle.insert(slug)
         Task {
-            defer { restartingWhenIdle.remove(slug) }
+            // Only this wait's own end clears the mark: a wait cancelled and asked again belongs to the new one.
+            defer { if idleWaits[slug] == wait { idleWaits[slug] = nil; restartingWhenIdle.remove(slug) } }
             var clicked: Int32?
             while true {
-                guard let account = accounts.first(where: { $0.id == slug }), account.isRunning, let claude else { return }
+                guard idleWaits[slug] == wait, let account = accounts.first(where: { $0.id == slug }), account.isRunning, let claude else { return }
                 let snapshot = (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
                 guard let main = snapshot.mains.first(where: { ProcessMonitor.matches($0, identity: account.identity, paths: paths, claude: claude) }),
                       main.pid == (clicked ?? main.pid)
@@ -102,6 +106,12 @@ extension AppModel {
                 try? await Task.sleep(for: idlePoll)
             }
         }
+    }
+
+    /// "Cancel Restart When Idle": stops waiting; the window keeps running as it is.
+    public func cancelRestartWhenIdle(_ slug: String) {
+        idleWaits[slug] = nil
+        restartingWhenIdle.remove(slug)
     }
 
     /// "Reopen Work": quits the bare Claude gracefully, waits for it to exit, then opens Work through its launcher.
