@@ -21,7 +21,7 @@ extension AppModel {
             let main = account.isRunning
                 ? snapshot.mains.first { ProcessMonitor.matches($0, identity: account.identity, paths: paths, claude: claude) } : nil
             return UpdateWatch.Window(slug: account.id, isPrimary: account.identity.isPrimary, running: account.isRunning,
-                                      startAbstime: main?.startAbstime)
+                                      startAbstime: main?.startAbstime, isCopy: account.claudeVersion != .notApplicable)
         }
         // The bundle's Info.plist changed when Claude was replaced: read only on the reload that sees a new version.
         let plist = claude.url.appending(path: "Contents/Info.plist").path
@@ -83,17 +83,21 @@ extension AppModel {
         reload()
     }
 
-    /// Restarts once no Claude Code session runs under the account's window. Stops waiting if the window closes.
+    /// Restarts once no Claude Code session runs under the account's window. Stops waiting if the window closes, or
+    /// if another window took its place (quit and reopened by hand: that one already runs the Claude installed now).
     public func restartWhenIdle(_ slug: String) {
         guard !restartingWhenIdle.contains(slug) else { return }
         restartingWhenIdle.insert(slug)
         Task {
             defer { restartingWhenIdle.remove(slug) }
+            var clicked: Int32?
             while true {
                 guard let account = accounts.first(where: { $0.id == slug }), account.isRunning, let claude else { return }
                 let snapshot = (try? manager.monitor.snapshot()) ?? ProcessMonitor.Snapshot(mains: [], all: [])
-                guard let main = snapshot.mains.first(where: { ProcessMonitor.matches($0, identity: account.identity, paths: paths, claude: claude) })
+                guard let main = snapshot.mains.first(where: { ProcessMonitor.matches($0, identity: account.identity, paths: paths, claude: claude) }),
+                      main.pid == (clicked ?? main.pid)
                 else { return }
+                clicked = main.pid
                 if !snapshot.hasClaudeCode(under: main.pid) { await restart(slug); return }
                 try? await Task.sleep(for: idlePoll)
             }

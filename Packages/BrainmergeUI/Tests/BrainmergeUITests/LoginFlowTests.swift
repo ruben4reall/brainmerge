@@ -38,6 +38,20 @@ import BrainmergeCore
         #expect(f.observe(running: ["work"], connected: false) == [])
     }
 
+    @Test func aWindowThatDoesNotCloseIsSaidAfterTenSecondsAndNeverForced() {
+        // Claude can ask to confirm the quit: the sheet says so, and quits nothing more.
+        let t = Date(timeIntervalSince1970: 1_000)
+        var f = flow()
+        _ = f.start(now: t)
+        #expect(f.observe(running: ["personal"], connected: false, now: t + 9) == [])
+        #expect(f.status == "Closing Personal…")
+        #expect(f.observe(running: ["personal"], connected: false, now: t + 10) == [])
+        #expect(f.status == "Personal is still open. Check its window, or Cancel.")
+        #expect(f.closeLabel == "Cancel")
+        #expect(f.observe(running: [], connected: false, now: t + 12) == [.open("work")])
+        #expect(f.status == "Work is open. Log in in its window.")
+    }
+
     @Test func theReopenButtonWaitsForConnectedOrTheLoggedInClick() {
         var f = flow()
         _ = f.start()

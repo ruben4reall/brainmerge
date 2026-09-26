@@ -23,6 +23,9 @@ public struct LoginFlow: Equatable, Sendable {
     /// Asked to close, and not reopened yet.
     private var closed: [Member] = []
     private var stillRunning: [Member] = []
+    private var closingSince: Date?
+    /// Asked to close 10 s ago and still open: Claude can be asking to confirm the quit. Said, never forced.
+    private var slowToClose = false
     private var confirmed = false
     /// The target was seen without a session: from then on, a session means it logged in.
     private var sawDisconnected: Bool
@@ -50,7 +53,7 @@ public struct LoginFlow: Equatable, Sendable {
     public var status: String? {
         switch step {
         case .ready, .finished: return nil
-        case .closing: return stillRunning.first.map { "Closing \($0.name)…" }
+        case .closing: return stillRunning.first.map { slowToClose ? "\($0.name) is still open. Check its window, or Cancel." : "Closing \($0.name)…" }
         case .opened: return "\(target.name) is open. Log in in its window."
         case .connected: return "\(target.name) is connected."
         }
@@ -63,21 +66,25 @@ public struct LoginFlow: Equatable, Sendable {
     /// The button that ends the sheet: nothing to reopen once it has started alone, so it is done.
     public var closeLabel: String { step != .ready && others.isEmpty ? "Done" : "Cancel" }
 
-    public mutating func start() -> [Effect] {
+    public mutating func start(now: Date = Date()) -> [Effect] {
         guard step == .ready else { return [] }
         if others.isEmpty { step = .opened; return [.open(target.slug)] }
         step = .closing
+        closingSince = now
         closed = others
         stillRunning = others
         return others.map { .quit($0.slug) }
     }
 
     /// Each reload's view: which accounts run, and whether the target now holds a session.
-    public mutating func observe(running: Set<String>, connected: Bool) -> [Effect] {
+    public mutating func observe(running: Set<String>, connected: Bool, now: Date = Date()) -> [Effect] {
         switch step {
         case .closing:
             stillRunning = stillRunning.filter { running.contains($0.slug) }
-            guard stillRunning.isEmpty else { return [] }
+            guard stillRunning.isEmpty else {
+                if let closingSince, now.timeIntervalSince(closingSince) >= 10 { slowToClose = true }
+                return []
+            }
             step = .opened
             return [.open(target.slug)]
         case .opened:

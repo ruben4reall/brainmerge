@@ -33,4 +33,15 @@ import Testing
         """
         #expect(ProcessMonitor.snapshot(psOutput: ps).claudeCodeSessions(under: 403) == 2)
     }
+
+    @Test func aSessionsOwnClaudeCodeIsNotCountedAgain() {
+        // A session that started a subagent, itself Claude Code, which started one more: still one session.
+        let ps = """
+          403 1 1 /Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/x/Claude-work
+          409 403 1 /x/Claude-work/claude-code/2.1.280/claude
+          420 409 1 /x/Claude-work/claude-code/2.1.280/claude --agent
+          421 420 1 /opt/homebrew/bin/claude -p task
+        """
+        #expect(ProcessMonitor.snapshot(psOutput: ps).claudeCodeSessions(under: 403) == 1)
+    }
 }

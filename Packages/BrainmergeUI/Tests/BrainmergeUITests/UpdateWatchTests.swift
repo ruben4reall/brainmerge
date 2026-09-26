@@ -85,19 +85,47 @@ import Testing
     }
 
     @Test func theTrackerSaysABareRelaunchOnlyWithAllFourConditions() {
+        // Every reload's events: one said too early counts as much as one said at the end.
         func run(exitAt: TimeInterval = 40, bareAt: TimeInterval = 60, newVersion: String = "1.2.4", primaryBefore: Bool = false,
                  opened: Bool = false) -> [UpdateWatch.Event] {
             var watch = UpdateWatch()
-            _ = see(&watch, "1.2.3", [personal(primaryBefore), work(true)], at: 10)
-            _ = see(&watch, newVersion, [personal(primaryBefore), work(false)], at: exitAt, modified: exitAt - 1)
+            var events = see(&watch, "1.2.3", [personal(primaryBefore), work(true)], at: 10)
+            events += see(&watch, newVersion, [personal(primaryBefore), work(false)], at: exitAt, modified: exitAt - 1)
             if opened { watch.requestedOpen("personal", at: t0.addingTimeInterval(bareAt - 2)) }
-            return see(&watch, newVersion, [personal(true), work(false)], at: bareAt)
+            events += see(&watch, newVersion, [personal(true), work(false)], at: bareAt)
+            return events
         }
         #expect(run() == [.bareRelaunch(instead: "work")])
         #expect(run(bareAt: 101) == [])
         #expect(run(newVersion: "1.2.3") == [])
         #expect(run(primaryBefore: true) == [])
         #expect(run(opened: true) == [])
+    }
+
+    @Test func aRelaunchCaughtWithinOneReloadIsStillSaid() {
+        var watch = UpdateWatch()
+        _ = see(&watch, "1.2.3", [personal(false), work(true)], at: 10)
+        #expect(see(&watch, "1.2.4", [personal(true), work(false)], at: 13, modified: 12) == [.bareRelaunch(instead: "work")])
+    }
+
+    @Test func theFirstAccountOpenWhenTheOtherClosedIsNeverABareRelaunch() {
+        // Work is quit while Personal is open; Personal then restarts itself to update and is gone for one reload.
+        var watch = UpdateWatch()
+        var events = see(&watch, "1.2.3", [personal(true), work(true)], at: 10)
+        events += see(&watch, "1.2.3", [personal(true), work(false)], at: 20)
+        events += see(&watch, "1.2.4", [personal(false), work(false)], at: 30, modified: 29)
+        events += see(&watch, "1.2.4", [personal(true), work(false)], at: 33)
+        #expect(events == [])
+    }
+
+    @Test func aDeliberateOpenStaysSilentOnLaterReloadsToo() {
+        var watch = UpdateWatch()
+        var events = see(&watch, "1.2.3", [personal(false), work(true)], at: 10)
+        events += see(&watch, "1.2.4", [personal(false), work(false)], at: 40, modified: 39)
+        watch.requestedOpen("personal", at: t0.addingTimeInterval(44))
+        events += see(&watch, "1.2.4", [personal(true), work(false)], at: 45)
+        events += see(&watch, "1.2.4", [personal(true), work(false)], at: 48)
+        #expect(events == [])
     }
 
     @Test func anOldUpdateDoesNotMakeALaterRelaunchBare() {

@@ -26,7 +26,7 @@ extension AppModel {
         beginLogin(slug)
     }
 
-    public func startLogin() { run(login.map { var f = $0; defer { login = f }; return f.start() } ?? []) }
+    public func startLogin() { run(login.map { var f = $0; defer { login = f }; return f.start(now: now()) } ?? []) }
 
     public func confirmLoggedIn() { login?.confirmLoggedIn() }
 
@@ -54,7 +54,7 @@ extension AppModel {
         }
         guard var flow = login else { return false }
         let connected = accounts.first { $0.id == flow.target.slug }?.hasSession ?? false
-        let effects = flow.observe(running: running, connected: connected)
+        let effects = flow.observe(running: running, connected: connected, now: now())
         let changed = flow != login
         login = flow
         run(effects)

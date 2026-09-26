@@ -42,6 +42,32 @@ import BrainmergeTestSupport
         #expect(AccountsView.staleLine(version: "9.0.0") == "Runs the previous Claude. Restart to use 9.0.0.")
     }
 
+    /// A tinted copy runs its own copy of Claude: a restart would bring it back on the same old copy. Its own Update
+    /// (quit, rebuild, reopen) and its "built for" wording cover it.
+    @Test func anOutdatedTintedCopyIsNeverOfferedARestart() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        var request = IdentityManager.AddRequest(name: "Client"); request.iconMode = .tintedClone
+        let client = try e.manager.add(request)
+        let exe = e.home.paths.tintedClone(name: "Client").appending(path: "Contents/MacOS/Claude").path
+        let box = Box()
+        box.ps = "503 1 1000 \(exe) --user-data-dir=\(client.desktopData(in: e.home.paths).path)"
+        box.starts = [503: 10_000_000_000]
+        let m = model(e, box)
+        var clock: UInt64 = 20_000_000_000
+        m.abstimeNow = { clock }
+        m.reload()
+        try FakeClaudeApp.make(in: e.home.url, version: "9.0.0")
+        clock = 30_000_000_000
+        m.reload()
+        let account = try #require(m.accounts.first { $0.id == client.slug })
+        #expect(account.isRunning && account.isOutdated)
+        #expect(m.staleAccounts.isEmpty)
+        #expect(m.staleVersion(of: client.slug) == nil)
+        #expect(SidebarAccountAction.show.help(for: account, othersOpen: false, staleVersion: m.staleVersion(of: client.slug))
+                == "Show Client's Claude window. Built for Claude 2.7032.0, 9.0.0 is installed.")
+    }
+
     @Test func claudeComingBackBareAfterAnUpdateIsSaid() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Personal")
@@ -62,6 +88,22 @@ import BrainmergeTestSupport
         #expect(said.action == .reopenInstead(slug: work.slug))
         #expect(said.actionLabel == "Reopen Work")
         #expect(said.cancelLabel == "Keep Personal")
+    }
+
+    @Test func noBannerWhenTheFirstAccountWasOpenWhenTheOtherClosed() throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        let work = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let box = Box()
+        box.ps = primaryLine(e) + "\n" + workLine(e, work)
+        let m = model(e, box)
+        m.reload()
+        box.ps = primaryLine(e); m.reload()
+        // Personal restarts itself to update: gone for one reload, then back.
+        try FakeClaudeApp.make(in: e.home.url, version: "9.0.0")
+        box.ps = ""; m.reload()
+        box.ps = primaryLine(e); m.reload()
+        #expect(m.message == nil)
     }
 
     @Test func noBannerWithoutAVersionChange() throws {
@@ -172,6 +214,60 @@ import BrainmergeTestSupport
         for _ in 0..<250 where did.steps.count < 2 || !m.restartingWhenIdle.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
         #expect(did.steps == ["quit work", "open work"])
         #expect(m.restartingWhenIdle.isEmpty)
+    }
+
+    /// Waits until Restart When Idle has stopped waiting, 5 s at most.
+    func waitUntilIdle(_ m: AppModel) async throws {
+        for _ in 0..<250 where !m.restartingWhenIdle.isEmpty { try await Task.sleep(for: .milliseconds(20)) }
+    }
+
+    @Test func restartWhenIdleLeavesAWindowReopenedByHand() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        let work = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let box = Box(), did = Did()
+        let data = work.desktopData(in: e.home.paths).path
+        box.ps = farWorkLine(e, work) + "\n4000003 4000002 1000 \(data)/claude-code/2.1.280/claude"
+        box.starts = [4000002: 10_000_000_000]
+        let m = restartable(e, box, did)
+        m.idlePoll = .milliseconds(20)
+        var clock: UInt64 = 20_000_000_000
+        m.abstimeNow = { clock }
+        m.reload()
+        try FakeClaudeApp.make(in: e.home.url, version: "9.0.0")
+        clock = 30_000_000_000
+        m.reload()
+        #expect(m.staleAccounts == [work.slug])
+        m.restartWhenIdle(work.slug)
+        try await Task.sleep(for: .milliseconds(100))
+        // The person quits Work and opens it again, on the Claude installed now: a new window with no session yet.
+        box.ps = "4000005 1 1000 \(e.claude.executable.path) --user-data-dir=\(data)"
+        box.starts = [4000005: 40_000_000_000]
+        clock = 45_000_000_000
+        m.reload()
+        #expect(m.staleAccounts.isEmpty)
+        try await waitUntilIdle(m)
+        #expect(m.restartingWhenIdle.isEmpty)
+        #expect(did.steps.isEmpty)
+    }
+
+    @Test func restartWhenIdleIsAboutTheWindowClickedOnly() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        let work = try e.manager.add(IdentityManager.AddRequest(name: "Work"))
+        let box = Box(), did = Did()
+        let data = work.desktopData(in: e.home.paths).path
+        box.ps = farWorkLine(e, work) + "\n4000003 4000002 1000 \(data)/claude-code/2.1.280/claude"
+        let m = restartable(e, box, did)
+        m.idlePoll = .milliseconds(20)
+        m.reload()
+        m.restartWhenIdle(work.slug)
+        try await Task.sleep(for: .milliseconds(100))
+        // Another Work window, before any reload has seen it: not the one the click was about.
+        box.ps = "4000005 1 1000 \(e.claude.executable.path) --user-data-dir=\(data)"
+        try await waitUntilIdle(m)
+        #expect(m.restartingWhenIdle.isEmpty)
+        #expect(did.steps.isEmpty)
     }
 
     @Test func reopenInsteadQuitsTheBareClaudeThenOpensTheAccount() async throws {

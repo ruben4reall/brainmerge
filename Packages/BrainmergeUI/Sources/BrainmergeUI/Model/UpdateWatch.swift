@@ -22,8 +22,11 @@ public struct UpdateWatch: Equatable, Sendable {
         public let running: Bool
         /// When its main process started, in mach absolute time (nil when unknown).
         public let startAbstime: UInt64?
-        public init(slug: String, isPrimary: Bool, running: Bool, startAbstime: UInt64?) {
-            self.slug = slug; self.isPrimary = isPrimary; self.running = running; self.startAbstime = startAbstime
+        /// A tinted copy runs its own copy of Claude, not the bundle that was updated: a restart would bring back the
+        /// same copy, so it is never called stale. Its own Update rebuilds it.
+        public let isCopy: Bool
+        public init(slug: String, isPrimary: Bool, running: Bool, startAbstime: UInt64?, isCopy: Bool = false) {
+            self.slug = slug; self.isPrimary = isPrimary; self.running = running; self.startAbstime = startAbstime; self.isCopy = isCopy
         }
     }
 
@@ -35,7 +38,9 @@ public struct UpdateWatch: Equatable, Sendable {
         case openedElsewhere(target: String)
     }
 
-    struct Exit: Equatable, Sendable { let slug: String; let at: Date }
+    /// An account's window that closed, and whether the first account was running just before (the last reload
+    /// that still saw the window): then a first account seen coming back is its own restart, not a bare relaunch.
+    struct Exit: Equatable, Sendable { let slug: String; let at: Date; let primaryWasRunning: Bool }
 
     /// The last version change seen, and the windows that started before it.
     public private(set) var change: Change?
@@ -63,19 +68,21 @@ public struct UpdateWatch: Equatable, Sendable {
             change = Change(version: version, observedAbstime: abstime, observedAt: now, bundleModified: bundleModified() ?? now)
         }
         seenVersion = version
-        stale = Set(windows.filter { $0.running && Self.isStale(startAbstime: $0.startAbstime, change: change, ticksPerSecond: ticksPerSecond) }.map(\.slug))
+        stale = Set(windows.filter { $0.running && !$0.isCopy && Self.isStale(startAbstime: $0.startAbstime, change: change, ticksPerSecond: ticksPerSecond) }.map(\.slug))
 
         var events: [Event] = []
         let running = Set(windows.filter(\.running).map(\.slug))
         let primary = windows.first(where: \.isPrimary)?.slug
         if let before = runningBefore, let primary {
             let secondaries = Set(windows.filter { !$0.isPrimary }.map(\.slug))
-            if let exited = before.subtracting(running).intersection(secondaries).sorted().first { lastSecondaryExit = Exit(slug: exited, at: now) }
+            if let exited = before.subtracting(running).intersection(secondaries).sorted().first {
+                lastSecondaryExit = Exit(slug: exited, at: now, primaryWasRunning: before.contains(primary))
+            }
             if running.contains(primary), !before.contains(primary) {
                 primaryAppearedAt = now
                 let versionChanged = change.map { now.timeIntervalSince($0.observedAt) <= Self.recentChange } ?? false
                 if let exit = lastSecondaryExit,
-                   Self.isBareRelaunch(now: now, lastSecondaryExit: exit.at, primaryWasRunning: false, versionChanged: versionChanged,
+                   Self.isBareRelaunch(now: now, lastSecondaryExit: exit.at, primaryWasRunning: exit.primaryWasRunning, versionChanged: versionChanged,
                                        primaryOpenedByPerson: openRequests[primary] != nil) {
                     lastSecondaryExit = nil
                     events.append(.bareRelaunch(instead: exit.slug))
@@ -124,7 +131,7 @@ public struct UpdateWatch: Equatable, Sendable {
 
     /// Claude's own "Restart to update", clicked in another account's window, can come back with no arguments, so on
     /// the first account's folders. Said only when all hold: an account's window closed within the last 60 s, the first
-    /// account was not running before, Claude's version changed, and the person did not open the first account.
+    /// account was not running when it closed, Claude's version changed, and the person did not open the first account.
     public static func isBareRelaunch(now: Date, lastSecondaryExit: Date?, primaryWasRunning: Bool, versionChanged: Bool,
                                       primaryOpenedByPerson: Bool) -> Bool {
         guard let exit = lastSecondaryExit, now.timeIntervalSince(exit) <= 60 else { return false }
