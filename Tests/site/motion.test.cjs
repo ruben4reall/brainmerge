@@ -248,3 +248,60 @@ test('every note in the diagram is a page with a folded corner', () => {
     assert.ok(n.includes('<path class="fl-fold" d="M3 -8.5V-4.5H7z" fill="#000" fill-opacity="0.25"/>'), 'fold: ' + n);
   });
 });
+
+// ---------- The page, painting the diagram ----------
+
+// A stand-in for the page, just enough for script.js to find the diagram and paint it: every element remembers the
+// attributes written to it. Reduce Motion is on, so the page paints the still once and waits for the toggle.
+function fakePage() {
+  const made = {};
+  function el(key, attrs = {}) {
+    const node = {
+      key, attrs: { transform: 'translate(10 20) scale(2)', ...attrs }, listeners: {}, hidden: false, textContent: '',
+      classList: { add() {}, remove() {}, contains() { return false; } },
+      getAttribute(n) { return n in this.attrs ? this.attrs[n] : null; },
+      setAttribute(n, v) { this.attrs[n] = String(v); },
+      addEventListener(t, f) { (this.listeners[t] = this.listeners[t] || []).push(f); },
+      getTotalLength() { return 100; },
+      getPointAtLength(d) { return { x: d, y: 0 }; },
+      querySelector(sel) { const k = key + ' ' + sel; return made[k] || (made[k] = el(k)); },
+      querySelectorAll(sel) {
+        if (sel === '.fl-slot') return [0, 1, 2].map(i => this.querySelector(sel + i));
+        if (sel === '.fl-note-slot') return [0, 1, 2].map(i => this.querySelector(sel + i));
+        if (sel === '.fl-note') return ['p', 's', 'w'].map(a => { const n = this.querySelector(sel + a); n.attrs['data-acc'] = a; return n; });
+        return [];
+      },
+    };
+    return node;
+  }
+  const svg = el('svg');
+  const opts = ['shared', 'each'].map(m => el('opt-' + m, { 'data-mode': m }));
+  const fig = el('fig', { 'data-mode': 'shared' });
+  fig.querySelectorAll = sel => (sel === 'svg.flow' ? [svg] : sel === '.flow-opt' ? opts : []);
+  fig.querySelector = sel => (sel === '.flow-play' ? el('play') : null);
+  const document = {
+    documentElement: el('html'),
+    addEventListener() {},
+    querySelector() { return null; },
+    querySelectorAll(sel) { return sel === '.flow-fig' ? [fig] : []; },
+  };
+  const window = { matchMedia: () => ({ matches: false }) };
+  const sandbox = { window, document, location: { hostname: 'localhost' }, navigator: {}, performance, requestAnimationFrame() {},
+    cancelAnimationFrame() {}, setTimeout, console };
+  require('node:vm').runInNewContext(read('script.js'), sandbox);
+  return { lit: (mode, acc) => made[`svg .fl-lit[data-mode="${mode}"][data-acc="${acc}"]`], opts };
+}
+
+test('a lit lane glows in the tint of the account whose note travels it', () => {
+  // The still of "One memory": Personal's note has landed, its copies climb the Studio and Work lanes.
+  const page = fakePage();
+  for (const acc of ['s', 'w']) {
+    const lane = page.lit('shared', acc);
+    assert.strictEqual(lane.getAttribute('stroke'), M.TINT.p, acc);   // Personal's orange, not the lane's own account
+    assert.strictEqual(lane.getAttribute('stroke-opacity'), '0.85', acc);
+    assert.strictEqual(lane.getAttribute('opacity'), '1', acc);
+  }
+  // Personal's own lane is not lit: no tint is written to it.
+  assert.strictEqual(page.lit('shared', 'p').getAttribute('stroke'), null);
+  assert.strictEqual(page.lit('shared', 'p').getAttribute('opacity'), '0');
+});

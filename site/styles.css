@@ -644,7 +644,8 @@ code {
   .flow-opt[aria-pressed="false"]:hover,
   .flow-play:hover { color: var(--text); }
 }
-/* Both captions share one grid cell, so switching modes never moves what is below the diagram. */
+/* Both captions share one grid cell, so switching modes never moves what is below the diagram. Balanced lines: never a
+   single word left alone on the last one. */
 .flow-cap {
   display: grid;
   max-width: 640px;
@@ -653,7 +654,7 @@ code {
   line-height: 1.45;
   color: var(--text-3);
 }
-.flow-cap > span { grid-area: 1 / 1; }
+.flow-cap > span { grid-area: 1 / 1; text-wrap: balance; }
 .flow-cap-each,
 .flow-fig[data-mode="each"] .flow-cap-shared { visibility: hidden; }
 .flow-fig[data-mode="each"] .flow-cap-each { visibility: visible; }
