@@ -169,10 +169,11 @@ import BrainmergeTestSupport
         #expect(try run(e, ["sync", "--identity", "perso"]).status == 0)
         let last = try #require(try BrainGit(brain: e.brain).log(limit: 1).first)
         #expect(last.authorName == "Perso")
-        #expect(Set(last.files) == ["memory/atelier/deploy.md", "memory/atelier/prices.md"])
+        // With the list of its projects, linked when it was set up: that is the account's too.
+        #expect(Set(last.files) == ["memory/atelier/deploy.md", "memory/atelier/prices.md", ".brainmerge/projects.json"])
         #expect(last.message == MemorySentence.message(name: "Perso", files: last.files))
         #expect(last.message == "Perso remembered 2 things about atelier")
-        #expect(try String(contentsOf: logFile, encoding: .utf8).contains("perso: committed 2 files"))
+        #expect(try String(contentsOf: logFile, encoding: .utf8).contains("perso: committed 3 files"))
 
         #expect(try run(e, ["sync", "--identity", "work"]).status == 0)
         let theirs = try #require(try BrainGit(brain: e.brain).log(limit: 1).first)
@@ -193,10 +194,11 @@ import BrainmergeTestSupport
 
         let sync = try run(e, ["sync", "--identity", "perso"])
         #expect(sync.status == 0 && sync.stdout.isEmpty)
-        #expect(try BrainGit(brain: e.brain).log(limit: 1).first?.files == ["memory/atelier/deploy.md"])
+        // The note, and the list of projects linked when the account was set up.
+        #expect(try BrainGit(brain: e.brain).log(limit: 1).first?.files.contains("memory/atelier/deploy.md") == true)
         let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
-        #expect(log.contains("perso: committed 1 file"))
-        #expect(log.contains("perso: another git held the memory's index, it catches up with 1 file at the next save"), "\(log)")
+        #expect(log.contains("perso: committed 2 files"))
+        #expect(log.contains("perso: another git held the memory's index, it catches up with 2 files at the next save"), "\(log)")
     }
 
     /// A note that looks like it holds a key is not committed, and nothing that could carry the key is written anywhere:
@@ -214,7 +216,7 @@ import BrainmergeTestSupport
         }
         let sync = try run(e, ["sync", "--identity", "perso"])
         #expect(sync.status == 0 && sync.stdout.isEmpty)
-        #expect(try BrainGit(brain: e.brain).log(limit: 1).first?.files == ["memory/acme-api/prices.md"])
+        #expect(try BrainGit(brain: e.brain).log(limit: 1).first?.files.filter { $0.hasPrefix("memory/") } == ["memory/acme-api/prices.md"])
         let log = try String(contentsOf: e.home.paths.logsDir.appending(path: "sync.log"), encoding: .utf8)
         #expect(log.contains("perso: held back 1 file (looks like a key)"))
         let held = try String(contentsOf: HeldStore(paths: e.home.paths, memoryID: "shared").file, encoding: .utf8)
@@ -231,6 +233,7 @@ import BrainmergeTestSupport
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Perso")
         let note = e.brain.memoryDir(forProject: "atelier").appending(path: "n.md").path
+        let before = TouchedLedger.claimed(in: e.brain)
         for (arguments, input) in [(["touched", "--identity", "nope"], edit(note)),
                                    (["touched", "--identity", "../../x"], edit(note)),
                                    (["touched", "--identity", "perso"], "{oops"),
@@ -240,7 +243,7 @@ import BrainmergeTestSupport
             let result = try run(e, arguments, input: input)
             #expect(result.status == 0 && result.stdout.isEmpty, "\(arguments) \(input): \(result.stdout) \(result.stderr)")
         }
-        #expect(TouchedLedger.claimed(in: e.brain).isEmpty)
+        #expect(TouchedLedger.claimed(in: e.brain) == before, "none of these adds a path")
         #expect(!FileManager.default.fileExists(atPath: e.home.url.appending(path: "x").path))
         try FileManager.default.removeItem(at: e.brain.root)
         #expect(try run(e, ["touched", "--identity", "perso"], input: edit(note)).status == 0)

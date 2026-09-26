@@ -173,6 +173,37 @@ import BrainmergeTestSupport
         #expect(TouchedLedger.claimed(in: e.brain).isEmpty)
     }
 
+    /// The app's pass over the projects `.claude.json` lists credits the list to the account whose projects they are, like
+    /// a session start, never to "You edited". Nothing changed, nothing is added.
+    @Test func theFullWiringLeavesTheProjectListToTheAccountsSave() throws {
+        let e = try env(); defer { e.home.remove() }
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        let ledger = TouchedLedger(brain: e.brain, slug: "perso")
+        #expect(try ledger.take() == [".brainmerge/projects.json"])
+        try ledger.finish(keeping: [])
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(TouchedLedger.claimed(in: e.brain).isEmpty)
+    }
+
+    /// Notes moved in from an account's own memory folder are that account's: its next save commits them, a renamed
+    /// duplicate and a subfolder's notes included, never "You edited".
+    @Test func adoptedNotesGoToTheAccountsSave() throws {
+        let e = try env(); defer { e.home.remove() }
+        let fm = FileManager.default
+        let real = e.link(e.atelier)
+        try fm.createDirectory(at: real.appending(path: "decisions"), withIntermediateDirectories: true)
+        try Data("local index\n".utf8).write(to: real.appending(path: "MEMORY.md"))
+        try Data("fact\n".utf8).write(to: real.appending(path: "user_role.md"))
+        try Data("why\n".utf8).write(to: real.appending(path: "decisions/prices.md"))
+        let target = e.brain.memoryDir(forProject: "atelier")
+        try fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try Data("brain index\n".utf8).write(to: target.appending(path: "MEMORY.md"))
+
+        _ = try e.wiring.wire(profile: e.profile, identitySlug: "perso")
+        #expect(TouchedLedger.claimed(in: e.brain) == [".brainmerge/projects.json", "memory/atelier/MEMORY.perso.md",
+                                                       "memory/atelier/user_role.md", "memory/atelier/decisions/prices.md"])
+    }
+
     /// Every session start asks again: a project already linked into this memory, under whatever name, is left exactly
     /// as it is and nothing is written.
     @Test func wireOneIsIdempotentAndWritesNothingWhenLinked() throws {
