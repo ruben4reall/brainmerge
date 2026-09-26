@@ -1062,6 +1062,29 @@ import BrainmergeTestSupport
         #expect(b.menuBarIcon && !b.showsMenuBarIcon)
     }
 
+    /// While the launch's creature is still in the air, the icon and the app menu's routes wait: inserting the icon and
+    /// rebuilding the main menu would land on the first frames of the leap. Once it has landed, or a few seconds later
+    /// whatever happens to the window, they come.
+    @Test func theIconWaitsForTheLaunchToLand() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Ruben")
+        let m = model(e)
+        m.environment = [:]
+        await m.launch(minimum: .zero) { m.launchSettling = true }
+        #expect(m.launchPhase == .ready)
+        #expect(!m.showsMenuBarIcon && !m.setupDone)
+        m.launchSettling = false
+        #expect(m.showsMenuBarIcon && m.setupDone)
+        // A window that never says it landed (hidden, closed mid-leap) holds them only for a while.
+        let late = model(e)
+        late.environment = [:]
+        late.settlingLimit = .milliseconds(30)
+        await late.launch(minimum: .zero) { late.launchSettling = true }
+        #expect(!late.showsMenuBarIcon)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(late.showsMenuBarIcon && !late.launchSettling)
+    }
+
     /// The switch is saved after any work already on the core queue (a rebuild saves the state too), and a reload in
     /// between does not flip it back.
     @Test func theSwitchHoldsWhileItsSaveWaitsForTheCoreQueue() async throws {

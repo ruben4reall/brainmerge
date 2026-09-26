@@ -282,7 +282,9 @@ public final class AppModel {
     /// `.loading` from the process start until the first load is done: the window shows the splash meanwhile.
     public private(set) var launchPhase: LaunchPhase = .loading { didSet { refreshSetupState() } }
     private var launchTask: Task<Void, Never>?
-    private var beforeReady: [@MainActor () -> Void] = []
+    /// Never observed: every window built during the splash queues its work here, and the scenes build the window in their
+    /// own body; an observed queue would redraw the scenes at each window built, which builds another (a launch that loops).
+    @ObservationIgnored private var beforeReady: [@MainActor () -> Void] = []
     /// Read off the main thread by the first load, then used once by `reload()` and `refreshMemory()`.
     private var prefetchedSnapshot: ProcessMonitor.Snapshot?
     private var prefetchedLog: (root: URL, entries: [BrainGit.Entry])?
@@ -417,13 +419,36 @@ public final class AppModel {
 
     /// The window's screens are there: past the splash, a memory and a first account, the guided setup closed.
     public private(set) var setupDone = false
+    /// The window's launch is still landing (its creature in the air): the setup counts as done, and the icon shows, only
+    /// once it has landed, so inserting the icon and rebuilding the app menu never land on the leap's first frames. Set by
+    /// the window as the first load ends (and as the guide ends), cleared when its creature lands, and at the latest
+    /// `settlingLimit` later, whatever the window does (hidden, closed mid-leap). Nothing draws it: never observed.
+    @ObservationIgnored public var launchSettling = false {
+        didSet {
+            guard launchSettling != oldValue else { return }
+            let shown = showsMenuBarIcon
+            refreshSetupState()
+            if shown != showsMenuBarIcon { updateWatching() }
+            settlingTimeout?.cancel()
+            settlingTimeout = nil
+            guard launchSettling else { return }
+            let limit = settlingLimit
+            settlingTimeout = Task { [weak self] in
+                try? await Task.sleep(for: limit)
+                guard !Task.isCancelled else { return }
+                self?.launchSettling = false
+            }
+        }
+    }
+    @ObservationIgnored var settlingLimit: Duration = .seconds(4)
+    @ObservationIgnored private var settlingTimeout: Task<Void, Never>?
     /// The menu bar icon shows: the setting, once the splash and the guided setup are over, never in a capture or a demo.
     /// Both are stored and written only when they change: the scenes and the app menu read them, and would otherwise be
     /// drawn again whenever an account opens or closes.
     public private(set) var showsMenuBarIcon = false
 
     private func refreshSetupState() {
-        let done = launchPhase == .ready && !needsOnboarding && !setupGuideShown
+        let done = launchPhase == .ready && !launchSettling && !needsOnboarding && !setupGuideShown
         let shown = AppLifecycle.showsMenuBarIcon(setting: menuBarIcon, phase: launchPhase, setupDone: done, environment: environment)
         if done != setupDone { setupDone = done }
         if shown != showsMenuBarIcon { showsMenuBarIcon = shown }

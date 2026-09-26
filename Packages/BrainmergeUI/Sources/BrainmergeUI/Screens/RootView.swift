@@ -8,23 +8,26 @@ public struct RootView: View {
     public typealias Section = AppSection
 
     @Bindable var model: AppModel
-    @State private var onboarding: OnboardingModel
-    /// The splash and the hand-offs: one clock for the overlay, the screens under it and the creature it lands on.
-    @State private var launch: LaunchClock
+    /// The guide and the launch clock, built on the window's first body (see `WindowParts`).
+    @State private var parts: WindowParts
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var section: Section = Section(rawValue: ProcessInfo.processInfo.environment["BRAINMERGE_SCREEN"] ?? "") ?? .accounts   // add opens accounts with the sheet
 
+    /// Reads nothing from the model and builds nothing: SwiftUI runs it inside the scenes' body, at every redraw of them.
     public init(model: AppModel) {
-        // Only the first window of a process shows the splash: captures, demos and a window opened later find the load done.
-        self.init(model: model, launch: LaunchClock(finished: model.launchPhase == .ready))
+        self.model = model
+        _parts = State(initialValue: WindowParts())
     }
 
     /// With a given clock (tests read what the screens tell it).
     init(model: AppModel, launch: LaunchClock) {
         self.model = model
-        _onboarding = State(initialValue: OnboardingModel(app: model))
-        _launch = State(initialValue: launch)
+        _parts = State(initialValue: WindowParts(launch: launch))
     }
+
+    private var onboarding: OnboardingModel { parts.onboarding(for: model) }
+    /// The splash and the hand-offs: one clock for the overlay, the screens under it and the creature it lands on.
+    private var launch: LaunchClock { parts.launch(for: model) }
 
     public var body: some View {
         // The splash is an overlay while the first load runs; once ready, the screens are built underneath and fade in on
@@ -43,11 +46,14 @@ public struct RootView: View {
         .task {
             // The first load runs behind the splash once per process; a window opened later finds it done and no splash.
             // The onboarding models built meanwhile decide on their own right before the switch (OnboardingModel.init).
-            await model.launch()
+            // The icon and the app menu wait for the creature to land (AppModel.launchSettling).
+            let launch = self.launch
+            await model.launch { [model] in if !launch.finished { model.launchSettling = true } }
             guard !Task.isCancelled else { return }
             model.offerMoveIfNeeded()
             model.updateWatching()
         }
+        .onChange(of: launch.finished) { _, landed in if landed { model.launchSettling = false } }
         // Back in front: Claude may have updated itself in the meantime.
         // And a login may have changed in Claude Code: the emails on the accounts are read again.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -56,7 +62,7 @@ public struct RootView: View {
         // The clocks follow the window: all of them while it is open, those the menu bar icon needs once it is closed.
         // The setup finishing is seen by the model's reload, with or without a window.
         .onAppear { model.windowAppeared() }
-        .onDisappear { model.windowDisappeared() }
+        .onDisappear { model.launchSettling = false; model.windowDisappeared() }
         // Until the guide is closed, the setup is not done: no menu bar icon, and closing the window quits.
         .onChange(of: showsGuide, initial: true) { _, guide in
             model.setupGuideShown = guide
@@ -72,7 +78,8 @@ public struct RootView: View {
             showRequestedScreen()
         }
         // The menu bar switches screens (Cmd-1 to Cmd-4, Cmd-comma), once the screens are there.
-        .focusedSceneValue(\.brainmergeSection, model.launchPhase == .ready && !model.needsOnboarding && onboarding.finished ? $section : nil)
+        // Once the creature has landed: a new route rebuilds the app menu, never during the leap.
+        .focusedSceneValue(\.brainmergeSection, model.launchPhase == .ready && !model.needsOnboarding && onboarding.finished && launch.finished ? $section : nil)
         .alert(model.message?.title ?? "", isPresented: Binding(get: { model.message != nil }, set: { if !$0 { model.message = nil } }), presenting: model.message) { m in
             if m.action != nil { Button(m.actionLabel ?? "OK") { perform(m) } }
             Button(m.action == .moveToApplications ? "Not now" : "OK", role: .cancel) { if m.action == .moveToApplications { Installer.remember(declined: Installer.bundlePath) } }
@@ -226,6 +233,32 @@ public struct RootView: View {
         case .installAppleTools: model.installAppleTools()
         case nil: break
         }
+    }
+}
+
+/// What a window builds once, on its first body: its guide and its launch clock. Never in `RootView.init`, which SwiftUI runs
+/// inside the scenes' body at every redraw of the scenes: a model read there makes the scenes depend on it, work there runs
+/// again each time (the guide looks up the notes apps on the Mac), and a change there redraws the scenes, which build the
+/// window again (at launch, a loop: the window never showed).
+@MainActor final class WindowParts {
+    private var onboarding: OnboardingModel?
+    private var launch: LaunchClock?
+
+    init(launch: LaunchClock? = nil) { self.launch = launch }
+
+    func onboarding(for app: AppModel) -> OnboardingModel {
+        if let onboarding { return onboarding }
+        let made = OnboardingModel(app: app)
+        onboarding = made
+        return made
+    }
+
+    /// Only the first window of a process shows the splash: captures, demos and a window opened later find the load done.
+    func launch(for app: AppModel) -> LaunchClock {
+        if let launch { return launch }
+        let made = LaunchClock(finished: app.launchPhase == .ready)
+        launch = made
+        return made
     }
 }
 

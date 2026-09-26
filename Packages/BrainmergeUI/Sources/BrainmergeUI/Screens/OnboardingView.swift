@@ -294,6 +294,8 @@ public struct OnboardingView: View {
                     .opacity(launch?.hidesSource == true ? 0 : 1)
                 Button("Open Brainmerge") {
                     launch?.leave(from: launch?.allSetFrame, reduceMotion: reduceMotion, at: Date())
+                    // The icon and the app menu wait for the landing, as at launch.
+                    if launch?.finished == false { model.app.launchSettling = true }
                     model.complete()
                 }.buttonStyle(.glassProminent).tint(Theme.Colors.button).controlSize(.large)
                 Color.clear.frame(width: 48, height: 1).accessibilityHidden(true)
