@@ -60,11 +60,14 @@ public struct MemoryWiring: Sendable {
         let projectDir = profile.projectsDir.appending(path: slug, directoryHint: .isDirectory)
         if isLinkedIntoThisMemory(projectDir.appending(path: "memory")) { return result }
         var registry = try ProjectRegistry.load(brain.projectsFile)
+        let before = registry
         let name = Self.knownName(slug: slug, path: projectPath, in: registry, machineID: machineID)
             ?? registry.register(preferredName: ProjectSlug.projectName(forPath: projectPath, home: paths.home),
                                  path: projectPath, machineID: machineID)
         try link(projectDir, name: name, identitySlug: identitySlug, into: &result)
         try registry.save(to: brain.projectsFile)
+        // The account's session added its project: the account's save carries the list, not "You edited".
+        if registry != before { try? TouchedLedger(brain: brain, slug: identitySlug).append(".brainmerge/projects.json") }
         return result
     }
 

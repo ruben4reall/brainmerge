@@ -161,6 +161,18 @@ import BrainmergeTestSupport
         #expect(try fm.destinationOfSymbolicLink(atPath: real.path) == target.path)
     }
 
+    /// A session start that adds its project to the memory's project list leaves that change to the account's own save,
+    /// never to "You edited". Already linked, nothing is added.
+    @Test func wireOneLeavesTheProjectListToTheAccountsSave() throws {
+        let e = try env(); defer { e.home.remove() }
+        _ = try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso")
+        let ledger = TouchedLedger(brain: e.brain, slug: "perso")
+        #expect(try ledger.take() == [".brainmerge/projects.json"])
+        try ledger.finish(keeping: [])
+        _ = try e.wiring.wireOne(projectPath: e.atelier, profile: e.profile, identitySlug: "perso")
+        #expect(TouchedLedger.claimed(in: e.brain).isEmpty)
+    }
+
     /// Every session start asks again: a project already linked into this memory, under whatever name, is left exactly
     /// as it is and nothing is written.
     @Test func wireOneIsIdempotentAndWritesNothingWhenLinked() throws {
