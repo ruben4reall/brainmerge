@@ -3,10 +3,14 @@ import SwiftUI
 /// Things that happen to the creature. The app stamps each with the moment it was seen.
 public enum CreatureEvent: Equatable, Sendable {
     case wake, doze, memorySaved, accountOpened, error
+    /// A wake that came with a walk (the click that opened an account woke the creature): cut to its stretch, the walk
+    /// starting as it ends. Never stamped by the app: `CreatureLife` plays a wake this way.
+    case wakeIntoWalk
     /// Every reaction is short (under 0.8 s) and ends exactly at the rest pose.
     public var duration: Double {
         switch self {
         case .wake: return 0.46
+        case .wakeIntoWalk: return 0.30
         case .doze: return 0.70
         case .memorySaved: return 0.74
         case .accountOpened: return 0.62
@@ -82,7 +86,8 @@ public enum CreatureLife {
         [".X.", "XXX", ".X."],
         ["..X..", "..X..", "XX.XX", "..X..", "..X.."],
     ]
-    static let zee = ["XXXX", "..X.", ".X..", "XXXX"]
+    /// Five by five half cells: its diagonal three steps long, so it reads as a Z at real size.
+    static let zee = ["XXXXX", "...X.", "..X..", ".X...", "XXXXX"]
     static let bang = ["XX", "XX", "XX", "XX", "..", "XX"]
     static var cream: Color { Theme.Colors.text }
     static var light: Color { Theme.Colors.accentLight }
@@ -206,6 +211,10 @@ public enum CreatureLife {
         return Int((v * Double(amp)).rounded())
     }
     static let awakePeriod = 3.6, sleepPeriod = 4.8
+    /// How long the creature glows after a save (the app's `glowDuration`): no twinkle starts that would outlive it.
+    public static let glowLength = 4.0
+    /// Waking takes the floating Z along: it fades over this long.
+    static let wakeZFade = 0.18
     /// The sleep loop (breath and Z) runs for the first minute asleep, in whole breaths, then the creature holds still.
     static let sleepLoop = 60.0
     static var sleepLoopEnd: Double { (sleepLoop / sleepPeriod).rounded(.down) * sleepPeriod }
@@ -216,10 +225,10 @@ public enum CreatureLife {
                              seed: UInt64 = 7, walking: CreatureWalk? = nil, asleepSince: Double? = nil,
                              reduceMotion: Bool = false) -> LifeFrame {
         if reduceMotion { return reducedFrame(state: state, t: t, events: events) }
-        let stamps = effective(events, walking: walking)
+        let stamps = effective(events, walking: walking), played = playing(walking, events)
         let base = idle(state: state, t: t, stamps: stamps, profile: profile, seed: seed, asleepSince: asleepSince)
         guard let active = stamps.last(where: { t >= $0.at && t < $0.at + $0.event.duration }) else {
-            guard let walking, walking.isActive(at: t) else { return base }
+            guard let walking = played, walking.isActive(at: t) else { return base }
             var f = base
             let walk = Creature.walkFrame(walking.index(at: t))
             f.pose.raise = walk.raise
@@ -239,16 +248,42 @@ public enum CreatureLife {
             r.pose.scaleX = Ease.lerp(from.scaleX, r.pose.scaleX, p)
             r.pose.scaleY = Ease.lerp(from.scaleY, r.pose.scaleY, p)
         }
+        // Waking up takes the Z that was floating along: it keeps floating and fades, never cut in one frame.
+        if active.event == .wake || active.event == .wakeIntoWalk, let since = asleepSince, since <= active.at {
+            let s = active.at - since, tau = t - active.at
+            let fade = 1 - Ease.out(Ease.progress(tau, from: 0, over: wakeZFade))
+            if s < sleepLoopEnd, zFloats(s), fade > 0 {
+                r.sprites += sleepZ(s + tau).map { z in var z = z; z.opacity *= fade; return z }
+            }
+        }
         return r
     }
 
-    /// The stamps in order, an opened account's wave waiting for the walk's last step.
+    /// The stamps in order as they play: a wake that came with the walk cut to its stretch (`wakeIntoWalk`), and an opened
+    /// account's wave waiting for the walk's last step.
     static func effective(_ events: [CreatureStamp], walking: CreatureWalk?) -> [CreatureStamp] {
-        events.map { stamp in
+        let wake = walkingWake(events, walking)
+        let walking = playing(walking, events)
+        return events.map { stamp in
+            if stamp.event == .wake, stamp.at == wake?.at { return CreatureStamp(.wakeIntoWalk, at: stamp.at) }
             guard stamp.event == .accountOpened, let walking, let stop = walking.stop, stamp.at >= walking.start, stamp.at < stop else { return stamp }
             return CreatureStamp(stamp.event, at: stop)
         }
         .sorted { $0.at < $1.at }
+    }
+
+    /// The wake that came with a walk: stamped within 50 ms of its start (the same click).
+    static func walkingWake(_ events: [CreatureStamp], _ walking: CreatureWalk?) -> CreatureStamp? {
+        guard let walking else { return nil }
+        return events.first { $0.event == .wake && abs($0.at - walking.start) <= 0.05 }
+    }
+
+    /// The walk as it plays: after the wake that came with it, from that wake's stretch's end, on its passing frame; as it
+    /// is otherwise.
+    static func playing(_ walking: CreatureWalk?, _ events: [CreatureStamp]) -> CreatureWalk? {
+        guard var walk = walking, let wake = walkingWake(events, walking) else { return walking }
+        walk.start = wake.at + CreatureEvent.wakeIntoWalk.duration
+        return walk
     }
 
     /// The idle life of a state, without reactions or the walk.
@@ -269,7 +304,9 @@ public enum CreatureLife {
             f.pose.look = eyes.look
             f.pose.breath = breath(t, period: awakePeriod, amp: profile.awakeBreath)
             if state == .glowing, !stamps.contains(where: { $0.event == .memorySaved && t >= $0.at && t < $0.at + $0.event.duration }) {
-                f.sprites += glowTwinkle(t - glowOrigin(t: t, stamps: stamps))
+                let origin = glowOrigin(t: t, stamps: stamps)
+                let end = stamps.last(where: { $0.event == .memorySaved && $0.at <= t }).map { $0.at + glowLength - origin }
+                f.sprites += glowTwinkle(t - origin, until: end)
             }
         }
         return f
@@ -285,13 +322,15 @@ public enum CreatureLife {
         stamps.last(where: { $0.event == .memorySaved && $0.at + $0.event.duration <= t }).map { $0.at + $0.event.duration } ?? 0
     }
 
-    /// One Z per breath, born 2.0 s into it (on the exhale), floating up and to the right, gone before the next.
+    /// One Z per breath, born 2.0 s into it (on the exhale), floating up 3.5 cells and to the right the whole time it shows,
+    /// swaying half a cell on the way, fading over its last 0.9 s: gone before the next.
     static func sleepZ(_ s: Double) -> [Creature.Sprite] {
         let local = max(0, zAge(s))
         guard zFloats(s) else { return [] }
-        let p = Ease.Bezier(0.3, 0.1, 0.45, 1)(local / 2.6)
-        let opacity = min(local / 0.3, 1) * min((2.6 - local) / 0.9, 1) * 0.72
-        return [Creature.Sprite(pattern: zee, center: CGPoint(x: 15.8 + 1.8 * p, y: -1.3 - 2.4 * p), color: cream, opacity: opacity)]
+        let f = local / zLife, p = Ease.travel(f)
+        let opacity = min(local / 0.3, 1) * min((zLife - local) / 0.9, 1) * 0.72
+        let x = 15.8 + 1.8 * p + 0.5 * sin(2 * .pi * f)
+        return [Creature.Sprite(pattern: zee, center: CGPoint(x: x, y: -1.3 - 3.5 * p), color: cream, opacity: opacity)]
     }
 
     static let glowSpots = [CGPoint(x: -1.2, y: 0.4), CGPoint(x: 8.5, y: -2.0), CGPoint(x: 17.2, y: 0.9)]
@@ -300,13 +339,23 @@ public enum CreatureLife {
     static let twinkleEvery = 0.8, twinkleLength = 0.5
     /// Where a twinkle changes shape, in seconds into it: dot, cross, star, cross, dot, gone (16, 20, 28, 20, 16%).
     static let twinkleSteps = [0, 0.16, 0.36, 0.64, 0.84, 1].map { $0 * twinkleLength }
-    static func glowTwinkle(_ s: Double) -> [Creature.Sprite] {
+    /// `end`: when the glow ends, on the same clock: a twinkle that could not finish by then never starts (it would be cut
+    /// mid-life as the state turns).
+    static func glowTwinkle(_ s: Double, until end: Double? = nil) -> [Creature.Sprite] {
         let s = s + epsilon   // stepped: a boundary counts as reached (see `epsilon`)
         guard s >= 0 else { return [] }
         let beat = Int(s / twinkleEvery), local = s - Double(beat) * twinkleEvery
         guard local < twinkleLength else { return [] }
+        if let end, Double(beat) * twinkleEvery + twinkleLength > end + epsilon { return [] }
         let i = [1, 2, 0][beat % 3]
-        return [Creature.Sprite(pattern: sparkle(life: local / twinkleLength), center: glowSpots[i], color: i == 1 ? cream : light, opacity: 0.85)]
+        let pattern = sparkle(life: local / twinkleLength)
+        return [Creature.Sprite(pattern: pattern, center: glowSpots[i], color: sparkleColor(pattern, light: i != 1), opacity: 1)]
+    }
+
+    /// A sparkle's color: every star cream, its smaller frames cream or accentLight. Always at full strength: at part
+    /// strength the accentLight ones read as pixels shed by the body, not as light.
+    static func sparkleColor(_ pattern: [String], light: Bool) -> Color {
+        pattern == sparkleFrames[2] || !light ? cream : self.light
     }
 
     // MARK: Reactions
@@ -318,6 +367,7 @@ public enum CreatureLife {
         case .accountOpened: wave(tau, &f.pose)
         case .error: startle(tau, &f.pose, &f.sprites)
         case .wake: wake(tau, &f.pose)
+        case .wakeIntoWalk: wake(tau, &f.pose, into: CreatureEvent.wakeIntoWalk.duration)
         case .doze: doze(tau, &f.pose)
         }
         return f
@@ -358,18 +408,23 @@ public enum CreatureLife {
             let life = (tau - born) / 0.46
             guard life >= 0, life < 1 else { continue }
             let p = Ease.out(life)
-            sprites.append(Creature.Sprite(pattern: sparkle(life: life), center: CGPoint(x: start.x + travel.x * p, y: start.y + travel.y * p),
-                                           color: i % 2 == 0 ? cream : light, opacity: life < 0.8 ? 1 : (1 - life) / 0.2))
+            let pattern = sparkle(life: life)
+            sprites.append(Creature.Sprite(pattern: pattern, center: CGPoint(x: start.x + travel.x * p, y: start.y + travel.y * p),
+                                           color: sparkleColor(pattern, light: i % 2 == 1), opacity: life < 0.8 ? 1 : (1 - life) / 0.2))
         }
     }
 
-    /// Account opened: a little bounce and a wave of the right arm, eyes smiling. `up` and `lift1` only: `out` alone reads as a tail.
+    /// Account opened: a happy little hop (1.25 cells, legs tucked, a quick squash on landing) and a wave of the right arm,
+    /// eyes smiling. `up` and `lift1` only: `out` alone reads as a tail. The spec's half-cell bounce was a pixel: unseen.
+    static let waveHop = 1.25
     static func wave(_ tau: Double, _ pose: inout Creature.Pose) {
         pose.look = 0
         let swings: [(Double, ArmPose)] = [(0.05, .lift1), (0.17, .up), (0.27, .lift1), (0.37, .up), (0.47, .lift1), (0.53, .up), (0.58, .lift1)]
         pose.armRight = swings.first(where: { tau < $0.0 })?.1 ?? .rest
-        if tau < 0.10 { pose.offset.dy = -0.5 * Ease.out(tau / 0.10) }
-        else if tau < 0.20 { let p = (tau - 0.10) / 0.10; pose.offset.dy = -0.5 * (1 - p * p) }
+        if tau < 0.10 { pose.offset.dy = -waveHop * Ease.out(tau / 0.10) }
+        else if tau < 0.20 { let p = (tau - 0.10) / 0.10; pose.offset.dy = -waveHop * (1 - p * p) }
+        else if tau < 0.26 { let k = sin(.pi * (tau - 0.20) / 0.06); pose.scaleY = 1 - 0.08 * k; pose.scaleX = 1 + 0.05 * k }
+        pose.legsTucked = tau > 0.04 && tau < 0.18
         pose.eyeHeight = tau >= 0.04 && tau < 0.50 ? 0.5 : 1
         pose.eyeBottom = 2
     }
@@ -395,13 +450,14 @@ public enum CreatureLife {
         }
     }
 
-    /// Asleep to awake: the eyes open in two steps, a stretch with the arms up, a springy settle.
-    static func wake(_ tau: Double, _ pose: inout Creature.Pose) {
+    /// Asleep to awake: the eyes open in two steps, a stretch with the arms up, a springy settle. `into` a walk: the settle
+    /// is over by then (the arms are back at rest at 0.30 s), and the walk takes over on its passing frame.
+    static func wake(_ tau: Double, _ pose: inout Creature.Pose, into end: Double = CreatureEvent.wake.duration) {
         pose.look = 0
         if tau < 0.06 { (pose.eyeHeight, pose.eyeBottom) = Creature.Pose.asleepEyes }
         else { pose.eyeHeight = tau < 0.14 ? 0.5 : 1; pose.eyeBottom = 2 }
         let k: Double = tau < 0.14 ? Ease.out(tau / 0.14)
-            : Ease.ringDown(tau - 0.14, response: 0.32, damping: 0.6) * (1 - Ease.progress(tau, from: 0.38, over: 0.08))
+            : Ease.ringDown(tau - 0.14, response: 0.32, damping: 0.6) * (1 - Ease.progress(tau, from: end - 0.08, over: 0.08))
         pose.scaleY = 1 + 0.08 * k; pose.scaleX = 1 - 0.05 * k
         let arms: ArmPose = tau < 0.06 ? .rest : tau < 0.10 ? .lift1 : tau < 0.26 ? .up : tau < 0.30 ? .lift1 : .rest
         pose.armLeft = arms; pose.armRight = arms
@@ -441,7 +497,7 @@ public enum CreatureLife {
             }
         case .error:
             f.sprites.append(Creature.Sprite(pattern: bang, center: CGPoint(x: 17.4, y: -1.4), color: cream, opacity: opacity))
-        case .accountOpened, .wake, .doze:
+        case .accountOpened, .wake, .wakeIntoWalk, .doze:
             break   // the eyes already follow the state; the line beside the creature says the rest
         }
         return f
@@ -457,7 +513,8 @@ public enum CreatureLife {
 
     /// A reaction or the walk is playing: what a window in the background still shows.
     static func reactionOrWalkRuns(t: Double, events: [CreatureStamp], walking: CreatureWalk?) -> Bool {
-        effective(events, walking: walking).contains { t >= $0.at && t < $0.at + $0.event.duration } || walking?.isActive(at: t) == true
+        effective(events, walking: walking).contains { t >= $0.at && t < $0.at + $0.event.duration }
+            || playing(walking, events)?.isActive(at: t) == true
     }
 
     /// Where the idle comes to rest when it is held (a window in the background): the grid, or asleep without the Z.
@@ -471,7 +528,7 @@ public enum CreatureLife {
                                    walking: CreatureWalk?, asleepSince: Double?) -> Bool {
         let stamps = effective(events, walking: walking)
         if stamps.contains(where: { t >= $0.at && t < $0.at + $0.event.duration }) { return true }
-        if let walking, walking.isActive(at: t) { return true }
+        if let walking = playing(walking, events), walking.isActive(at: t) { return true }
         guard state == .asleep else { return false }
         let s = t - (asleepSince ?? 0)
         return s >= 0 && s < sleepLoopEnd && zFloats(s)
@@ -485,7 +542,7 @@ public enum CreatureLife {
         let stamps = effective(events, walking: walking)
         let horizon = t + 30
         var candidates = stamps.map(\.at).filter { $0 > t }
-        if let walking, walking.start > t { candidates.append(walking.start) }
+        if let walking = playing(walking, events), walking.start > t { candidates.append(walking.start) }
         if state == .asleep, let since = asleepSince, since > t { candidates.append(since) }
         if state != .asleep {
             for b in blinks(from: t, to: horizon, profile: profile, seed: seed) {
@@ -634,7 +691,7 @@ public struct CreatureSchedule: TimelineSchedule {
             next = CreatureLife.nextChange(after: t, state: state, events: events, profile: profile, seed: seed, walking: walking, asleepSince: asleepSince)
         case .background:
             if CreatureLife.reactionOrWalkRuns(t: t, events: events, walking: walking) { return date.addingTimeInterval(Self.frameInterval) }
-            let starts = CreatureLife.effective(events, walking: walking).map(\.at) + [walking?.start].compactMap { $0 }
+            let starts = CreatureLife.effective(events, walking: walking).map(\.at) + [CreatureLife.playing(walking, events)?.start].compactMap { $0 }
             next = starts.filter { $0 > t }.min() ?? .infinity
         case .reduced:
             if CreatureLife.reducedCueRuns(t: t, events: events) { return date.addingTimeInterval(Self.frameInterval) }

@@ -61,7 +61,7 @@ public final class AppModel {
     public private(set) var brains: [MemoryFolder] = []
     /// The memory the Memory screen shows; nil or unknown means the default one.
     public var selectedBrainID: String? {
-        didSet { if selectedBrainID != oldValue { refreshMemory() } }
+        didSet { if selectedBrainID != oldValue { refreshMemory(); followMemoryHead() } }
     }
     public private(set) var claude: ClaudeApp?
     public private(set) var language: BrainLanguage = .en
@@ -766,7 +766,7 @@ public final class AppModel {
 
     // MARK: The creature
 
-    static let glowDuration: TimeInterval = 4
+    nonisolated static let glowDuration: TimeInterval = CreatureLife.glowLength
     /// Several saves in a row make one hop per 1.5 s at most; the glow still counts from the latest.
     static let saveStampInterval: TimeInterval = 1.5
 
@@ -1349,11 +1349,18 @@ public final class AppModel {
     public func windowAppeared() { tracksWindow = true; windowOpen = true; updateWatching() }
     public func windowDisappeared() { windowOpen = false; updateWatching() }
 
+    /// The memory shown is watched for saves while its clock runs (see MemoryHeadWatch): the creature hops within a moment.
+    @ObservationIgnored private let memoryWatch = MemoryHeadWatch()
+    private func followMemoryHead() {
+        memoryWatch.watch(watchedClocks.contains(.memory) ? selectedBrain?.root : nil) { [weak self] in self?.refreshMemory() }
+    }
+
     /// Restarts the clocks only when the set changes, and checks Claude once when they start from none.
     private func watch(_ clocks: Set<Watchers.Clock>) {
         guard clocks != watchedClocks else { return }
         let starting = watchedClocks.isEmpty
         watchedClocks = clocks
+        followMemoryHead()
         guard !clocks.isEmpty else { watchers.stop(); return }
         watchers.start(clocks, running: { [weak self] in self?.reload() },
                        memory: { [weak self] in self?.refreshMemory() },

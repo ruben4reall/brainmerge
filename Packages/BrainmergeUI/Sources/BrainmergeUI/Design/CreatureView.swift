@@ -242,19 +242,35 @@ public extension Creature {
         return out
     }
 
-    /// A drawn cell, in points, before the squash, stretch and rotation around `anchor`.
+    /// A drawn cell, in points, before the leap's lean (`Geometry.transform`).
     struct Cell: Equatable { var rect: CGRect; var opacity: Double }
-    struct Geometry { var origin: CGPoint; var anchor: CGPoint; var body: [Cell]; var eyes: [CGRect] }
+    struct Geometry {
+        var origin: CGPoint; var anchor: CGPoint; var body: [Cell]; var eyes: [CGRect]
+        /// What is left to apply around `anchor` when drawing: the leap's lean with its squash and stretch, identity
+        /// otherwise (a squash or a stretch alone is drawn in the cells themselves, on device pixels).
+        var transform: CGAffineTransform = .identity
+    }
 
     /// Where a pose's cells land for feet at `feet` (the middle of the feet's bottom edge, in points). Offsets and breath move
-    /// by whole device pixels; with no squash and no rotation the whole creature lands on device pixels.
+    /// by whole device pixels. With no rotation every edge lands on a device pixel, squashed or stretched too: each cell is
+    /// scaled about the middle of the feet and its edges snapped, so the key poses of a hop stay as crisp as the rest pose
+    /// (a transform would blur every edge and lose the eyes' one-pixel slit). The eyes keep one device pixel at least.
     static func geometry(for pose: Pose, feet: CGPoint, unit: CGFloat, displayScale: CGFloat) -> Geometry {
         let scale = max(1, displayScale)
         func snap(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }
+        let leans = pose.rotation != 0
         var origin = CGPoint(x: feet.x - CGFloat(columns / 2) * unit + snap(pose.offset.dx * unit),
                              y: feet.y - CGFloat(rows) * unit + snap(pose.offset.dy * unit))
-        if pose.scaleX == 1, pose.scaleY == 1, pose.rotation == 0 { origin = CGPoint(x: snap(origin.x), y: snap(origin.y)) }
+        if !leans { origin = CGPoint(x: snap(origin.x), y: snap(origin.y)) }
         let anchor = CGPoint(x: origin.x + CGFloat(columns / 2) * unit, y: origin.y + CGFloat(rows) * unit)
+        let squash = !leans && (pose.scaleX != 1 || pose.scaleY != 1)
+        /// A rectangle scaled about the feet, its edges on device pixels.
+        func squashed(_ r: CGRect) -> CGRect {
+            guard squash else { return r }
+            let x0 = snap(anchor.x + (r.minX - anchor.x) * pose.scaleX), x1 = snap(anchor.x + (r.maxX - anchor.x) * pose.scaleX)
+            let y0 = snap(anchor.y + (r.minY - anchor.y) * pose.scaleY), y1 = snap(anchor.y + (r.maxY - anchor.y) * pose.scaleY)
+            return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
+        }
         let lift = CGFloat(pose.breath) / scale
         let body = parts(for: pose).map { part -> Cell in
             var rect = CGRect(x: origin.x + part.rect.minX * unit, y: origin.y + part.rect.minY * unit,
@@ -264,14 +280,20 @@ public extension Creature {
             case .legTop: rect.origin.y -= lift; rect.size.height += lift
             case .leg: break
             }
-            return Cell(rect: rect, opacity: part.opacity)
+            return Cell(rect: squashed(rect), opacity: part.opacity)
         }
         let eyes = eyeRects(for: pose).map { r -> CGRect in
-            let bottom = snap(origin.y + r.maxY * unit - lift)
-            let top = min(snap(origin.y + r.minY * unit - lift), bottom - 1 / scale)
-            return CGRect(x: origin.x + r.minX * unit, y: top, width: unit, height: bottom - top)
+            let placed = squashed(CGRect(x: origin.x + r.minX * unit, y: origin.y + r.minY * unit - lift, width: unit, height: r.height * unit))
+            let bottom = snap(placed.maxY)
+            let top = min(snap(placed.minY), bottom - 1 / scale)
+            return CGRect(x: placed.minX, y: top, width: placed.width, height: bottom - top)
         }
-        return Geometry(origin: origin, anchor: anchor, body: body, eyes: eyes)
+        var g = Geometry(origin: origin, anchor: anchor, body: body, eyes: eyes)
+        if leans {
+            g.transform = CGAffineTransform(translationX: anchor.x, y: anchor.y).rotated(by: pose.rotation * .pi / 180)
+                .scaledBy(x: pose.scaleX, y: pose.scaleY).translatedBy(x: -anchor.x, y: -anchor.y)
+        }
+        return g
     }
 
     /// Draws a pose: the body as ONE path (rectangles filled one by one leave antialiasing seams), then the eyes, then the
@@ -281,10 +303,7 @@ public extension Creature {
         let g = geometry(for: pose, feet: feet, unit: unit, displayScale: displayScale)
         var ctx = context
         ctx.opacity *= pose.opacity
-        ctx.translateBy(x: g.anchor.x, y: g.anchor.y)
-        if pose.rotation != 0 { ctx.rotate(by: .degrees(pose.rotation)) }
-        if pose.scaleX != 1 || pose.scaleY != 1 { ctx.scaleBy(x: pose.scaleX, y: pose.scaleY) }
-        ctx.translateBy(x: -g.anchor.x, y: -g.anchor.y)
+        if g.transform != .identity { ctx.concatenate(g.transform) }
         var body = Path()
         for cell in g.body {
             if cell.opacity >= 0.999 { body.addRect(cell.rect); continue }
@@ -374,9 +393,10 @@ public struct CreatureView: View {
             asleepSince = state == .asleep ? max(0, t) : nil
             walk = walking ? CreatureWalk(start: max(0, t)) : nil
         }
+        // Falling asleep starts the sleep loop's clock; waking keeps it, so the Z floating then fades with the wake.
         .onChange(of: state) { old, new in
-            guard (old == .asleep) != (new == .asleep) else { return }
-            asleepSince = new == .asleep ? scene(Date(), since: origin) : nil
+            guard old != .asleep, new == .asleep else { return }
+            asleepSince = scene(Date(), since: origin)
         }
         .onChange(of: walking) { _, now in
             let t = scene(Date(), since: origin)

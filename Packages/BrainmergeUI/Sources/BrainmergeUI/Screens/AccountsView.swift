@@ -44,6 +44,8 @@ public struct AccountsView: View {
                 // A card added or removed scales a touch and fades while the others make room; a search filters at once
                 // (only the accounts themselves animate the grid, never the query). With Reduce Motion the cards take their
                 // new places at once and the card itself fades in or out where it is.
+                // The cards keep the sidebar's order: an account that opens never moves (AccountsFilter). Any reflow left
+                // (an account added or removed) slides.
                 GlassEffectContainer(spacing: 12) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(shown) { account in
@@ -51,7 +53,7 @@ public struct AccountsView: View {
                         }
                     }
                 }
-                .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: model.accounts.map(\.id))
+                .animation(Theme.Motion.layout(Theme.Motion.settle, reduceMotion), value: query.isEmpty ? shown.map(\.id) : [])
                 if shown.isEmpty, !query.isEmpty {
                     Text("No account matches “\(query)”.").font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                 }
@@ -140,41 +142,47 @@ public struct AccountsView: View {
                                 .accessibilityLabel(Self.duplicateHelp(sameAs: sameAs))
                         }
                     }
-                    // The note or email gives way; the memory's name stays whole after it.
+                    // The note or email keeps a few characters at least; the memory's name gives way after it.
                     HStack(spacing: 0) {
                         Text(Self.subtitle(of: account)).lineLimit(1)
                             .truncationMode(account.identity.note == nil ? .middle : .tail)
+                            .frame(minWidth: 44, alignment: .leading)
+                            .layoutPriority(1)
                         let suffix = memorySuffix(account)
-                        if !suffix.isEmpty { Text(suffix).lineLimit(1).fixedSize() }
+                        if !suffix.isEmpty { Text(suffix).lineLimit(1) }
                     }
                     .font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                     .help(Self.subtitleHelp(of: account) ?? "")
                     HStack(spacing: 5) {
                         statusDot(account, updating: action == .updating, opened: model.openedAt[account.id])
-                        Text(status)
+                        // Open, closed, opening: the new words come in once the old ones have gone; the RAM figure that follows
+                        // moves at once, never rolls.
+                        SwappingText(text: status, key: Self.status(of: account, memory: 0))
                             .font(Theme.Fonts.caption).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
-                            .contentTransition(.opacity)
-                            // Open, closed, opening: a crossfade; the RAM figure that follows moves at once, never rolls.
-                            .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion),
-                                       value: Self.status(of: account, memory: 0))
                     }
                 }
                 Spacer(minLength: 8)
+                // One width for Open, Opening…, Show and Update: a new word never reflows the text beside it. The old word
+                // goes before the new one comes.
                 let button = Self.cardButton(for: account, action: action)
-                Group {
-                    if let button { cardButton(button, for: account, action: action).transition(.fade(reduceMotion)) }
+                if let button {
+                    ZStack(alignment: .trailing) {
+                        cardButton(button, for: account, action: action).id(button.label).transition(SwapText.transition(reduceMotion))
+                    }
+                    .frame(minWidth: Self.buttonSlot, alignment: .trailing)
+                    .animation(Theme.Motion.out(SwapText.insertion), value: button.label)
                 }
-                .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: button)
                 moreMenu(account)
             }
             .launchObstacle("accounts.card.\(account.id)")
             .padding(14)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
+            // Inside the card's glass, as its content: drawn over by the glass container, the stroke did not show.
             .overlay {
                 ZStack { if opening { OpeningStrokeView(tint: tint).transition(.opacity) } }
                     .animation(Theme.Motion.unlessReduced(Theme.Motion.out(opening ? OpeningStroke.fadeIn : OpeningStroke.fadeOut), reduceMotion),
                                value: opening)
             }
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Theme.Layout.cardRadius, style: .continuous))
         }
         .contextMenu { actions(account) }
     }
@@ -279,6 +287,9 @@ public struct AccountsView: View {
         case (false, false): return "Closed"
         }
     }
+
+    /// The room for the card's button, as wide as its widest word ("Opening…").
+    static let buttonSlot: CGFloat = 76
 
     /// The card's main button.
     struct CardButton: Equatable {

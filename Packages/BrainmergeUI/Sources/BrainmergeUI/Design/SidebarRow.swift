@@ -57,8 +57,7 @@ struct SidebarRowStyle: ButtonStyle {
 
 /// The word at the end of an account row ("Open", "Show"): readable at rest, so a click's effect is never a guess,
 /// and full cream under the pointer, in step with the row's fill. It never truncates: the account's name gives way first.
-/// A new word ("Opening…" to "Show") crossfades; with Reduce Motion it changes at once, since the running dot that comes
-/// with it moves the word aside.
+/// A new word ("Opening…" to "Show") comes in once the old one has gone (`SwappingText`), never printed over it.
 struct SidebarRowHint: View {
     static let resting = Theme.Colors.textMuted
     static let pointed = Theme.Colors.text
@@ -67,12 +66,10 @@ struct SidebarRowHint: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Text(text)
+        SwappingText(text: text, alignment: .trailing)
             .font(Theme.Fonts.caption)
             .foregroundStyle(hovered ? Self.pointed : Self.resting)
             .animation(reduceMotion ? nil : Theme.Motion.out(Theme.Motion.hover), value: hovered)
-            .contentTransition(.opacity)
-            .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: text)
             .fixedSize()
     }
 }

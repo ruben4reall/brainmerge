@@ -220,10 +220,9 @@ public struct RootView: View {
                 CreatureView(state: state, size: 32, moments: model.creatureMoments(at: context.date), walking: !model.opening.isEmpty,
                              clockStart: launch.landed)
                     .launchTarget(launch, asleep: state == .asleep)
-                Text(line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
+                // A new line lifts in after the old one has gone: never two sentences printed over each other.
+                SwappingText(text: line).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted).lineLimit(1)
                     .launchObstacle("sidebar.line")
-                    .contentTransition(.opacity)
-                    .animation(reduceMotion ? Theme.Motion.reduced : Theme.Motion.out(Theme.Motion.quick), value: line)
             }
             .padding(.horizontal, 6).padding(.bottom, 2)
         }

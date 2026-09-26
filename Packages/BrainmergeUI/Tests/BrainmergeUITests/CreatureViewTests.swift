@@ -62,7 +62,7 @@ import Testing
         let onboarding = try String(contentsOf: screens.appending(path: "OnboardingView.swift"), encoding: .utf8)
         #expect(root.contains("CreatureView(state: state, size: 32"))
         #expect(onboarding.contains("CreatureView(state: .awake, size: 64, profile: .stage"))
-        #expect(onboarding.contains("CreatureView(state: .awake, size: 48, profile: .stage, events: [CreatureStamp(.memorySaved, at: 0.35)]"))
+        #expect(onboarding.contains("CreatureView(state: .awake, size: 48, profile: .stage, events: [CreatureStamp(.memorySaved, at: AllSetBeat.hop)]"))
     }
 
     @Test func noAuraOrGlowAroundTheCreature() throws {

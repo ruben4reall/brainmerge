@@ -165,6 +165,35 @@ import Testing
         }
     }
 
+    /// A squash or a stretch is drawn in the geometry, each cell's edges on device pixels: the pixel creature stays crisp
+    /// in its key poses (a transform blurred every edge and lost the eyes' one-pixel slit). Only the leap's lean keeps one.
+    @Test func squashAndStretchStayOnDevicePixels() {
+        for displayScale in [CGFloat(1), 2] {
+            for (sx, sy) in [(1.10, 0.86), (0.92, 1.12), (1.04, 0.94)] as [(CGFloat, CGFloat)] {
+                var pose = Creature.Pose()
+                pose.scaleX = sx; pose.scaleY = sy; pose.eyeHeight = 0.2
+                let feet = CGPoint(x: 40.3, y: 30.6)
+                let g = Creature.geometry(for: pose, feet: feet, unit: 2, displayScale: displayScale)
+                #expect(g.transform == .identity)
+                for rect in g.body.map(\.rect) + g.eyes {
+                    for edge in [rect.minX, rect.minY, rect.maxX, rect.maxY] {
+                        #expect(abs(edge * displayScale - (edge * displayScale).rounded()) < 1e-9, "\(sx) \(sy) at \(displayScale)")
+                    }
+                }
+                #expect(g.eyes.count == 2 && g.eyes.allSatisfy { $0.height >= 1 / displayScale })
+                // Squashed from the middle of the feet: they stay on the ground, the body widens or narrows around them.
+                let rest = Creature.geometry(for: .rest, feet: feet, unit: 2, displayScale: displayScale)
+                #expect(g.body.map(\.rect.maxY).max() == rest.body.map(\.rect.maxY).max())
+                let width = (g.body.map(\.rect.maxX).max() ?? 0) - (g.body.map(\.rect.minX).min() ?? 0)
+                let restWidth = (rest.body.map(\.rect.maxX).max() ?? 0) - (rest.body.map(\.rect.minX).min() ?? 0)
+                #expect(abs(width / restWidth - sx) < 0.05)
+            }
+        }
+        var lean = Creature.Pose()
+        lean.rotation = 5; lean.scaleY = 1.1
+        #expect(Creature.geometry(for: lean, feet: CGPoint(x: 20, y: 22), unit: 2, displayScale: 2).transform != .identity)
+    }
+
     @Test func theAsleepDashIsNeverThinnerThanADevicePixel() {
         let g = Creature.geometry(for: .asleep, feet: CGPoint(x: 20, y: 22), unit: 1, displayScale: 1)
         #expect(g.eyes.allSatisfy { $0.height >= 1 })

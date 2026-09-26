@@ -62,3 +62,56 @@ public final class Watchers {
         return { timer.invalidate() }
     }
 }
+
+/// Tells when a memory's history moves: a watch on its `.git` folder and on its branches' folder (a commit renames its
+/// index into the first and its branch's new ref into the second), a moment after the last change (`debounce`). The
+/// memory clock reads the history every 10 s; with this, a save is seen within a fraction of a second and the creature's
+/// hop answers it. The clock stays, for what the watch cannot see (a memory folder that was not a repository yet).
+@MainActor
+public final class MemoryHeadWatch {
+    private let debounce: TimeInterval
+    private var sources: [DispatchSourceFileSystemObject] = []
+    private var root: URL?
+    private var pending: DispatchWorkItem?
+    private var onChange: (@MainActor () -> Void)?
+
+    public init(debounce: TimeInterval = 0.15) { self.debounce = debounce }
+
+    /// How many folders are watched now (two for a memory with a history).
+    public var watchedFolders: Int { sources.count }
+
+    /// Watches `root` (nil: nothing), calling `onChange` on the main actor. Watching the same folder again changes nothing.
+    public func watch(_ root: URL?, onChange: @escaping @MainActor () -> Void) {
+        self.onChange = onChange
+        guard root?.standardizedFileURL != self.root?.standardizedFileURL || (root != nil && sources.isEmpty) else { return }
+        stop()
+        self.root = root
+        guard let root else { return }
+        let git = root.appending(path: ".git", directoryHint: .isDirectory)
+        for folder in [git, git.appending(path: "refs/heads", directoryHint: .isDirectory)] {
+            let fd = open(folder.path, O_EVTONLY)
+            guard fd >= 0 else { continue }
+            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+            source.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.changed() } }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            sources.append(source)
+        }
+    }
+
+    public func stop() {
+        pending?.cancel()
+        pending = nil
+        for source in sources { source.cancel() }
+        sources = []
+        root = nil
+    }
+
+    /// A burst of changes (a commit touches both folders several times) calls back once, when it is over.
+    private func changed() {
+        pending?.cancel()
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.onChange?() } }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + debounce, execute: work)
+    }
+}

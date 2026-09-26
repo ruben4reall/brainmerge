@@ -423,10 +423,7 @@ import Testing
     /// The creature's cells where they are drawn: squashed, stretched and leaning around the middle of its feet.
     static func bodyCells(_ f: LaunchFrame) -> [CGRect] {
         let g = Creature.geometry(for: f.pose, feet: f.feet, unit: f.unit, displayScale: 2)
-        let transform = CGAffineTransform(translationX: g.anchor.x, y: g.anchor.y)
-            .rotated(by: f.pose.rotation * .pi / 180).scaledBy(x: f.pose.scaleX, y: f.pose.scaleY)
-            .translatedBy(x: -g.anchor.x, y: -g.anchor.y)
-        return g.body.map { $0.rect.applying(transform) }
+        return g.body.map { $0.rect.applying(g.transform) }
     }
     static func covers(_ f: LaunchFrame, _ obstacle: CGRect) -> Bool { bodyCells(f).contains { $0.intersects(obstacle) } }
 

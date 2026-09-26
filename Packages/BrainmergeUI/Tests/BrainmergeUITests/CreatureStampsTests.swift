@@ -64,6 +64,49 @@ import BrainmergeTestSupport
         #expect(m.creatureStamps.count == 1)
     }
 
+    /// The memory's history is watched while its clock runs: a save is seen within a moment, not on the next 10 s tick,
+    /// so the hop still reads as an answer to it.
+    @Test func aSaveIsSeenWithinAMoment() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        _ = try e.manager.adoptPrimary(name: "Personal")
+        try save(e, "first")
+        let m = model(e, clock: Clock())
+        m.now = { Date() }
+        m.environment = [:]
+        m.git = OnboardingModelTests.Tools(true).availability
+        await m.launch(minimum: .zero)
+        m.windowAppeared()
+        defer { m.windowDisappeared(); m.stopWatching() }
+        #expect(m.watchedClocks.contains(.memory) && m.memorySavedAt == nil)
+        try await Task.sleep(for: .milliseconds(500))   // the watch is registered a moment after it starts
+        try save(e, "second")
+        // Well under the clock's 10 s (the suites run in parallel and may hold the main actor for a while).
+        let deadline = Date().addingTimeInterval(8)
+        while m.memorySavedAt == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(m.memorySavedAt != nil)
+    }
+
+    /// The watch itself: a commit in the memory calls back once, a moment later; nothing once it stops.
+    @Test func theMemoryWatchSeesACommit() async throws {
+        let e = try ManagerEnv.make(); defer { e.home.remove() }
+        try save(e, "first")
+        let calls = Tally()
+        let watch = MemoryHeadWatch(debounce: 0.05)
+        watch.watch(e.brain.root) { calls.count += 1 }
+        #expect(watch.watchedFolders == 2)
+        // The system registers a watch a moment after it starts (longer while the suites run in parallel).
+        try await Task.sleep(for: .milliseconds(500))
+        try save(e, "second")
+        let deadline = Date().addingTimeInterval(10)
+        while calls.count == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(calls.count >= 1)
+        watch.stop()
+        let before = calls.count
+        try save(e, "third")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(calls.count == before)
+    }
+
     @Test func theGlowLastsExactlyFourSeconds() throws {
         let e = try ManagerEnv.make(); defer { e.home.remove() }
         _ = try e.manager.adoptPrimary(name: "Personal")

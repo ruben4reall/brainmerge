@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The header of every screen: a serif title, an optional subtitle under it, and the screen's actions on the
 /// right, aligned with the title line. One component, so the four screens line up the same way.
-/// A subtitle that says work is running gets a small spinner before it; a new subtitle crossfades over the old one.
+/// A subtitle that says work is running gets a small spinner before it; a new subtitle comes in once the old one has gone.
 public struct ScreenHeader<Trailing: View>: View {
     let title: String
     let subtitle: String?
@@ -23,14 +23,11 @@ public struct ScreenHeader<Trailing: View>: View {
                 if let subtitle {
                     HStack(spacing: 6) {
                         if busy { ProgressView().controlSize(.small).transition(.fade(reduceMotion)) }
-                        Text(subtitle).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
-                            .contentTransition(.opacity)
+                        SwappingText(text: subtitle, key: changeKey).font(Theme.Fonts.secondary).foregroundStyle(Theme.Colors.textMuted)
                     }
                     .frame(maxWidth: 560, alignment: .leading)
                     // The spinner pushes the sentence aside: with Reduce Motion it moves at once, the spinner fades in place.
-                    // Inside the crossfade, so it wins when a new sentence comes with the spinner.
                     .animation(Theme.Motion.layout(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: busy)
-                    .animation(Theme.Motion.unlessReduced(Theme.Motion.out(Theme.Motion.quick), reduceMotion), value: changeKey ?? subtitle)
                 }
             }
             Spacer(minLength: 16)

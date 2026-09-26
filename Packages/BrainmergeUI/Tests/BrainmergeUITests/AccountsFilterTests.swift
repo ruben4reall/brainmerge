@@ -23,9 +23,14 @@ import BrainmergeCore
         #expect(AccountsFilter.apply(list, query: "work").map(\.identity.name) == ["Work"])
     }
 
-    @Test func runningFirstThenMostRecent() {
+    /// The cards keep the sidebar's order, whatever runs: an account that opens never swaps places with another one (the
+    /// pointer, still where its button was, would land on another card's button).
+    @Test func theCardsKeepTheSidebarsOrder() {
         let list = [account("A", created: 1), account("B", running: true, created: 2), account("C", created: 3)]
-        #expect(AccountsFilter.apply(list, query: "", sort: .lastUsed).map(\.identity.name) == ["B", "C", "A"])
+        #expect(AccountsFilter.apply(list, query: "").map(\.identity.name) == ["A", "B", "C"])
+        var opened = list
+        opened[2].isRunning = true
+        #expect(AccountsFilter.apply(opened, query: "").map(\.identity.name) == ["A", "B", "C"])
         #expect(AccountsFilter.apply(list, query: "", sort: .name).map(\.identity.name) == ["A", "B", "C"])
     }
 

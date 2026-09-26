@@ -245,7 +245,7 @@ import Testing
                 #expect(f.sprites.allSatisfy { $0.center.y < -1 }, "a twinkle during the hop at \(t)")
             } else {
                 #expect(f.sprites.count <= 1, "\(t)")
-                #expect(f.sprites.allSatisfy { $0.opacity == 0.85 })
+                #expect(f.sprites.allSatisfy { $0.opacity == 1 })
             }
         }
     }
@@ -275,12 +275,92 @@ import Testing
         let z = (0..<(48 * 10)).compactMap { i -> Creature.Sprite? in
             CreatureLife.frame(state: .asleep, t: Double(i) / 100, events: [], profile: .companion, asleepSince: 0, reduceMotion: false).sprites.first
         }
-        #expect(!z.isEmpty && z.allSatisfy { $0.opacity <= 0.72 + 1e-9 && $0.color == Theme.Colors.text && $0.pattern.count == 4 })
+        #expect(!z.isEmpty && z.allSatisfy { $0.opacity <= 0.72 + 1e-9 && $0.color == Theme.Colors.text })
         #expect(CreatureLife.frame(state: .asleep, t: 1.99, events: [], profile: .companion, asleepSince: 0, reduceMotion: false).sprites.isEmpty)
         let born = CreatureLife.frame(state: .asleep, t: 2.01, events: [], profile: .companion, asleepSince: 0, reduceMotion: false).sprites
         #expect(born.count == 1 && abs(born[0].center.x - 15.8) < 0.05 && abs(born[0].center.y + 1.3) < 0.05)
         let high = CreatureLife.frame(state: .asleep, t: 4.59, events: [], profile: .companion, asleepSince: 0, reduceMotion: false).sprites
-        #expect(high.count == 1 && abs(high[0].center.x - 17.6) < 0.05 && abs(high[0].center.y + 3.7) < 0.05)
+        #expect(high.count == 1 && abs(high[0].center.x - 17.6) < 0.1 && abs(high[0].center.y + 4.8) < 0.05)
+    }
+
+    /// The Z reads as a Z at real size (a 5 by 5 glyph, its diagonal three steps long, not an I-beam), and floats away the
+    /// whole time it shows: it keeps rising while it fades, swaying half a cell on the way.
+    @Test func theSleepZIsAZThatFloatsAway() {
+        #expect(CreatureLife.zee == ["XXXXX", "...X.", "..X..", ".X...", "XXXXX"])
+        func z(_ age: Double) -> Creature.Sprite? {
+            CreatureLife.frame(state: .asleep, t: 2 + age, events: [], profile: .companion, asleepSince: 0, reduceMotion: false).sprites.first
+        }
+        // Still rising in its last second, while it fades.
+        let a = z(1.7), b = z(2.2)
+        #expect(a != nil && b != nil && (b?.center.y ?? 0) < (a?.center.y ?? 0) - 0.3)
+        // It drifts right, swaying back on the way.
+        let xs = stride(from: 0.0, to: 2.6, by: 0.05).compactMap { z($0)?.center.x }
+        #expect((xs.last ?? 0) - (xs.first ?? 0) > 1.5 && zip(xs, xs.dropFirst()).contains { $1 < $0 })
+    }
+
+    /// Waking takes the Z that was floating with it: it keeps floating and fades in 0.18 s, never cut in one frame.
+    @Test func wakeFadesTheZ() {
+        let wake = [CreatureStamp(.wake, at: 3)]
+        func z(_ t: Double) -> Double {
+            let state: CreatureState = t < 3 ? .asleep : .awake
+            return CreatureLife.frame(state: state, t: t, events: t < 3 ? [] : wake, profile: .companion, asleepSince: 0, reduceMotion: false)
+                .sprites.first { $0.pattern == CreatureLife.zee }?.opacity ?? 0
+        }
+        #expect(z(3 - 1.0 / 120) > 0.6)
+        var previous = z(3 - 1.0 / 120)
+        for i in 0...36 {
+            let now = z(3 + Double(i) / 120)
+            #expect(abs(now - previous) < 0.25, "frame \(i): \(previous) to \(now)")
+            previous = now
+        }
+        #expect(z(3.2) == 0)
+    }
+
+    /// The glow's last twinkle finishes before the glow does: none starts that it could not end (the state turns awake at
+    /// 4 s and takes the sprites away).
+    @MainActor @Test func theLastTwinkleFinishesBeforeTheGlowEnds() {
+        let save = [CreatureStamp(.memorySaved, at: 1)]
+        func sprites(_ t: Double) -> [Creature.Sprite] { CreatureLife.frame(state: .glowing, t: t, events: save, profile: .companion).sprites }
+        #expect(!sprites(1 + 3.2).isEmpty)
+        for i in 0..<12 { #expect(sprites(1 + 3.9 + Double(i) / 120).isEmpty, "\(3.9 + Double(i) / 120)") }
+        #expect(CreatureLife.glowLength == 4 && AppModel.glowDuration == CreatureLife.glowLength)
+    }
+
+    /// Sparkles read as light, not as pixels shed by the body: every star is cream, and nothing twinkles at part strength.
+    @Test func sparklesPeakBright() {
+        let save = [CreatureStamp(.memorySaved, at: 1)]
+        for i in 0...(240 * 5) {
+            let t = 1 + Double(i) / 240
+            for s in CreatureLife.frame(state: .glowing, t: t, events: save, profile: .stage).sprites {
+                if s.pattern == CreatureLife.sparkleFrames[2] { #expect(s.color == Theme.Colors.text, "\(t)") }
+                if t >= 1.74 { #expect(s.opacity == 1, "\(t)") }
+            }
+        }
+    }
+
+    /// An account opened: a happy little hop, a whole cell and more, legs tucked, landing with a quick squash.
+    @Test func theOpenedWaveIsAHappyHop() {
+        let stamps = [CreatureStamp(.accountOpened, at: 1)]
+        let highest = (0...62).map { Self.pose(.awake, 1 + Double($0) / 100, stamps).offset.dy }.min() ?? 0
+        #expect(highest <= -1.2)
+        #expect(Self.pose(.awake, 1.10, stamps).legsTucked)
+        #expect(Self.pose(.awake, 1.23, stamps).scaleY < 1)
+        let after = Self.pose(.awake, 1.30, stamps)
+        #expect(after.offset.dy == 0 && after.scaleX == 1 && after.scaleY == 1 && !after.legsTucked)
+    }
+
+    /// The click that wakes the creature is the click that opens an account: the wake is cut to its stretch and the walk
+    /// starts as it ends, on a passing frame, with no pause between them.
+    @Test func theWakeFlowsIntoTheWalk() throws {
+        let stamps = [CreatureStamp(.wake, at: 1)], walk = CreatureWalk(start: 1)
+        let firstStep = try #require((0...240).map { 1 + Double($0) / 240 }.first { Self.pose(.awake, $0, stamps, walking: walk).raise == 1 })
+        #expect(abs(firstStep - 1.30) < 0.01, "first step at \(firstStep)")
+        // The stretch has settled by then: the step takes over from a body at its size.
+        let justBefore = Self.pose(.awake, firstStep - 1.0 / 240, stamps, walking: walk)
+        #expect(abs(justBefore.scaleY - 1) < 0.01 && abs(justBefore.scaleX - 1) < 0.01)
+        // A walk that did not come with a wake keeps its own start.
+        #expect(Self.pose(.awake, 1.01, walking: walk).raise == 1)
+        #expect(CreatureLife.needsFrames(state: .awake, t: 1.35, events: stamps, profile: .companion, walking: walk, asleepSince: nil))
     }
 
     // MARK: The walk
