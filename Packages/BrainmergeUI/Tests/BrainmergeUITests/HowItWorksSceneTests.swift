@@ -161,4 +161,31 @@ import BrainmergeCore
         let hops = (0..<3).map { b in stride(from: 0.0, to: S.beat, by: 1.0 / 240).map { S.air(of: S.frame(at: Double(b) * S.beat + $0).creature) }.max() ?? 0 }
         #expect(hops[0] > 0.99 && hops[2] > 0.99 && hops[1] == 0)
     }
+
+    // MARK: The beat's values (MOTION.md 4.2), pinned
+
+    @Test func theBeatKeepsItsTiming() throws {
+        #expect(S.T.lift == 0.56 && S.T.drop == 0.14 && S.T.copyRise == 0.12 && S.T.stagger == 0.09 && S.T.hero == 1.97)
+        // Personal's note pops out just before 0.56 s and leaves its window then.
+        #expect(S.frame(at: 0.53).chips.isEmpty)
+        let popped = try #require(S.frame(at: 0.55).chips.first), leaving = try #require(S.frame(at: 0.56).chips.first)
+        let away = try #require(S.frame(at: 0.57).chips.first)
+        #expect(leaving.position == popped.position && away.position != leaving.position)
+        // Its lane's length gives it 0.74 s of travel: it lands in the folder at 1.445 s, and the copies leave 0.09 s apart.
+        let t = S.timing(src: 0)
+        #expect(abs(t.landed - 1.4448) < 1e-3 && abs(t.landed - t.arrive - 0.14) < 1e-9)
+        #expect(abs(t.copyStart - (t.landed + 0.08)) < 1e-9 && abs(t.copyLeave[1] - t.copyLeave[0] - 0.09) < 1e-9)
+        #expect(abs(t.copyArrive[0] - 2.1370) < 1e-3 && abs(t.copyArrive[1] - 2.3777) < 1e-3)
+        // The still is beat 0 at 1.97 s.
+        var still = S.frame(at: 1.97)
+        still.caption = S.still().caption
+        #expect(S.still().chips == still.chips && S.still().windows == still.windows)
+    }
+
+    @Test func theCreatureHopsSevenPoints() {
+        #expect(S.hopHeight == 7)
+        var apex = 0.0
+        for i in 0...Int(S.beat * 480) { apex = min(apex, S.frame(at: Double(i) / 480).creature.offset.dy * S.creatureUnit) }
+        #expect(abs(apex + 7) < 0.01, "apex \(apex) pt")
+    }
 }

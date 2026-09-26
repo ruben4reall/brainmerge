@@ -160,6 +160,46 @@ import Testing
         }
     }
 
+    // MARK: The beat table, key frame by key frame (MOTION.md 3.2)
+
+    @Test func theBeatTableHoldsItsValues() {
+        let ground = AssembleScene.splashFeet(in: size).y
+        let slow = input(nil)   // never ready: the splash alone
+        // The ghost is in place at once; the rim pixels wait for the inner ones (stagger 0.14 s over the radius).
+        let homes = Creature.bodyPixels(), center = CGPoint(x: 8, y: 5.5)
+        let rim = homes.indices.max { hypot(Double(homes[$0].x) + 0.5 - center.x, Double(homes[$0].y) + 0.5 - center.y)
+                                      < hypot(Double(homes[$1].x) + 0.5 - center.x, Double(homes[$1].y) + 0.5 - center.y) }!
+        let spread = Theme.Launch.gatherSpread + 0.25 * Dice.hash01(homes[rim].x, homes[rim].y, 7)
+        let hx = Double(homes[rim].x) + 0.5 - center.x
+        let early = AssembleScene.frame(at: 0.179, slow).pose.pixels!
+        #expect(abs(early[rim].dx - hx * (spread - 1)) < 1e-9, "the rim pixel has not started at 0.179 s")
+        // The shadow comes in from 0.18 s.
+        #expect(AssembleScene.frame(at: 0.179, slow).shadowOpacity == 0 && AssembleScene.frame(at: 0.19, slow).shadowOpacity > 0)
+        // The click at 0.44: a squash from the feet.
+        #expect(AssembleScene.frame(at: 0.47, slow).pose.scaleY < 0.99 && AssembleScene.frame(at: 0.47, slow).pose.scaleX > 1)
+        // The wordmark from 0.52: rising 8 pt and sharpening from a 1.5 pt blur.
+        let word = AssembleScene.frame(at: 0.52, slow)
+        #expect(AssembleScene.frame(at: 0.519, slow).wordmarkOpacity == 0 && AssembleScene.frame(at: 0.53, slow).wordmarkOpacity > 0)
+        #expect(word.wordmarkRise == 8 && word.wordmarkBlur == 1.5)
+        // The hop: 2.4 cells of 7 pt at its middle (0.97 s).
+        #expect(abs(AssembleScene.frame(at: 0.97, slow).feet.y - (ground - 2.4 * 7)) < 1e-6)
+        // "Waking up…" at 2.0 s.
+        #expect(AssembleScene.frame(at: 1.999, slow).captionOpacity == 0 && AssembleScene.frame(at: 2.05, slow).captionOpacity > 0)
+    }
+
+    @Test func theLandingRingsDownBeforeItRests() throws {
+        // The touchdown squash settles once its ringing stays under 0.004, not the first time it crosses zero.
+        let leap = Leap(start: .rest, feet: AssembleScene.splashFeet(in: size), unit: 7, startVelocityY: 0, target: sidebar)
+        let crossing = stride(from: 0.0, to: Leap.settled, by: 1.0 / 2000).first { tl in
+            let d = Leap.landing.displacement(tl, from: -Leap.squash)
+            return abs(d) < 0.004 && abs(d) > 1e-6
+        }
+        let tl = try #require(crossing)
+        #expect(tl < Leap.settled)
+        #expect(leap.frame(at: leap.touchdown + tl).pose.scaleY != 1, "snapped to rest at a zero crossing, \(tl) s after touchdown")
+        #expect(leap.frame(at: leap.touchdown + Leap.settled).pose.scaleY == 1)
+    }
+
     // MARK: The director's changes
 
     @Test func theCreatureIsNeverEyelessOnceWhole() {

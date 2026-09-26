@@ -188,6 +188,9 @@ import Testing
     }
 
     @Test func capturesNeverPlayTheHandOffs() {
+        // A capture never shows the splash, even from a window that would.
+        #expect(LaunchClock(finished: false, slow: 1, capture: true).finished)
+        #expect(!LaunchClock(finished: false, slow: 1, capture: false).finished)
         let clock = LaunchClock(finished: true, slow: 1, capture: true)
         clock.windowSize = size
         clock.leave(from: CGRect(x: 456, y: 117, width: 48, height: 33), reduceMotion: false, at: t0)
