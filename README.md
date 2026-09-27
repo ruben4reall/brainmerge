@@ -219,7 +219,7 @@ The Accounts menu in the menu bar lists every account with Cmd-Option-1 to Cmd-O
 
 ## Contributing
 
-Issues and pull requests are welcome: see `CONTRIBUTING.md` for the workflow and the rules, `docs/brand/DESIGN.md` for the design tokens. The code is Swift: `Packages/BrainmergeCore` (engine and command line), `Packages/BrainmergeUI` (SwiftUI screens and models), and an Xcode project generated with `xcodegen generate`. Please keep the six points above true.
+Questions and ideas go to [Discussions](https://github.com/ruben4reall/brainmerge/discussions); bugs and feature requests to [issues](https://github.com/ruben4reall/brainmerge/issues). Pull requests are welcome: see `CONTRIBUTING.md` for the workflow and the rules, `docs/brand/DESIGN.md` for the design tokens. The code is Swift: `Packages/BrainmergeCore` (engine and command line), `Packages/BrainmergeUI` (SwiftUI screens and models), and an Xcode project generated with `xcodegen generate`. Please keep the six points above true.
 
 ## License
 
